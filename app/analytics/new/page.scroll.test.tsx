@@ -432,6 +432,10 @@ describe("StrategyLabPage scroll behavior", () => {
         parseCallCount += 1;
         return Promise.resolve(createParseStreamResponseWithClarification());
       }
+      // Draft graph previews are a separate, display-only compile; this scenario is about the real calls.
+      if (url === "/api/strategy/compile" && (init?.headers as Record<string, string> | undefined)?.["X-Graph-Draft"] === "1") {
+        return Promise.resolve(new Response("{}", { status: 500 }));
+      }
       if (url === "/api/strategy/compile") {
         compileBodies.push(JSON.parse(String(init?.body ?? "{}")));
         return compileResponse.promise;
@@ -460,12 +464,10 @@ describe("StrategyLabPage scroll behavior", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("현재까지 이해한 전략입니다")).toBeInTheDocument();
     const progressPanel = screen.getByTestId("strategy-progress-panel");
-    expect(progressPanel).toHaveClass(
-      "xl:fixed",
-      "xl:right-4",
-      "xl:top-[calc(var(--top-menu-bar-height,76px)+5rem)]",
-    );
-    expect(progressPanel).not.toHaveClass("xl:left-4");
+    // 2026-10-16: the panel is hidden from view (SHOW_STRATEGY_PROGRESS_PANEL=false) but kept in the DOM.
+    // Flip the flag to bring back the fixed right-rail placement (xl:fixed xl:right-4 ...).
+    expect(progressPanel).toHaveClass("sr-only");
+    expect(progressPanel).not.toHaveClass("xl:fixed");
     expect(within(progressPanel).getByTestId("strategy-progress-list")).toHaveClass("flex-col");
     expect(
       within(progressPanel)

@@ -1,6 +1,8 @@
 "use client";
 
 import { BacktestResult } from "@/types/strategy";
+import StrategyGraphCard from "@/components/strategy/graph/StrategyGraphCard";
+import type { StrategyGraphInput } from "@/lib/strategy-graph/types";
 import { formatAccountMoney } from "@/lib/account-money";
 import { formatUsd, isUsBacktestResult, isUsUniverseId } from "@/lib/us-symbols";
 import BacktestChart from "@/components/strategy/BacktestChart";
@@ -9,6 +11,7 @@ import {
   ArrowsClockwise,
   Faders,
   ClipboardText,
+  Graph as GraphIcon,
   ShieldCheck,
   Warning,
   Info,
@@ -305,6 +308,8 @@ interface BacktestDashboardProps {
   disableHistorySave?: boolean; // true이면 히스토리 자동 저장 비활성화 (저장된 전략 조회 시)
   promptText?: string; // 사용자 프롬프트 (툴팁으로 표시)
   parsedStrategy?: Record<string, unknown>; // NLStrategyParser 결과 — AI 리포트 advisor 진단에 사용
+  // 이 결과를 만든 실행 스냅샷(전략 그래프 전용). 없으면 그래프 진입점을 그리지 않는다.
+  strategyGraphInput?: StrategyGraphInput;
   strategySummary?: {
     universeName: string;
     blockNames: string[];
@@ -407,6 +412,7 @@ export default function BacktestDashboard({
   disableHistorySave,
   promptText,
   parsedStrategy,
+  strategyGraphInput,
 }: BacktestDashboardProps) {
   // 백엔드 엔진 응답에는 finalEquity/initialCapital이 비어 있고 totalProfit/equity[]로만
   // 자산 규모가 전달되는 경우가 있다(저장된 기록 재조회 시 특히). equity 배열의 양끝값으로 보완한다.
@@ -418,6 +424,7 @@ export default function BacktestDashboard({
   const [activeTab, setActiveTab] = useState<ValidationTab>("chart");
   const [isOptimizationPageOpen, setIsOptimizationPageOpen] = useState(false);
   const [promptTooltipOpen, setPromptTooltipOpen] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(false);
   const promptTooltipRef = useRef<HTMLDivElement>(null);
   const [planId, setPlanId] = useState<string>("FREE");
   const [isPlanLoading, setIsPlanLoading] = useState(true);
@@ -1795,7 +1802,28 @@ export default function BacktestDashboard({
               )}
             </div>
           )}
+          {strategyGraphInput && (
+            <button
+              type="button"
+              aria-expanded={graphOpen}
+              onClick={() => setGraphOpen((v) => !v)}
+              className="px-2 py-0.5 bg-white/[0.04] hover:bg-white/[0.08] text-gray-300 hover:text-white text-xs font-bold rounded-md transition-colors border border-white/10 hover:border-white/15 active:scale-95 flex items-center gap-1"
+            >
+              <GraphIcon className="w-3.5 h-3.5" weight="bold" />
+              {t("전략 그래프")}
+            </button>
+          )}
         </div>
+        {strategyGraphInput && graphOpen && (
+          <div className="mb-3" data-testid="backtest-strategy-graph">
+            <StrategyGraphCard
+              input={strategyGraphInput}
+              title={t("실행된 전략")}
+              noSnapshotMessage={t("이 실행의 전략 스냅샷이 저장되어 있지 않습니다.")}
+              testId="backtest-strategy-graph-card"
+            />
+          </div>
+        )}
 
         <div
           data-testid="backtest-result-toolbar"

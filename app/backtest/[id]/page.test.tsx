@@ -25,9 +25,11 @@ vi.mock("@/components/strategy/backtest/BacktestDashboard", () => ({
     backtestDsl,
     onWalkForward,
     onRestart,
+    strategyGraphInput,
   }: {
     result?: any;
     backtestDsl?: any;
+    strategyGraphInput?: { origin: string; sourceRef: string; request?: { risk?: { max_positions?: number } } };
     onWalkForward?: (settings: any) => Promise<any>;
     onRestart?: () => void;
   }) => (
@@ -35,6 +37,9 @@ vi.mock("@/components/strategy/backtest/BacktestDashboard", () => ({
       data-testid="backtest-dashboard"
       data-has-dsl={backtestDsl ? "yes" : "no"}
       data-trades-count={result?.tradesList?.length ?? -1}
+      data-graph-origin={strategyGraphInput?.origin ?? "none-prop"}
+      data-graph-ref={strategyGraphInput?.sourceRef ?? ""}
+      data-graph-max-positions={String(strategyGraphInput?.request?.risk?.max_positions)}
     >
       backtest dashboard
       {onRestart && (
@@ -202,6 +207,68 @@ describe("BacktestDetailPage", () => {
     render(<BacktestDetailPage />);
 
     const dashboard = await screen.findByTestId("backtest-dashboard");
+    expect(dashboard).toHaveAttribute("data-has-dsl", "yes");
+  });
+
+  it("전략 그래프는 실행 당시 저장된 요청(executedRequest)만 쓰고 현재 전략(settings)으로 대체하지 않는다", async () => {
+    // A = 이 실행에 쓰인 요청, B = 이후 수정된 현재 Strategy 행의 settings.
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/backtest/history/hist-1") {
+        const base = baseHistoryResponse({
+          settings: {
+            symbols: ["005930"],
+            entry: { conditions: [] },
+            exit: { conditions: [] },
+            risk: { max_positions: 99 },
+          },
+        });
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            ...base,
+            result: {
+              ...(base.result as Record<string, unknown>),
+              executedRequest: {
+                symbols: ["005930"],
+                entry: { conditions: [] },
+                exit: { conditions: [] },
+                risk: { max_positions: 5 },
+              },
+            },
+          }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    });
+
+    render(<BacktestDetailPage />);
+
+    const dashboard = await screen.findByTestId("backtest-dashboard");
+    expect(dashboard).toHaveAttribute("data-graph-origin", "executed");
+    expect(dashboard).toHaveAttribute("data-graph-ref", "history:hist-1");
+    expect(dashboard).toHaveAttribute("data-graph-max-positions", "5");
+  });
+
+  it("실행 요청이 저장되지 않은 기록은 settings가 있어도 그래프 스냅샷 없음으로 전달한다", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/backtest/history/hist-1") {
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            baseHistoryResponse({
+              settings: { symbols: ["005930"], entry: { conditions: [] }, exit: { conditions: [] }, risk: { max_positions: 99 } },
+            }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    });
+
+    render(<BacktestDetailPage />);
+
+    const dashboard = await screen.findByTestId("backtest-dashboard");
+    expect(dashboard).toHaveAttribute("data-graph-origin", "none");
+    expect(dashboard).toHaveAttribute("data-graph-max-positions", "undefined");
+    // Existing behaviour stays: settings still feed the re-run DSL.
     expect(dashboard).toHaveAttribute("data-has-dsl", "yes");
   });
 

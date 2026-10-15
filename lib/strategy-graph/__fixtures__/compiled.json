@@ -1,0 +1,1809 @@
+{
+ "emptyStrategy": {
+  "parsed": {
+   "allocation_type": "equal",
+   "backtest_period": "5y",
+   "contribution_rules": [],
+   "description": "fx",
+   "entry_filters": [],
+   "entry_logic": "AND",
+   "entry_signals": [],
+   "execution_timing": "next_open",
+   "exit_signals": [],
+   "fee_rate": 0.015,
+   "fundamental_filters": [],
+   "initial_capital": 10000000.0,
+   "macro_filters": [],
+   "max_positions": 5,
+   "max_positions_explicit": false,
+   "new_listing_only": false,
+   "partial_take_profits": [],
+   "rebalance_method": "reconstitute",
+   "rebalancing_period": "none",
+   "slippage_rate": 0.05,
+   "target_symbols": [],
+   "universe": [
+    "KOSPI"
+   ]
+  },
+  "request": {
+   "backtest_mode": "universe",
+   "entry": {
+    "conditions": [],
+    "logic": "AND"
+   },
+   "etf_theme": null,
+   "exclude_sectors": null,
+   "exit": {
+    "conditions": []
+   },
+   "listing_from": null,
+   "listing_to": null,
+   "options": {
+    "fee_rate": 0.00015,
+    "slippage_rate": 0.0005
+   },
+   "period": "5y",
+   "risk": {
+    "absolute_momentum_threshold_pct": null,
+    "allocation_lookback_days": null,
+    "allocation_type": "equal",
+    "cash_asset": null,
+    "contribution_amount": null,
+    "contribution_period": null,
+    "contribution_rules": null,
+    "entry_limit_pct": null,
+    "entry_tranches": null,
+    "execution_timing": "next_open",
+    "exit_limit_pct": null,
+    "init_cash": 10000000.0,
+    "macro_filters": null,
+    "market_regime": null,
+    "max_holding_days": null,
+    "max_mdd_limit_pct": null,
+    "max_position_weight_pct": null,
+    "max_positions": 5,
+    "max_positions_pct": null,
+    "max_sector_weight_pct": null,
+    "min_holding_days": null,
+    "partial_take_profits": null,
+    "position_size_pct": 20.0,
+    "position_sizing": null,
+    "ranking_accumulation_days": null,
+    "ranking_components": null,
+    "ranking_direction": null,
+    "ranking_enabled": true,
+    "ranking_entry_delay_days": null,
+    "ranking_expiry_days": null,
+    "ranking_group_cap": null,
+    "ranking_lookback_days": null,
+    "ranking_metric": null,
+    "ranking_quantile_groups": null,
+    "ranking_skip_days": null,
+    "ranking_weight_quality": 0.5,
+    "ranking_weight_value": 0.5,
+    "rebalance_method": "reconstitute",
+    "rebalance_threshold_pct": null,
+    "rebalancing_period": "none",
+    "seasonal_months": null,
+    "stop_cooldown_days": null,
+    "stop_loss_pct": null,
+    "taa": null,
+    "take_profit_pct": null,
+    "target_volatility_pct": null,
+    "target_weights": null,
+    "trailing_stop_activation_pct": null,
+    "trailing_stop_pct": null,
+    "universe_exclude_loss_making": null,
+    "universe_liquidity_exclude_bottom_pct": null,
+    "universe_liquidity_lookback_days": null,
+    "universe_market_cap_exclude_bottom_pct": null,
+    "universe_market_cap_top_n": null,
+    "withdrawal_amount": null,
+    "withdrawal_period": null
+   },
+   "sector": null,
+   "symbol_count": null,
+   "symbols": [],
+   "symbols_resolved": false,
+   "target_stocks": null,
+   "universe_id": "kospi",
+   "us_industry": null
+  }
+ },
+ "entryOrWithFilters": {
+  "parsed": {
+   "allocation_type": "equal",
+   "backtest_period": "5y",
+   "contribution_rules": [],
+   "description": "fx",
+   "entry_filters": [
+    {
+     "indicator": "ema",
+     "mode": "above",
+     "period": 60,
+     "signal_type": "buy"
+    }
+   ],
+   "entry_logic": "OR",
+   "entry_signals": [
+    {
+     "indicator": "rsi",
+     "operator": "<",
+     "period": 14,
+     "signal_type": "buy",
+     "value": 30.0
+    },
+    {
+     "indicator": "macd",
+     "mode": "crossover",
+     "signal_type": "buy"
+    }
+   ],
+   "execution_timing": "next_open",
+   "exit_signals": [
+    {
+     "indicator": "rsi",
+     "operator": ">",
+     "period": 14,
+     "signal_type": "sell",
+     "value": 70.0
+    },
+    {
+     "indicator": "macd",
+     "mode": "crossover",
+     "signal_type": "sell"
+    }
+   ],
+   "fee_rate": 0.015,
+   "fundamental_filters": [
+    {
+     "metric": "per",
+     "operator": "<",
+     "value": 15.0
+    }
+   ],
+   "initial_capital": 10000000.0,
+   "macro_filters": [],
+   "max_positions": 5,
+   "max_positions_explicit": false,
+   "new_listing_only": false,
+   "partial_take_profits": [],
+   "rebalance_method": "reconstitute",
+   "rebalancing_period": "none",
+   "slippage_rate": 0.05,
+   "target_symbols": [],
+   "universe": [
+    "KOSPI"
+   ]
+  },
+  "request": {
+   "backtest_mode": "universe",
+   "entry": {
+    "conditions": [
+     {
+      "id": "per",
+      "params": {
+       "operator": "<",
+       "value": 15.0
+      },
+      "type": "filter",
+      "weight": 1.0
+     },
+     {
+      "id": "rsi",
+      "params": {
+       "operator": "<",
+       "period": 14,
+       "signalType": "buy",
+       "value": 30.0
+      },
+      "type": "indicator",
+      "weight": 1.0
+     },
+     {
+      "id": "macd",
+      "params": {
+       "mode": "crossover",
+       "signalType": "buy"
+      },
+      "type": "indicator",
+      "weight": 1.0
+     },
+     {
+      "id": "ema",
+      "params": {
+       "mode": "above",
+       "period": 60,
+       "signalType": "buy"
+      },
+      "type": "filter",
+      "weight": 1.0
+     }
+    ],
+    "logic": "OR"
+   },
+   "etf_theme": null,
+   "exclude_sectors": null,
+   "exit": {
+    "conditions": [
+     {
+      "id": "rsi",
+      "params": {
+       "operator": ">",
+       "period": 14,
+       "signalType": "sell",
+       "value": 70.0
+      },
+      "type": "indicator",
+      "weight": 1.0
+     },
+     {
+      "id": "macd",
+      "params": {
+       "mode": "crossover",
+       "signalType": "sell"
+      },
+      "type": "indicator",
+      "weight": 1.0
+     }
+    ]
+   },
+   "listing_from": null,
+   "listing_to": null,
+   "options": {
+    "fee_rate": 0.00015,
+    "slippage_rate": 0.0005
+   },
+   "period": "5y",
+   "risk": {
+    "absolute_momentum_threshold_pct": null,
+    "allocation_lookback_days": null,
+    "allocation_type": "equal",
+    "cash_asset": null,
+    "contribution_amount": null,
+    "contribution_period": null,
+    "contribution_rules": null,
+    "entry_limit_pct": null,
+    "entry_tranches": null,
+    "execution_timing": "next_open",
+    "exit_limit_pct": null,
+    "init_cash": 10000000.0,
+    "macro_filters": null,
+    "market_regime": null,
+    "max_holding_days": null,
+    "max_mdd_limit_pct": null,
+    "max_position_weight_pct": null,
+    "max_positions": 5,
+    "max_positions_pct": null,
+    "max_sector_weight_pct": null,
+    "min_holding_days": null,
+    "partial_take_profits": null,
+    "position_size_pct": 20.0,
+    "position_sizing": null,
+    "ranking_accumulation_days": null,
+    "ranking_components": null,
+    "ranking_direction": null,
+    "ranking_enabled": true,
+    "ranking_entry_delay_days": null,
+    "ranking_expiry_days": null,
+    "ranking_group_cap": null,
+    "ranking_lookback_days": null,
+    "ranking_metric": null,
+    "ranking_quantile_groups": null,
+    "ranking_skip_days": null,
+    "ranking_weight_quality": 0.5,
+    "ranking_weight_value": 0.5,
+    "rebalance_method": "reconstitute",
+    "rebalance_threshold_pct": null,
+    "rebalancing_period": "none",
+    "seasonal_months": null,
+    "stop_cooldown_days": null,
+    "stop_loss_pct": null,
+    "taa": null,
+    "take_profit_pct": null,
+    "target_volatility_pct": null,
+    "target_weights": null,
+    "trailing_stop_activation_pct": null,
+    "trailing_stop_pct": null,
+    "universe_exclude_loss_making": null,
+    "universe_liquidity_exclude_bottom_pct": null,
+    "universe_liquidity_lookback_days": null,
+    "universe_market_cap_exclude_bottom_pct": null,
+    "universe_market_cap_top_n": null,
+    "withdrawal_amount": null,
+    "withdrawal_period": null
+   },
+   "sector": null,
+   "symbol_count": null,
+   "symbols": [],
+   "symbols_resolved": false,
+   "target_stocks": null,
+   "universe_id": "kospi",
+   "us_industry": null
+  }
+ },
+ "filterRankingEntry": {
+  "parsed": {
+   "allocation_type": "equal",
+   "backtest_period": "5y",
+   "contribution_rules": [],
+   "description": "fx",
+   "entry_filters": [],
+   "entry_logic": "AND",
+   "entry_signals": [
+    {
+     "indicator": "rsi",
+     "operator": "<",
+     "period": 14,
+     "signal_type": "buy",
+     "value": 40.0
+    }
+   ],
+   "execution_timing": "next_open",
+   "exit_signals": [],
+   "fee_rate": 0.015,
+   "fundamental_filters": [
+    {
+     "metric": "per",
+     "operator": "<",
+     "value": 10.0
+    },
+    {
+     "metric": "roe_or_gpa",
+     "operator": ">=",
+     "value": 10.0
+    }
+   ],
+   "initial_capital": 10000000.0,
+   "macro_filters": [],
+   "max_positions": 10,
+   "max_positions_explicit": false,
+   "new_listing_only": false,
+   "partial_take_profits": [],
+   "ranking_direction": "top",
+   "ranking_lookback_days": 120,
+   "ranking_metric": "return",
+   "ranking_skip_days": 21,
+   "rebalance_method": "reconstitute",
+   "rebalancing_period": "monthly",
+   "slippage_rate": 0.05,
+   "target_symbols": [],
+   "universe": [
+    "KOSPI"
+   ]
+  },
+  "request": {
+   "backtest_mode": "universe",
+   "entry": {
+    "conditions": [
+     {
+      "id": "per",
+      "params": {
+       "operator": "<",
+       "value": 10.0
+      },
+      "type": "filter",
+      "weight": 1.0
+     },
+     {
+      "id": "roe_or_gpa",
+      "params": {
+       "operator": ">=",
+       "value": 10.0
+      },
+      "type": "filter",
+      "weight": 1.0
+     },
+     {
+      "id": "rsi",
+      "params": {
+       "operator": "<",
+       "period": 14,
+       "signalType": "buy",
+       "value": 40.0
+      },
+      "type": "indicator",
+      "weight": 1.0
+     }
+    ],
+    "logic": "AND"
+   },
+   "etf_theme": null,
+   "exclude_sectors": null,
+   "exit": {
+    "conditions": []
+   },
+   "listing_from": null,
+   "listing_to": null,
+   "options": {
+    "fee_rate": 0.00015,
+    "slippage_rate": 0.0005
+   },
+   "period": "5y",
+   "risk": {
+    "absolute_momentum_threshold_pct": null,
+    "allocation_lookback_days": null,
+    "allocation_type": "equal",
+    "cash_asset": null,
+    "contribution_amount": null,
+    "contribution_period": null,
+    "contribution_rules": null,
+    "entry_limit_pct": null,
+    "entry_tranches": null,
+    "execution_timing": "next_open",
+    "exit_limit_pct": null,
+    "init_cash": 10000000.0,
+    "macro_filters": null,
+    "market_regime": null,
+    "max_holding_days": null,
+    "max_mdd_limit_pct": null,
+    "max_position_weight_pct": null,
+    "max_positions": 10,
+    "max_positions_pct": null,
+    "max_sector_weight_pct": null,
+    "min_holding_days": null,
+    "partial_take_profits": null,
+    "position_size_pct": 10.0,
+    "position_sizing": null,
+    "ranking_accumulation_days": null,
+    "ranking_components": null,
+    "ranking_direction": "top",
+    "ranking_enabled": true,
+    "ranking_entry_delay_days": null,
+    "ranking_expiry_days": null,
+    "ranking_group_cap": null,
+    "ranking_lookback_days": 120,
+    "ranking_metric": "return",
+    "ranking_quantile_groups": null,
+    "ranking_skip_days": 21,
+    "ranking_weight_quality": 0.5,
+    "ranking_weight_value": 0.5,
+    "rebalance_method": "reconstitute",
+    "rebalance_threshold_pct": null,
+    "rebalancing_period": "monthly",
+    "seasonal_months": null,
+    "stop_cooldown_days": null,
+    "stop_loss_pct": null,
+    "taa": null,
+    "take_profit_pct": null,
+    "target_volatility_pct": null,
+    "target_weights": null,
+    "trailing_stop_activation_pct": null,
+    "trailing_stop_pct": null,
+    "universe_exclude_loss_making": null,
+    "universe_liquidity_exclude_bottom_pct": null,
+    "universe_liquidity_lookback_days": null,
+    "universe_market_cap_exclude_bottom_pct": null,
+    "universe_market_cap_top_n": null,
+    "withdrawal_amount": null,
+    "withdrawal_period": null
+   },
+   "sector": null,
+   "symbol_count": null,
+   "symbols": [],
+   "symbols_resolved": false,
+   "target_stocks": null,
+   "universe_id": "kospi",
+   "us_industry": null
+  }
+ },
+ "goldenCrossRsiAnd": {
+  "parsed": {
+   "allocation_type": "equal",
+   "backtest_period": "5y",
+   "contribution_rules": [],
+   "description": "fx",
+   "entry_filters": [],
+   "entry_logic": "AND",
+   "entry_signals": [
+    {
+     "indicator": "ma_crossover",
+     "long_period": 60,
+     "short_period": 20,
+     "signal_type": "buy"
+    },
+    {
+     "indicator": "rsi",
+     "operator": "<",
+     "period": 14,
+     "signal_type": "buy",
+     "value": 70.0
+    }
+   ],
+   "execution_timing": "next_open",
+   "exit_signals": [
+    {
+     "indicator": "ma_crossover",
+     "long_period": 60,
+     "short_period": 20,
+     "signal_type": "sell"
+    }
+   ],
+   "fee_rate": 0.015,
+   "fundamental_filters": [],
+   "initial_capital": 10000000.0,
+   "macro_filters": [],
+   "max_positions": 5,
+   "max_positions_explicit": false,
+   "new_listing_only": false,
+   "partial_take_profits": [],
+   "rebalance_method": "reconstitute",
+   "rebalancing_period": "none",
+   "slippage_rate": 0.05,
+   "stop_loss_pct": 10.0,
+   "take_profit_pct": 20.0,
+   "target_symbols": [],
+   "universe": [
+    "KOSPI"
+   ]
+  },
+  "request": {
+   "backtest_mode": "universe",
+   "entry": {
+    "conditions": [
+     {
+      "id": "ma_crossover",
+      "params": {
+       "longMA": 60,
+       "shortMA": 20,
+       "signalType": "buy"
+      },
+      "type": "indicator",
+      "weight": 1.0
+     },
+     {
+      "id": "rsi",
+      "params": {
+       "operator": "<",
+       "period": 14,
+       "signalType": "buy",
+       "value": 70.0
+      },
+      "type": "indicator",
+      "weight": 1.0
+     }
+    ],
+    "logic": "AND"
+   },
+   "etf_theme": null,
+   "exclude_sectors": null,
+   "exit": {
+    "conditions": [
+     {
+      "id": "ma_crossover",
+      "params": {
+       "longMA": 60,
+       "shortMA": 20,
+       "signalType": "sell"
+      },
+      "type": "indicator",
+      "weight": 1.0
+     }
+    ]
+   },
+   "listing_from": null,
+   "listing_to": null,
+   "options": {
+    "fee_rate": 0.00015,
+    "slippage_rate": 0.0005
+   },
+   "period": "5y",
+   "risk": {
+    "absolute_momentum_threshold_pct": null,
+    "allocation_lookback_days": null,
+    "allocation_type": "equal",
+    "cash_asset": null,
+    "contribution_amount": null,
+    "contribution_period": null,
+    "contribution_rules": null,
+    "entry_limit_pct": null,
+    "entry_tranches": null,
+    "execution_timing": "next_open",
+    "exit_limit_pct": null,
+    "init_cash": 10000000.0,
+    "macro_filters": null,
+    "market_regime": null,
+    "max_holding_days": null,
+    "max_mdd_limit_pct": null,
+    "max_position_weight_pct": null,
+    "max_positions": 5,
+    "max_positions_pct": null,
+    "max_sector_weight_pct": null,
+    "min_holding_days": null,
+    "partial_take_profits": null,
+    "position_size_pct": 20.0,
+    "position_sizing": null,
+    "ranking_accumulation_days": null,
+    "ranking_components": null,
+    "ranking_direction": null,
+    "ranking_enabled": true,
+    "ranking_entry_delay_days": null,
+    "ranking_expiry_days": null,
+    "ranking_group_cap": null,
+    "ranking_lookback_days": null,
+    "ranking_metric": null,
+    "ranking_quantile_groups": null,
+    "ranking_skip_days": null,
+    "ranking_weight_quality": 0.5,
+    "ranking_weight_value": 0.5,
+    "rebalance_method": "reconstitute",
+    "rebalance_threshold_pct": null,
+    "rebalancing_period": "none",
+    "seasonal_months": null,
+    "stop_cooldown_days": null,
+    "stop_loss_pct": 10.0,
+    "taa": null,
+    "take_profit_pct": 20.0,
+    "target_volatility_pct": null,
+    "target_weights": null,
+    "trailing_stop_activation_pct": null,
+    "trailing_stop_pct": null,
+    "universe_exclude_loss_making": null,
+    "universe_liquidity_exclude_bottom_pct": null,
+    "universe_liquidity_lookback_days": null,
+    "universe_market_cap_exclude_bottom_pct": null,
+    "universe_market_cap_top_n": null,
+    "withdrawal_amount": null,
+    "withdrawal_period": null
+   },
+   "sector": null,
+   "symbol_count": null,
+   "symbols": [],
+   "symbols_resolved": false,
+   "target_stocks": null,
+   "universe_id": "kospi",
+   "us_industry": null
+  }
+ },
+ "holdIgnoredByRebalance": {
+  "parsed": {
+   "allocation_type": "equal",
+   "backtest_period": "5y",
+   "contribution_rules": [],
+   "description": "fx",
+   "entry_filters": [],
+   "entry_logic": "AND",
+   "entry_signals": [
+    {
+     "indicator": "rsi",
+     "operator": "<",
+     "period": 14,
+     "signal_type": "buy",
+     "value": 30.0
+    }
+   ],
+   "execution_timing": "next_open",
+   "exit_signals": [],
+   "fee_rate": 0.015,
+   "fundamental_filters": [],
+   "hold_period_days": 30,
+   "initial_capital": 10000000.0,
+   "macro_filters": [],
+   "max_positions": 5,
+   "max_positions_explicit": false,
+   "new_listing_only": false,
+   "partial_take_profits": [],
+   "rebalance_method": "reconstitute",
+   "rebalancing_period": "monthly",
+   "slippage_rate": 0.05,
+   "target_symbols": [],
+   "universe": [
+    "KOSPI"
+   ]
+  },
+  "request": {
+   "backtest_mode": "universe",
+   "entry": {
+    "conditions": [
+     {
+      "id": "rsi",
+      "params": {
+       "operator": "<",
+       "period": 14,
+       "signalType": "buy",
+       "value": 30.0
+      },
+      "type": "indicator",
+      "weight": 1.0
+     }
+    ],
+    "logic": "AND"
+   },
+   "etf_theme": null,
+   "exclude_sectors": null,
+   "exit": {
+    "conditions": []
+   },
+   "listing_from": null,
+   "listing_to": null,
+   "options": {
+    "fee_rate": 0.00015,
+    "slippage_rate": 0.0005
+   },
+   "period": "5y",
+   "risk": {
+    "absolute_momentum_threshold_pct": null,
+    "allocation_lookback_days": null,
+    "allocation_type": "equal",
+    "cash_asset": null,
+    "contribution_amount": null,
+    "contribution_period": null,
+    "contribution_rules": null,
+    "entry_limit_pct": null,
+    "entry_tranches": null,
+    "execution_timing": "next_open",
+    "exit_limit_pct": null,
+    "init_cash": 10000000.0,
+    "macro_filters": null,
+    "market_regime": null,
+    "max_holding_days": null,
+    "max_mdd_limit_pct": null,
+    "max_position_weight_pct": null,
+    "max_positions": 5,
+    "max_positions_pct": null,
+    "max_sector_weight_pct": null,
+    "min_holding_days": null,
+    "partial_take_profits": null,
+    "position_size_pct": 20.0,
+    "position_sizing": null,
+    "ranking_accumulation_days": null,
+    "ranking_components": null,
+    "ranking_direction": null,
+    "ranking_enabled": true,
+    "ranking_entry_delay_days": null,
+    "ranking_expiry_days": null,
+    "ranking_group_cap": null,
+    "ranking_lookback_days": null,
+    "ranking_metric": null,
+    "ranking_quantile_groups": null,
+    "ranking_skip_days": null,
+    "ranking_weight_quality": 0.5,
+    "ranking_weight_value": 0.5,
+    "rebalance_method": "reconstitute",
+    "rebalance_threshold_pct": null,
+    "rebalancing_period": "monthly",
+    "seasonal_months": null,
+    "stop_cooldown_days": null,
+    "stop_loss_pct": null,
+    "taa": null,
+    "take_profit_pct": null,
+    "target_volatility_pct": null,
+    "target_weights": null,
+    "trailing_stop_activation_pct": null,
+    "trailing_stop_pct": null,
+    "universe_exclude_loss_making": null,
+    "universe_liquidity_exclude_bottom_pct": null,
+    "universe_liquidity_lookback_days": null,
+    "universe_market_cap_exclude_bottom_pct": null,
+    "universe_market_cap_top_n": null,
+    "withdrawal_amount": null,
+    "withdrawal_period": null
+   },
+   "sector": null,
+   "symbol_count": null,
+   "symbols": [],
+   "symbols_resolved": false,
+   "target_stocks": null,
+   "universe_id": "kospi",
+   "us_industry": null
+  }
+ },
+ "krComplex": {
+  "parsed": {
+   "allocation_lookback_days": 60,
+   "allocation_type": "inverse_volatility",
+   "backtest_period": "5y",
+   "contribution_rules": [],
+   "description": "fx",
+   "entry_filters": [],
+   "entry_logic": "AND",
+   "entry_signals": [
+    {
+     "indicator": "ema",
+     "long_period": 60,
+     "mode": "above",
+     "short_period": 20,
+     "signal_type": "buy"
+    },
+    {
+     "band": "middle",
+     "cross": "above",
+     "indicator": "bollinger_bands",
+     "period": 20,
+     "signal_type": "buy",
+     "touch_lookback": 5
+    }
+   ],
+   "entry_tranches": {
+    "count": 3,
+    "levels": [],
+    "step_pct": 5.0
+   },
+   "execution_timing": "next_open",
+   "exit_signals": [
+    {
+     "indicator": "rsi",
+     "mode": "rebound",
+     "operator": ">",
+     "period": 14,
+     "signal_type": "sell",
+     "value": 75.0
+    }
+   ],
+   "fee_rate": 0.015,
+   "fundamental_filters": [
+    {
+     "metric": "roic",
+     "operator": ">=",
+     "value": 10.0
+    },
+    {
+     "metric": "debt_ratio",
+     "operator": "<=",
+     "value": 100.0
+    }
+   ],
+   "initial_capital": 10000000.0,
+   "macro_filters": [],
+   "market_regime": {
+    "exposure_pct": 50.0,
+    "index": "KOSPI",
+    "ma_period": 200,
+    "triggers": [
+     "below_ma"
+    ]
+   },
+   "max_position_weight_pct": 8.0,
+   "max_positions": 20,
+   "max_positions_explicit": false,
+   "max_sector_weight_pct": 30.0,
+   "new_listing_only": false,
+   "partial_take_profits": [
+    {
+     "profit_pct": 20.0,
+     "sell_pct": 30.0
+    }
+   ],
+   "ranking_components": [
+    {
+     "direction": "bottom",
+     "metric": "per"
+    },
+    {
+     "direction": "top",
+     "metric": "roe_or_gpa",
+     "weight": 2.0
+    },
+    {
+     "direction": "top",
+     "lookback_days": 252,
+     "metric": "return",
+     "skip_days": 21
+    }
+   ],
+   "ranking_metric": "composite",
+   "rebalance_method": "weights_only",
+   "rebalancing_period": "quarterly",
+   "sector": "반도체",
+   "slippage_rate": 0.05,
+   "stop_loss_pct": 12.0,
+   "take_profit_pct": 40.0,
+   "target_symbols": [],
+   "trailing_stop_pct": 10.0,
+   "universe": [
+    "KOSPI"
+   ],
+   "universe_liquidity_exclude_bottom_pct": 20.0,
+   "universe_liquidity_lookback_days": 60,
+   "universe_market_cap_top_n": 200
+  },
+  "request": {
+   "backtest_mode": "universe",
+   "entry": {
+    "conditions": [
+     {
+      "id": "roic",
+      "params": {
+       "operator": ">=",
+       "value": 10.0
+      },
+      "type": "filter",
+      "weight": 1.0
+     },
+     {
+      "id": "debt_ratio",
+      "params": {
+       "operator": "<=",
+       "value": 100.0
+      },
+      "type": "filter",
+      "weight": 1.0
+     },
+     {
+      "id": "ema",
+      "params": {
+       "longPeriod": 60,
+       "mode": "above",
+       "shortPeriod": 20,
+       "signalType": "buy"
+      },
+      "type": "indicator",
+      "weight": 1.0
+     },
+     {
+      "id": "bollinger_bands",
+      "params": {
+       "band": "middle",
+       "cross": "above",
+       "period": 20,
+       "signalType": "buy",
+       "touchLookback": 5
+      },
+      "type": "indicator",
+      "weight": 1.0
+     }
+    ],
+    "logic": "AND"
+   },
+   "etf_theme": null,
+   "exclude_sectors": null,
+   "exit": {
+    "conditions": [
+     {
+      "id": "rsi",
+      "params": {
+       "mode": "rebound",
+       "operator": ">",
+       "period": 14,
+       "signalType": "sell",
+       "value": 75.0
+      },
+      "type": "indicator",
+      "weight": 1.0
+     }
+    ]
+   },
+   "listing_from": null,
+   "listing_to": null,
+   "options": {
+    "fee_rate": 0.00015,
+    "slippage_rate": 0.0005
+   },
+   "period": "5y",
+   "risk": {
+    "absolute_momentum_threshold_pct": null,
+    "allocation_lookback_days": 60,
+    "allocation_type": "inverse_volatility",
+    "cash_asset": null,
+    "contribution_amount": null,
+    "contribution_period": null,
+    "contribution_rules": null,
+    "entry_limit_pct": null,
+    "entry_tranches": {
+     "count": 3,
+     "step_pct": 5.0
+    },
+    "execution_timing": "next_open",
+    "exit_limit_pct": null,
+    "init_cash": 10000000.0,
+    "macro_filters": null,
+    "market_regime": {
+     "exposure_pct": 50.0,
+     "index": "KOSPI",
+     "ma_period": 200
+    },
+    "max_holding_days": null,
+    "max_mdd_limit_pct": null,
+    "max_position_weight_pct": 8.0,
+    "max_positions": 20,
+    "max_positions_pct": null,
+    "max_sector_weight_pct": 30.0,
+    "min_holding_days": null,
+    "partial_take_profits": [
+     {
+      "profit_pct": 20.0,
+      "sell_pct": 30.0
+     }
+    ],
+    "position_size_pct": 5.0,
+    "position_sizing": null,
+    "ranking_accumulation_days": null,
+    "ranking_components": [
+     {
+      "direction": "bottom",
+      "group": null,
+      "lookback_days": null,
+      "metric": "per",
+      "skip_days": null,
+      "weight": null
+     },
+     {
+      "direction": "top",
+      "group": null,
+      "lookback_days": null,
+      "metric": "roe_or_gpa",
+      "skip_days": null,
+      "weight": 2.0
+     },
+     {
+      "direction": "top",
+      "group": null,
+      "lookback_days": 252,
+      "metric": "return",
+      "skip_days": 21,
+      "weight": null
+     }
+    ],
+    "ranking_direction": null,
+    "ranking_enabled": true,
+    "ranking_entry_delay_days": null,
+    "ranking_expiry_days": null,
+    "ranking_group_cap": null,
+    "ranking_lookback_days": null,
+    "ranking_metric": "composite",
+    "ranking_quantile_groups": null,
+    "ranking_skip_days": null,
+    "ranking_weight_quality": 0.5,
+    "ranking_weight_value": 0.5,
+    "rebalance_method": "weights_only",
+    "rebalance_threshold_pct": null,
+    "rebalancing_period": "quarterly",
+    "seasonal_months": null,
+    "stop_cooldown_days": null,
+    "stop_loss_pct": 12.0,
+    "taa": null,
+    "take_profit_pct": 40.0,
+    "target_volatility_pct": null,
+    "target_weights": null,
+    "trailing_stop_activation_pct": null,
+    "trailing_stop_pct": 10.0,
+    "universe_exclude_loss_making": null,
+    "universe_liquidity_exclude_bottom_pct": 20.0,
+    "universe_liquidity_lookback_days": 60,
+    "universe_market_cap_exclude_bottom_pct": null,
+    "universe_market_cap_top_n": 200,
+    "withdrawal_amount": null,
+    "withdrawal_period": null
+   },
+   "sector": "반도체",
+   "symbol_count": null,
+   "symbols": [],
+   "symbols_resolved": false,
+   "target_stocks": null,
+   "universe_id": "kospi",
+   "us_industry": null
+  }
+ },
+ "riskRoles": {
+  "parsed": {
+   "allocation_type": "equal",
+   "backtest_period": "5y",
+   "contribution_rules": [],
+   "description": "fx",
+   "entry_filters": [],
+   "entry_logic": "AND",
+   "entry_signals": [
+    {
+     "indicator": "breakout",
+     "lookback_period": 20,
+     "signal_type": "buy"
+    }
+   ],
+   "execution_timing": "next_open",
+   "exit_signals": [],
+   "fee_rate": 0.015,
+   "fundamental_filters": [],
+   "hold_period_days": 30,
+   "initial_capital": 10000000.0,
+   "macro_filters": [],
+   "max_positions": 5,
+   "max_positions_explicit": false,
+   "new_listing_only": false,
+   "partial_take_profits": [],
+   "rebalance_method": "reconstitute",
+   "rebalancing_period": "none",
+   "slippage_rate": 0.05,
+   "stop_loss_pct": 7.0,
+   "take_profit_pct": 15.0,
+   "target_symbols": [],
+   "trailing_stop_activation_pct": 8.0,
+   "trailing_stop_pct": 5.0,
+   "universe": [
+    "KOSPI"
+   ]
+  },
+  "request": {
+   "backtest_mode": "universe",
+   "entry": {
+    "conditions": [
+     {
+      "id": "breakout",
+      "params": {
+       "lookbackPeriod": 20,
+       "signalType": "buy"
+      },
+      "type": "indicator",
+      "weight": 1.0
+     }
+    ],
+    "logic": "AND"
+   },
+   "etf_theme": null,
+   "exclude_sectors": null,
+   "exit": {
+    "conditions": []
+   },
+   "listing_from": null,
+   "listing_to": null,
+   "options": {
+    "fee_rate": 0.00015,
+    "slippage_rate": 0.0005
+   },
+   "period": "5y",
+   "risk": {
+    "absolute_momentum_threshold_pct": null,
+    "allocation_lookback_days": null,
+    "allocation_type": "equal",
+    "cash_asset": null,
+    "contribution_amount": null,
+    "contribution_period": null,
+    "contribution_rules": null,
+    "entry_limit_pct": null,
+    "entry_tranches": null,
+    "execution_timing": "next_open",
+    "exit_limit_pct": null,
+    "init_cash": 10000000.0,
+    "macro_filters": null,
+    "market_regime": null,
+    "max_holding_days": 30,
+    "max_mdd_limit_pct": null,
+    "max_position_weight_pct": null,
+    "max_positions": 5,
+    "max_positions_pct": null,
+    "max_sector_weight_pct": null,
+    "min_holding_days": null,
+    "partial_take_profits": null,
+    "position_size_pct": 20.0,
+    "position_sizing": null,
+    "ranking_accumulation_days": null,
+    "ranking_components": null,
+    "ranking_direction": null,
+    "ranking_enabled": true,
+    "ranking_entry_delay_days": null,
+    "ranking_expiry_days": null,
+    "ranking_group_cap": null,
+    "ranking_lookback_days": null,
+    "ranking_metric": null,
+    "ranking_quantile_groups": null,
+    "ranking_skip_days": null,
+    "ranking_weight_quality": 0.5,
+    "ranking_weight_value": 0.5,
+    "rebalance_method": "reconstitute",
+    "rebalance_threshold_pct": null,
+    "rebalancing_period": "none",
+    "seasonal_months": null,
+    "stop_cooldown_days": null,
+    "stop_loss_pct": 7.0,
+    "taa": null,
+    "take_profit_pct": 15.0,
+    "target_volatility_pct": null,
+    "target_weights": null,
+    "trailing_stop_activation_pct": 8.0,
+    "trailing_stop_pct": 5.0,
+    "universe_exclude_loss_making": null,
+    "universe_liquidity_exclude_bottom_pct": null,
+    "universe_liquidity_lookback_days": null,
+    "universe_market_cap_exclude_bottom_pct": null,
+    "universe_market_cap_top_n": null,
+    "withdrawal_amount": null,
+    "withdrawal_period": null
+   },
+   "sector": null,
+   "symbol_count": null,
+   "symbols": [],
+   "symbols_resolved": false,
+   "target_stocks": null,
+   "universe_id": "kospi",
+   "us_industry": null
+  }
+ },
+ "sameIndicatorBothSides": {
+  "parsed": {
+   "allocation_type": "equal",
+   "backtest_period": "5y",
+   "contribution_rules": [],
+   "description": "fx",
+   "entry_filters": [],
+   "entry_logic": "AND",
+   "entry_signals": [
+    {
+     "indicator": "rsi",
+     "operator": "<",
+     "period": 14,
+     "signal_type": "buy",
+     "value": 30.0
+    }
+   ],
+   "execution_timing": "next_open",
+   "exit_signals": [
+    {
+     "indicator": "rsi",
+     "operator": ">",
+     "period": 14,
+     "signal_type": "sell",
+     "value": 70.0
+    }
+   ],
+   "fee_rate": 0.015,
+   "fundamental_filters": [],
+   "initial_capital": 10000000.0,
+   "macro_filters": [],
+   "max_positions": 5,
+   "max_positions_explicit": false,
+   "new_listing_only": false,
+   "partial_take_profits": [],
+   "rebalance_method": "reconstitute",
+   "rebalancing_period": "none",
+   "slippage_rate": 0.05,
+   "target_symbols": [],
+   "universe": [
+    "KOSPI"
+   ]
+  },
+  "request": {
+   "backtest_mode": "universe",
+   "entry": {
+    "conditions": [
+     {
+      "id": "rsi",
+      "params": {
+       "operator": "<",
+       "period": 14,
+       "signalType": "buy",
+       "value": 30.0
+      },
+      "type": "indicator",
+      "weight": 1.0
+     }
+    ],
+    "logic": "AND"
+   },
+   "etf_theme": null,
+   "exclude_sectors": null,
+   "exit": {
+    "conditions": [
+     {
+      "id": "rsi",
+      "params": {
+       "operator": ">",
+       "period": 14,
+       "signalType": "sell",
+       "value": 70.0
+      },
+      "type": "indicator",
+      "weight": 1.0
+     }
+    ]
+   },
+   "listing_from": null,
+   "listing_to": null,
+   "options": {
+    "fee_rate": 0.00015,
+    "slippage_rate": 0.0005
+   },
+   "period": "5y",
+   "risk": {
+    "absolute_momentum_threshold_pct": null,
+    "allocation_lookback_days": null,
+    "allocation_type": "equal",
+    "cash_asset": null,
+    "contribution_amount": null,
+    "contribution_period": null,
+    "contribution_rules": null,
+    "entry_limit_pct": null,
+    "entry_tranches": null,
+    "execution_timing": "next_open",
+    "exit_limit_pct": null,
+    "init_cash": 10000000.0,
+    "macro_filters": null,
+    "market_regime": null,
+    "max_holding_days": null,
+    "max_mdd_limit_pct": null,
+    "max_position_weight_pct": null,
+    "max_positions": 5,
+    "max_positions_pct": null,
+    "max_sector_weight_pct": null,
+    "min_holding_days": null,
+    "partial_take_profits": null,
+    "position_size_pct": 20.0,
+    "position_sizing": null,
+    "ranking_accumulation_days": null,
+    "ranking_components": null,
+    "ranking_direction": null,
+    "ranking_enabled": true,
+    "ranking_entry_delay_days": null,
+    "ranking_expiry_days": null,
+    "ranking_group_cap": null,
+    "ranking_lookback_days": null,
+    "ranking_metric": null,
+    "ranking_quantile_groups": null,
+    "ranking_skip_days": null,
+    "ranking_weight_quality": 0.5,
+    "ranking_weight_value": 0.5,
+    "rebalance_method": "reconstitute",
+    "rebalance_threshold_pct": null,
+    "rebalancing_period": "none",
+    "seasonal_months": null,
+    "stop_cooldown_days": null,
+    "stop_loss_pct": null,
+    "taa": null,
+    "take_profit_pct": null,
+    "target_volatility_pct": null,
+    "target_weights": null,
+    "trailing_stop_activation_pct": null,
+    "trailing_stop_pct": null,
+    "universe_exclude_loss_making": null,
+    "universe_liquidity_exclude_bottom_pct": null,
+    "universe_liquidity_lookback_days": null,
+    "universe_market_cap_exclude_bottom_pct": null,
+    "universe_market_cap_top_n": null,
+    "withdrawal_amount": null,
+    "withdrawal_period": null
+   },
+   "sector": null,
+   "symbol_count": null,
+   "symbols": [],
+   "symbols_resolved": false,
+   "target_stocks": null,
+   "universe_id": "kospi",
+   "us_industry": null
+  }
+ },
+ "samePeriodDiffers": {
+  "parsed": {
+   "allocation_type": "equal",
+   "backtest_period": "5y",
+   "contribution_rules": [],
+   "description": "fx",
+   "entry_filters": [],
+   "entry_logic": "AND",
+   "entry_signals": [
+    {
+     "indicator": "rsi",
+     "operator": "<",
+     "period": 14,
+     "signal_type": "buy",
+     "value": 30.0
+    },
+    {
+     "indicator": "rsi",
+     "operator": "<",
+     "period": 7,
+     "signal_type": "buy",
+     "value": 20.0
+    }
+   ],
+   "execution_timing": "next_open",
+   "exit_signals": [
+    {
+     "indicator": "rsi",
+     "operator": ">",
+     "period": 21,
+     "signal_type": "sell",
+     "value": 70.0
+    }
+   ],
+   "fee_rate": 0.015,
+   "fundamental_filters": [],
+   "initial_capital": 10000000.0,
+   "macro_filters": [],
+   "max_positions": 5,
+   "max_positions_explicit": false,
+   "new_listing_only": false,
+   "partial_take_profits": [],
+   "rebalance_method": "reconstitute",
+   "rebalancing_period": "none",
+   "slippage_rate": 0.05,
+   "target_symbols": [],
+   "universe": [
+    "KOSPI"
+   ]
+  },
+  "request": {
+   "backtest_mode": "universe",
+   "entry": {
+    "conditions": [
+     {
+      "id": "rsi",
+      "params": {
+       "operator": "<",
+       "period": 14,
+       "signalType": "buy",
+       "value": 30.0
+      },
+      "type": "indicator",
+      "weight": 1.0
+     },
+     {
+      "id": "rsi",
+      "params": {
+       "operator": "<",
+       "period": 7,
+       "signalType": "buy",
+       "value": 20.0
+      },
+      "type": "indicator",
+      "weight": 1.0
+     }
+    ],
+    "logic": "AND"
+   },
+   "etf_theme": null,
+   "exclude_sectors": null,
+   "exit": {
+    "conditions": [
+     {
+      "id": "rsi",
+      "params": {
+       "operator": ">",
+       "period": 21,
+       "signalType": "sell",
+       "value": 70.0
+      },
+      "type": "indicator",
+      "weight": 1.0
+     }
+    ]
+   },
+   "listing_from": null,
+   "listing_to": null,
+   "options": {
+    "fee_rate": 0.00015,
+    "slippage_rate": 0.0005
+   },
+   "period": "5y",
+   "risk": {
+    "absolute_momentum_threshold_pct": null,
+    "allocation_lookback_days": null,
+    "allocation_type": "equal",
+    "cash_asset": null,
+    "contribution_amount": null,
+    "contribution_period": null,
+    "contribution_rules": null,
+    "entry_limit_pct": null,
+    "entry_tranches": null,
+    "execution_timing": "next_open",
+    "exit_limit_pct": null,
+    "init_cash": 10000000.0,
+    "macro_filters": null,
+    "market_regime": null,
+    "max_holding_days": null,
+    "max_mdd_limit_pct": null,
+    "max_position_weight_pct": null,
+    "max_positions": 5,
+    "max_positions_pct": null,
+    "max_sector_weight_pct": null,
+    "min_holding_days": null,
+    "partial_take_profits": null,
+    "position_size_pct": 20.0,
+    "position_sizing": null,
+    "ranking_accumulation_days": null,
+    "ranking_components": null,
+    "ranking_direction": null,
+    "ranking_enabled": true,
+    "ranking_entry_delay_days": null,
+    "ranking_expiry_days": null,
+    "ranking_group_cap": null,
+    "ranking_lookback_days": null,
+    "ranking_metric": null,
+    "ranking_quantile_groups": null,
+    "ranking_skip_days": null,
+    "ranking_weight_quality": 0.5,
+    "ranking_weight_value": 0.5,
+    "rebalance_method": "reconstitute",
+    "rebalance_threshold_pct": null,
+    "rebalancing_period": "none",
+    "seasonal_months": null,
+    "stop_cooldown_days": null,
+    "stop_loss_pct": null,
+    "taa": null,
+    "take_profit_pct": null,
+    "target_volatility_pct": null,
+    "target_weights": null,
+    "trailing_stop_activation_pct": null,
+    "trailing_stop_pct": null,
+    "universe_exclude_loss_making": null,
+    "universe_liquidity_exclude_bottom_pct": null,
+    "universe_liquidity_lookback_days": null,
+    "universe_market_cap_exclude_bottom_pct": null,
+    "universe_market_cap_top_n": null,
+    "withdrawal_amount": null,
+    "withdrawal_period": null
+   },
+   "sector": null,
+   "symbol_count": null,
+   "symbols": [],
+   "symbols_resolved": false,
+   "target_stocks": null,
+   "universe_id": "kospi",
+   "us_industry": null
+  }
+ },
+ "valuelessAndPending": {
+  "parsed": {
+   "allocation_type": "equal",
+   "backtest_period": "5y",
+   "cash_pool": {
+    "reserve_stated": true
+   },
+   "contribution_amount": 1000000.0,
+   "contribution_period": "monthly",
+   "contribution_rules": [],
+   "description": "fx",
+   "entry_filters": [],
+   "entry_logic": "AND",
+   "entry_signals": [
+    {
+     "indicator": "volume_ratio",
+     "period": 20,
+     "signal_type": "buy"
+    }
+   ],
+   "execution_timing": "next_open",
+   "exit_signals": [],
+   "fee_rate": 0.015,
+   "fundamental_filters": [],
+   "initial_capital": 10000000.0,
+   "macro_filters": [],
+   "market_regime": {
+    "index": "KOSPI",
+    "triggers": [
+     "below_ma"
+    ]
+   },
+   "max_positions": 5,
+   "max_positions_explicit": false,
+   "new_listing_only": false,
+   "partial_take_profits": [],
+   "rebalance_method": "reconstitute",
+   "rebalancing_period": "none",
+   "slippage_rate": 0.05,
+   "target_symbols": [
+    "005930"
+   ],
+   "universe": [
+    "KOSPI"
+   ]
+  },
+  "request": {
+   "backtest_mode": "single_asset",
+   "entry": {
+    "conditions": [
+     {
+      "id": "volume_ratio",
+      "params": {
+       "period": 20,
+       "signalType": "buy"
+      },
+      "type": "indicator",
+      "weight": 1.0
+     }
+    ],
+    "logic": "AND"
+   },
+   "etf_theme": null,
+   "exclude_sectors": null,
+   "exit": {
+    "conditions": []
+   },
+   "listing_from": null,
+   "listing_to": null,
+   "options": {
+    "fee_rate": 0.00015,
+    "slippage_rate": 0.0005
+   },
+   "period": "5y",
+   "risk": {
+    "absolute_momentum_threshold_pct": null,
+    "allocation_lookback_days": null,
+    "allocation_type": "equal",
+    "cash_asset": null,
+    "contribution_amount": 1000000.0,
+    "contribution_period": "monthly",
+    "contribution_rules": [],
+    "entry_limit_pct": null,
+    "entry_tranches": null,
+    "execution_timing": "next_open",
+    "exit_limit_pct": null,
+    "init_cash": 10000000.0,
+    "macro_filters": null,
+    "market_regime": null,
+    "max_holding_days": null,
+    "max_mdd_limit_pct": null,
+    "max_position_weight_pct": null,
+    "max_positions": 1,
+    "max_positions_pct": null,
+    "max_sector_weight_pct": null,
+    "min_holding_days": null,
+    "partial_take_profits": null,
+    "position_size_pct": 100.0,
+    "position_sizing": null,
+    "ranking_accumulation_days": null,
+    "ranking_components": null,
+    "ranking_direction": null,
+    "ranking_enabled": false,
+    "ranking_entry_delay_days": null,
+    "ranking_expiry_days": null,
+    "ranking_group_cap": null,
+    "ranking_lookback_days": null,
+    "ranking_metric": null,
+    "ranking_quantile_groups": null,
+    "ranking_skip_days": null,
+    "ranking_weight_quality": 0.5,
+    "ranking_weight_value": 0.5,
+    "rebalance_method": "reconstitute",
+    "rebalance_threshold_pct": null,
+    "rebalancing_period": "none",
+    "seasonal_months": null,
+    "stop_cooldown_days": null,
+    "stop_loss_pct": null,
+    "taa": null,
+    "take_profit_pct": null,
+    "target_volatility_pct": null,
+    "target_weights": null,
+    "trailing_stop_activation_pct": null,
+    "trailing_stop_pct": null,
+    "universe_exclude_loss_making": null,
+    "universe_liquidity_exclude_bottom_pct": null,
+    "universe_liquidity_lookback_days": null,
+    "universe_market_cap_exclude_bottom_pct": null,
+    "universe_market_cap_top_n": null,
+    "withdrawal_amount": null,
+    "withdrawal_period": null
+   },
+   "sector": null,
+   "symbol_count": 1,
+   "symbols": [
+    "005930"
+   ],
+   "symbols_resolved": true,
+   "target_stocks": [
+    {
+     "name": "삼성전자",
+     "symbol": "005930"
+    }
+   ],
+   "universe_id": null,
+   "us_industry": null
+  }
+ },
+ "zeroThreshold": {
+  "parsed": {
+   "allocation_type": "equal",
+   "backtest_period": "5y",
+   "contribution_rules": [],
+   "description": "fx",
+   "entry_filters": [],
+   "entry_logic": "AND",
+   "entry_signals": [],
+   "execution_timing": "next_open",
+   "exit_signals": [],
+   "fee_rate": 0.015,
+   "fundamental_filters": [
+    {
+     "metric": "operating_income_growth",
+     "operator": ">=",
+     "value": 0.0
+    }
+   ],
+   "initial_capital": 10000000.0,
+   "macro_filters": [],
+   "max_positions": 5,
+   "max_positions_explicit": false,
+   "new_listing_only": false,
+   "partial_take_profits": [],
+   "rebalance_method": "reconstitute",
+   "rebalancing_period": "none",
+   "slippage_rate": 0.05,
+   "target_symbols": [],
+   "universe": [
+    "KOSPI"
+   ]
+  },
+  "request": {
+   "backtest_mode": "universe",
+   "entry": {
+    "conditions": [
+     {
+      "id": "operating_income_growth",
+      "params": {
+       "operator": ">=",
+       "value": 0.0
+      },
+      "type": "filter",
+      "weight": 1.0
+     }
+    ],
+    "logic": "AND"
+   },
+   "etf_theme": null,
+   "exclude_sectors": null,
+   "exit": {
+    "conditions": []
+   },
+   "listing_from": null,
+   "listing_to": null,
+   "options": {
+    "fee_rate": 0.00015,
+    "slippage_rate": 0.0005
+   },
+   "period": "5y",
+   "risk": {
+    "absolute_momentum_threshold_pct": null,
+    "allocation_lookback_days": null,
+    "allocation_type": "equal",
+    "cash_asset": null,
+    "contribution_amount": null,
+    "contribution_period": null,
+    "contribution_rules": null,
+    "entry_limit_pct": null,
+    "entry_tranches": null,
+    "execution_timing": "next_open",
+    "exit_limit_pct": null,
+    "init_cash": 10000000.0,
+    "macro_filters": null,
+    "market_regime": null,
+    "max_holding_days": null,
+    "max_mdd_limit_pct": null,
+    "max_position_weight_pct": null,
+    "max_positions": 5,
+    "max_positions_pct": null,
+    "max_sector_weight_pct": null,
+    "min_holding_days": null,
+    "partial_take_profits": null,
+    "position_size_pct": 20.0,
+    "position_sizing": null,
+    "ranking_accumulation_days": null,
+    "ranking_components": null,
+    "ranking_direction": null,
+    "ranking_enabled": true,
+    "ranking_entry_delay_days": null,
+    "ranking_expiry_days": null,
+    "ranking_group_cap": null,
+    "ranking_lookback_days": null,
+    "ranking_metric": null,
+    "ranking_quantile_groups": null,
+    "ranking_skip_days": null,
+    "ranking_weight_quality": 0.5,
+    "ranking_weight_value": 0.5,
+    "rebalance_method": "reconstitute",
+    "rebalance_threshold_pct": null,
+    "rebalancing_period": "none",
+    "seasonal_months": null,
+    "stop_cooldown_days": null,
+    "stop_loss_pct": null,
+    "taa": null,
+    "take_profit_pct": null,
+    "target_volatility_pct": null,
+    "target_weights": null,
+    "trailing_stop_activation_pct": null,
+    "trailing_stop_pct": null,
+    "universe_exclude_loss_making": null,
+    "universe_liquidity_exclude_bottom_pct": null,
+    "universe_liquidity_lookback_days": null,
+    "universe_market_cap_exclude_bottom_pct": null,
+    "universe_market_cap_top_n": null,
+    "withdrawal_amount": null,
+    "withdrawal_period": null
+   },
+   "sector": null,
+   "symbol_count": null,
+   "symbols": [],
+   "symbols_resolved": false,
+   "target_stocks": null,
+   "universe_id": "kospi",
+   "us_industry": null
+  }
+ }
+}

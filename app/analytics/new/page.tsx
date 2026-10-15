@@ -6,6 +6,7 @@ import {
   useState,
   useRef,
   useEffect,
+  useMemo,
   useCallback,
   useImperativeHandle,
   forwardRef,
@@ -159,6 +160,10 @@ import {
   chipAnswersGateSlot,
 } from "./deterministicConditionFlow";
 import { t } from "@/lib/i18n";
+import StrategyGraphCard from "@/components/strategy/graph/StrategyGraphCard";
+import { createGraphSeen, type GraphSeen } from "@/components/strategy/graph/StrategyGraphView";
+import { fromConfirmed, fromDraft, fromExecuted } from "@/lib/strategy-graph/snapshot";
+import type { StrategyGraphInput } from "@/lib/strategy-graph/types";
 import { parseResultOwner, RESULT_OWNER_HEADER } from "@/lib/resultOwner";
 
 // 되묻기 게이트가 provenance(사용자가 실제로 말했나)를 요구하는 설정 필드.
@@ -234,6 +239,9 @@ interface ChatMessage {
   // 확정 턴에도 그대로 보여주고 그 아래에 실행 버튼을 둔다(2026-09-28 사용자 지시). 진행률
   // 패널은 되묻기 동안만 뜨도록 builderPresentation과 칸을 나눈다.
   confirmedSummaryItems?: BuilderSummaryItem[];
+  // 확정 성공 응답({parsed, backtest_request, notices})을 그 시점에 독립 보존한 그래프 입력.
+  // latestParsed 같은 변경 가능한 최신 상태를 읽지 않으므로 이후 수정에도 바뀌지 않는다.
+  confirmedGraph?: StrategyGraphInput;
   strategyConfirmation?: boolean;
   // 빌더에 되돌아갈 이전 단계가 있는가 — 되묻기 카드의 '돌아가기' 버튼을 그린다.
   // (게이트 레인의 previousStepState와 같은 자리·같은 버튼, 되돌리는 방법만 다르다.)
@@ -1696,52 +1704,130 @@ function CollapsibleSummaryValue({
   );
 }
 
+// 사용자가 입력한 전략을 이 턴까지 이해한 만큼 그래프로 보여준다. 그래프 입력은 이 카드가 표시하는
+// 바로 그 parsed를 기존 결정론 컴파일(/api/strategy/compile, LLM 없음)에 보내 얻은 한 쌍(parsed+요청)이다
+// — 칩 답변 턴은 parsed만 갱신되고 요청은 낡을 수 있어 둘을 섞지 않는다. 컴파일이 안 되는 초안은
+// 기존 텍스트 요약으로 대신한다.
+function loadDraftGraph(parsed: ParsedSummary, explicitFields: readonly string[]): Promise<StrategyGraphInput> {
+  return fetch("/api/strategy/compile", {
+    method: "POST",
+    // The marker header only tells draft previews apart from the real confirm call (tests, logs).
+    headers: { "Content-Type": "application/json", "X-Graph-Draft": "1", ...regionRequestHeaders() },
+    body: JSON.stringify({ parsed }),
+  })
+    .then(async (res) => {
+      if (!res.ok) throw new Error(String(res.status));
+      const data = await res.json();
+      return fromDraft({ sourceRef: "draft:turn", parsed: data.parsed, request: data.backtest_request, notices: data.notices, explicitFields });
+    })
+    .then((input) => {
+      if (input.origin === "none") throw new Error("empty");
+      return input;
+    });
+}
+
+type DraftGraphMemory = { input?: StrategyGraphInput; seen: GraphSeen };
+
+function DraftStrategyView({
+  parsed,
+  summaryItems,
+  memory,
+  explicitFields,
+}: {
+  parsed?: ParsedSummary;
+  summaryItems: BuilderSummaryItem[];
+  memory: DraftGraphMemory;
+  explicitFields: readonly string[];
+}) {
+  // Start from the previous graph of this conversation, so a new turn extends it instead of
+  // blanking and redrawing everything.
+  // Without a parsed result there is nothing to draw, so the text summary shows at once.
+  const [state, setState] = useState<{ status: "loading" | "ready" | "failed"; input?: StrategyGraphInput }>(
+    memory.input ? { status: "ready", input: memory.input } : parsed ? { status: "loading" } : { status: "failed" },
+  );
+  const key = parsed ? JSON.stringify([parsed, explicitFields]) : "";
+  useEffect(() => {
+    if (!parsed) {
+      setState({ status: "failed" });
+      return;
+    }
+    let cancelled = false;
+    // Keep showing the previous graph while the new one is prepared.
+    setState((prev) => (prev.status === "ready" ? prev : { status: "loading" }));
+    loadDraftGraph(parsed, explicitFields)
+      .then((input) => {
+        memory.input = input;
+        if (!cancelled) setState({ status: "ready", input });
+      })
+      .catch(() => !cancelled && setState({ status: "failed" }));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- key is the serialized parsed
+  }, [key]);
+
+  if (state.status === "ready" && state.input) {
+    return (
+      <div data-testid="draft-strategy-graph">
+        <StrategyGraphCard input={state.input} title={t("현재까지 이해한 전략입니다")} testId="draft-strategy-graph-card" seen={memory.seen} />
+      </div>
+    );
+  }
+  if (state.status === "loading") {
+    return (
+      <p className="text-sm font-bold text-[var(--text-label)]" role="status" data-testid="draft-strategy-graph-loading">
+        {t("전략 구조를 준비하는 중입니다.")}
+      </p>
+    );
+  }
+  return <BuilderStrategyOverview summaryItems={summaryItems} />;
+}
+
 function BuilderStrategyOverview({
   summaryItems,
+  heading = "현재까지 이해한 전략입니다",
 }: {
   summaryItems: BuilderSummaryItem[];
+  // null: no heading (the confirmed graph card above already carries "확정된 전략").
+  heading?: string | null;
 }) {
   return (
     <div data-testid="builder-strategy-summary">
-      <section aria-label={t("현재까지 이해한 전략입니다")}>
-        <p className="text-sm font-black tracking-wide text-gray-400">
-          {t("현재까지 이해한 전략입니다")}
-        </p>
+      <section aria-label={t(heading ?? "확정된 전략")}>
+        {heading && (
+          <p className="text-sm font-black tracking-wide text-gray-400">
+            {t(heading)}
+          </p>
+        )}
         {summaryItems.length > 0 ? (
-          /* 항목이 늘어나면 라벨 폭이 제각각이라 값이 계단처럼 흩어진다 — 라벨 열을
-             고정한 그리드로 세로줄을 맞춘다(UI_GUIDELINES 그리드 기반 테이블).
-             행 구분은 보더 없이 여백만으로 둔다(2026-08-06 지시). */
-          <dl className="mt-2">
-            {summaryItems.map((item) => (
-              <div
-                key={`${item.label}-${item.value}`}
-                className="grid grid-cols-[76px_minmax(0,1fr)] gap-3 py-1.5 text-xs leading-relaxed"
-              >
-                <dt className="break-keep font-bold text-[var(--text-label)]">
-                  {t(item.label)}
-                </dt>
-                {/* 조건이 여러 개인 행은 한 줄에 하나씩 쌓는다 — '·'로 이어 붙이면
-                    조건이 늘어날수록 어디서 끊기는지 안 보인다(2026-08-06 지시). */}
-                <dd className="min-w-0 break-keep font-bold text-gray-200">
-                  {item.values ? (
-                    <span className="flex flex-col gap-0.5">
-                      {item.values.map((part, i) => (
-                        <span key={`${part}-${i}`}>{t(part)}</span>
-                      ))}
-                    </span>
-                  ) : item.detail ? (
-                    <CollapsibleSummaryValue
-                      value={item.value}
-                      detail={item.detail}
-                      count={item.detailCount}
-                    />
-                  ) : (
-                    t(item.value)
-                  )}
-                </dd>
-              </div>
-            ))}
-          </dl>
+          /* 항목을 칩으로 가로로 나열한다(2026-10-16 지시) — 라벨(흐림)과 값(밝음)을 한 칩에 담고,
+             조건이 여러 개인 행(매수·매도)은 조건마다 같은 라벨의 칩을 따로 둔다. */
+          <ul className="mt-2 flex flex-wrap gap-2" data-testid="builder-strategy-chips">
+            {summaryItems.flatMap((item) => {
+              const chip = "inline-flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-full border border-[var(--chat-hairline)] bg-white/[0.06] px-3 py-1.5 text-xs font-bold leading-snug";
+              const label = <span className="shrink-0 text-[var(--text-label)]">{t(item.label)}</span>;
+              if (item.values) {
+                return item.values.map((part, i) => (
+                  <li key={`${item.label}-${part}-${i}`} className={chip}>
+                    {label}
+                    <span className="min-w-0 break-keep text-gray-100">{t(part)}</span>
+                  </li>
+                ));
+              }
+              return [
+                <li key={`${item.label}-${item.value}`} className={chip}>
+                  {label}
+                  <span className="min-w-0 break-keep text-gray-100">
+                    {item.detail ? (
+                      <CollapsibleSummaryValue value={item.value} detail={item.detail} count={item.detailCount} />
+                    ) : (
+                      t(item.value)
+                    )}
+                  </span>
+                </li>,
+              ];
+            })}
+          </ul>
         ) : (
           <p className="mt-1.5 text-xs font-bold text-gray-300">
             {t("첫 조건부터 하나씩 함께 정해보겠습니다.")}
@@ -1752,6 +1838,10 @@ function BuilderStrategyOverview({
   );
 }
 
+// '전략 진행률' 패널을 화면에서 감춘다(2026-10-16 사용자 지시). 지우지 않고 DOM에는 남겨(sr-only —
+// 눈에는 안 보이고 보조 기술에는 읽힘) 되살릴 때는 이 값만 true로 바꾼다.
+const SHOW_STRATEGY_PROGRESS_PANEL = false;
+
 // 상태 축이 붙은 항목의 표시 문안. status가 없으면 기존 complete 표시 그대로다.
 function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
   const { completed: completedCount, total: applicableCount } = countProgress(items);
@@ -1761,7 +1851,11 @@ function StrategyProgressPanel({ items }: { items: BuilderProgressItem[] }) {
     <aside
       aria-label={t("전략 진행률")}
       aria-live="polite"
-      className="relative z-20 w-full max-w-4xl rounded-2xl border border-[var(--chat-hairline)] p-4 chat-glass xl:fixed xl:right-4 xl:top-[calc(var(--top-menu-bar-height,76px)+5rem)] xl:w-40 xl:max-w-none 2xl:w-56"
+      className={
+        SHOW_STRATEGY_PROGRESS_PANEL
+          ? "relative z-20 w-full max-w-4xl rounded-2xl border border-[var(--chat-hairline)] p-4 chat-glass xl:fixed xl:right-4 xl:top-[calc(var(--top-menu-bar-height,76px)+5rem)] xl:w-40 xl:max-w-none 2xl:w-56"
+          : "sr-only"
+      }
       data-testid="strategy-progress-panel"
     >
       <div className="flex items-end justify-between gap-3">
@@ -1870,6 +1964,11 @@ function StrategyLabContent() {
   // 저장된 대화를 읽지도 쓰지도 않는다(같은 브라우저의 다른 계정 대화가 보이는 사고 방지).
   const [chatOwner, setChatOwner] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
+  // 확정 그래프: 확정 건 일련번호(카드 키)와 확정 요청 단일 비행 가드, 접힌 카드 목록.
+  const confirmSeqRef = useRef(0);
+  // 같은 대화의 앞 초안 카드가 이미 그린 것(+마지막 입력) — 다음 턴에는 새로 생긴 부분만 애니메이션한다.
+  const draftGraphMemoryRef = useRef<DraftGraphMemory>({ seen: createGraphSeen() });
+  const confirmInFlightRef = useRef(false);
   const [authState, setAuthState] = useState<AuthState>("loading");
   const [isStartingGoogleLogin, setIsStartingGoogleLogin] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -1894,6 +1993,12 @@ function StrategyLabContent() {
   // 현재 표시 중인 result를 만들어낸 '실행된 요청' 스냅샷. 화면 상태(backtestReq)는
   // 사용자가 계속 대화하면 갱신되므로, 결과 배지는 이 스냅샷에서 파생해 표시↔실행을 일치시킨다.
   const [executedReq, setExecutedReq] = useState<any>(null);
+  // 결과 화면 그래프의 입력 — 실행에 쓰인 요청(executedReq)만 쓴다. 현재 편집 요청(backtestReq)이나
+  // latestParsed로 대신하지 않으며, 없으면 '스냅샷 없음' 상태가 된다.
+  const executedGraphInput = useMemo(
+    () => fromExecuted({ sourceRef: `run:${(result as { cacheKey?: string } | null)?.cacheKey ?? "current"}`, request: executedReq }),
+    [executedReq, result],
+  );
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [modelStatus, setModelStatus] = useState<{ status: string; error: string | null } | null>(null);
   const chatInputRef = useRef<ChatInputHandle>(null);
@@ -3735,7 +3840,8 @@ function StrategyLabContent() {
   };
 
   const confirmDeterministicStrategy = async () => {
-    if (isSending || stage === "running") return;
+    if (isSending || stage === "running" || confirmInFlightRef.current) return;
+    confirmInFlightRef.current = true;
 
     const completedPrompt = getStrategyPromptContext();
     const confirmedParsed = latestParsedRef.current ?? latestParsed;
@@ -3779,6 +3885,7 @@ function StrategyLabContent() {
         error: error instanceof Error ? error.message : "전략 확정에 실패했습니다.",
       });
     } finally {
+      confirmInFlightRef.current = false;
       setIsSending(false);
     }
   };
@@ -3939,6 +4046,13 @@ function StrategyLabContent() {
         : undefined,
       parsed: data.parsed,
       confirmedSummaryItems: confirmedStrategySummaryItems(data.parsed, data.backtest_request),
+      // 같은 확정 응답의 parsed·backtest_request·notices를 한 건으로 묶어 보존한다(그래프 전용).
+      confirmedGraph: fromConfirmed({
+        sourceRef: `confirmed:${(confirmSeqRef.current += 1)}`,
+        parsed: data.parsed,
+        request: data.backtest_request,
+        notices: data.notices,
+      }),
       notices: data.notices?.length ? data.notices : undefined,
     });
     if (researchMetricRef.current) return;
@@ -4868,6 +4982,7 @@ function StrategyLabContent() {
 
   // 화면·참조의 대화 상태를 모두 비운다 — '대화 종료'와 대화 로그의 '지난 대화 열기'가 공유한다.
   const clearConversationState = () => {
+    draftGraphMemoryRef.current = { seen: createGraphSeen() };
     // 진행 중인 요청부터 끊는다 — 이후 뒤늦게 도착할 응답·오류가 새 대화에 섞이지 않게.
     // (컨트롤러는 끊긴 채로 둔다 — 다음 턴 진입점이 새것으로 바꾼다. 위 chatAbortRef 주석)
     chatAbortRef.current?.abort();
@@ -5019,6 +5134,7 @@ function StrategyLabContent() {
               promptText={firstPromptRef.current || undefined}
               strategySummary={buildStrategySummaryFromRequest(executedReq ?? backtestReq)}
               parsedStrategy={latestParsed as unknown as Record<string, unknown>}
+              strategyGraphInput={executedGraphInput}
             />
           </div>
         </div>
@@ -5252,7 +5368,7 @@ function StrategyLabContent() {
                               <div
                                 className={`max-w-[88%] py-0.5 ${MESSAGE_ENTER_CLASS}`}
                               >
-                                <BuilderStrategyOverview summaryItems={msg.builderPresentation.summaryItems} />
+                                <DraftStrategyView parsed={msg.parsed} summaryItems={msg.builderPresentation.summaryItems} memory={draftGraphMemoryRef.current} explicitFields={explicitFieldsRef.current} />
                               </div>
                             )}
                             <div
@@ -5299,6 +5415,7 @@ function StrategyLabContent() {
                                 버튼이 온다(2026-09-28 지시). 요약 카드는 대화에 한 장만 —
                                 뒤에 더 새 카드(되묻기·확정)가 있으면 그리지 않는다. */}
                             {!msg.clarification &&
+                              !msg.confirmedGraph &&
                               i === latestConfirmedSummaryIndex &&
                               latestConfirmedSummaryIndex > latestBuilderPresentationIndex &&
                               (msg.confirmedSummaryItems?.length ?? 0) > 0 && (
@@ -5307,6 +5424,28 @@ function StrategyLabContent() {
                                 data-testid="confirmed-strategy-summary"
                               >
                                 <BuilderStrategyOverview summaryItems={msg.confirmedSummaryItems!} />
+                              </div>
+                            )}
+                            {/* 확정 직후 자동으로 보이는 읽기 전용 전략 그래프 — 이 확정 건의 스냅샷만 읽는다.
+                                뒤에 더 새 확정이 생겨도 이 카드는 그대로 남는다. */}
+                            {msg.confirmedGraph && !msg.clarification && (
+                              <div className={`w-full py-0.5 ${MESSAGE_ENTER_LATE_CLASS}`} data-testid="confirmed-strategy-graph">
+                                <StrategyGraphCard
+                                  input={msg.confirmedGraph}
+                                  title={t("확정된 전략")}
+                                  seen={draftGraphMemoryRef.current.seen}
+                                  // 확정 요약 칩은 "확정된 전략" 제목 줄 아래에 이 카드가 함께 그린다(요약 카드는
+                                  // 대화에 한 장만 — 뒤에 더 새 카드가 있으면 그리지 않는다).
+                                  summary={
+                                    i === latestConfirmedSummaryIndex &&
+                                    latestConfirmedSummaryIndex > latestBuilderPresentationIndex &&
+                                    (msg.confirmedSummaryItems?.length ?? 0) > 0 ? (
+                                      <div data-testid="confirmed-strategy-summary">
+                                        <BuilderStrategyOverview summaryItems={msg.confirmedSummaryItems!} heading={null} />
+                                      </div>
+                                    ) : undefined
+                                  }
+                                />
                               </div>
                             )}
                             {/* 보정·미반영 안내는 되묻기와 **함께** 보여준다. 예전에는 요약 옆에만
@@ -5344,7 +5483,7 @@ function StrategyLabContent() {
                               <div
                                 className={`flex flex-col gap-2.5 py-0.5 ${MESSAGE_ENTER_CLASS}`}
                               >
-                                <BuilderStrategyOverview summaryItems={msg.builderPresentation.summaryItems} />
+                                <DraftStrategyView parsed={msg.parsed} summaryItems={msg.builderPresentation.summaryItems} memory={draftGraphMemoryRef.current} explicitFields={explicitFieldsRef.current} />
                               </div>
                             )}
                             {/* 칩으로 답하는 동안에는 카드를 흐름에서 빼 화면 하단에 고정한다.

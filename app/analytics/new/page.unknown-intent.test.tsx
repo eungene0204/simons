@@ -214,6 +214,10 @@ describe("StrategyLab unknown intent fallback", () => {
           prompt: parsed.description,
         }));
       }
+      // Draft graph previews are a separate, display-only compile; this scenario is about the real calls.
+      if (url === "/api/strategy/compile" && (init?.headers as Record<string, string> | undefined)?.["X-Graph-Draft"] === "1") {
+        return Promise.resolve(new Response("{}", { status: 500 }));
+      }
       if (url === "/api/strategy/compile") {
         // 확정은 재파싱이 아니라 누적 parsed의 컴파일이다 — 칩으로 채운 익절이 담겨 온다.
         const body = JSON.parse(String(init?.body));

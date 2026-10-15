@@ -137,6 +137,10 @@ describe("파스 턴 뒤 되묻기 카드의 '돌아가기'", () => {
             : sseResultResponse({ parsed: parsedWithoutExit, explicit_fields: [] }),
         );
       }
+      // Draft graph previews are a separate, display-only compile; this scenario is about the real calls.
+      if (url === "/api/strategy/compile" && (init?.headers as Record<string, string> | undefined)?.["X-Graph-Draft"] === "1") {
+        return Promise.resolve(new Response("{}", { status: 500 }));
+      }
       if (url === "/api/strategy/builder/step" || url === "/api/strategy/compile") {
         throw new Error(`이 시나리오에서 호출되면 안 되는 경로: ${url}`);
       }

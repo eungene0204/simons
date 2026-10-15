@@ -1,0 +1,359 @@
+{
+ "bindings": {
+  "fundamental_filter:debt_ratio": "fundamental.debt_ratio",
+  "fundamental_filter:per": "fundamental.per",
+  "fundamental_filter:roe_or_gpa": "fundamental.roe_or_gpa",
+  "fundamental_filter:roic": "fundamental.roic",
+  "ranking:return": "ranking.return",
+  "technical_signal:bollinger_bands": "technical.bollinger_bands",
+  "technical_signal:breakout": "technical.breakout",
+  "technical_signal:ema": "technical.ema",
+  "technical_signal:ma_crossover": "technical.ma_crossover",
+  "technical_signal:macd": "technical.macd",
+  "technical_signal:rsi": "technical.rsi",
+  "technical_signal:volume_ratio": "technical.volume_ratio"
+ },
+ "classes": [
+  {
+   "description": "재무제표에서 계산 — ETF(여러 기업을 묶은 상품)에는 사용 불가",
+   "id": "class.fundamental",
+   "name": "재무 지표",
+   "parent": "class.indicator"
+  },
+  {
+   "description": "전략 조건에 쓰이는 모든 지표의 최상위 분류",
+   "id": "class.indicator",
+   "name": "지표",
+   "parent": null
+  },
+  {
+   "description": "두 이동평균선 또는 가격과 한 선의 상하·교차 관계. 임계값 없음(value=null)",
+   "id": "class.moving_average",
+   "name": "이동평균",
+   "parent": "class.technical"
+  },
+  {
+   "description": "과열·침체(과매수·과매도) 판단. 임계값 비교만 지원(</<=/>/>= + value 필수, crosses_* 불가)",
+   "id": "class.oscillator",
+   "name": "모멘텀/오실레이터",
+   "parent": "class.technical"
+  },
+  {
+   "description": "종가의 연속 움직임과 기준 기간 고점·저점 돌파 신호",
+   "id": "class.price_action",
+   "name": "가격 돌파",
+   "parent": "class.technical"
+  },
+  {
+   "description": "이익 창출 능력(이익률·자본 효율·이익 절대 금액)",
+   "id": "class.profitability",
+   "name": "수익성",
+   "parent": "class.fundamental"
+  },
+  {
+   "description": "지표 순 정렬로 상위/하위 N을 선정하는 종목 선정 축(조건이 아니라 랭킹)",
+   "id": "class.ranking",
+   "name": "랭킹",
+   "parent": "class.indicator"
+  },
+  {
+   "description": "재무 건전성(부채·유동성 비율)",
+   "id": "class.stability",
+   "name": "안정성",
+   "parent": "class.fundamental"
+  },
+  {
+   "description": "가격·거래량(OHLCV)에서 계산 — 기업 재무제표와 무관하므로 ETF에서도 사용 가능",
+   "id": "class.technical",
+   "name": "기술 지표",
+   "parent": "class.indicator"
+  },
+  {
+   "description": "추세 방향·강도 판단(MACD 시그널 교차, ADX 임계값)",
+   "id": "class.trend",
+   "name": "추세",
+   "parent": "class.technical"
+  },
+  {
+   "description": "저평가·고평가 판단(가격 대비 이익·자산·매출·현금흐름 배율)",
+   "id": "class.valuation",
+   "name": "밸류에이션",
+   "parent": "class.fundamental"
+  },
+  {
+   "description": "가격 변동 범위 밴드와의 교차(볼린저 밴드)",
+   "id": "class.volatility_band",
+   "name": "변동성 밴드",
+   "parent": "class.technical"
+  },
+  {
+   "description": "거래량·거래대금 기반 신호",
+   "id": "class.volume",
+   "name": "거래량",
+   "parent": "class.technical"
+  }
+ ],
+ "concepts": [],
+ "indicators": {
+  "fundamental.debt_ratio": {
+   "alternatives": [],
+   "category": "stability",
+   "classId": "class.stability",
+   "dataPending": false,
+   "name": "부채비율",
+   "nameEn": "Debt ratio",
+   "operators": [
+    "<",
+    "<=",
+    ">",
+    ">="
+   ],
+   "parameters": {},
+   "partialData": true,
+   "supported": "PARTIALLY_SUPPORTED",
+   "unit": "percent"
+  },
+  "fundamental.per": {
+   "alternatives": [],
+   "category": "valuation",
+   "classId": "class.valuation",
+   "dataPending": false,
+   "name": "PER(주가수익비율)",
+   "nameEn": "P/E ratio",
+   "operators": [
+    "<",
+    "<=",
+    ">",
+    ">="
+   ],
+   "parameters": {},
+   "partialData": true,
+   "supported": "PARTIALLY_SUPPORTED",
+   "unit": "ratio"
+  },
+  "fundamental.roe_or_gpa": {
+   "alternatives": [],
+   "category": "profitability",
+   "classId": "class.profitability",
+   "dataPending": false,
+   "name": "ROE(자기자본이익률)",
+   "nameEn": "ROE",
+   "operators": [
+    "<",
+    "<=",
+    ">",
+    ">="
+   ],
+   "parameters": {},
+   "partialData": true,
+   "supported": "PARTIALLY_SUPPORTED",
+   "unit": "percent"
+  },
+  "fundamental.roic": {
+   "alternatives": [],
+   "category": "profitability",
+   "classId": "class.profitability",
+   "dataPending": false,
+   "name": "ROIC(투하자본이익률)",
+   "nameEn": "ROIC",
+   "operators": [
+    "<",
+    "<=",
+    ">",
+    ">="
+   ],
+   "parameters": {},
+   "partialData": true,
+   "supported": "PARTIALLY_SUPPORTED",
+   "unit": "percent"
+  },
+  "ranking.return": {
+   "alternatives": [],
+   "category": "ranking",
+   "classId": "class.ranking",
+   "dataPending": false,
+   "name": "기간 수익률 랭킹(모멘텀)",
+   "nameEn": "Period return ranking (momentum)",
+   "operators": [],
+   "parameters": {
+    "lookback_days": {
+     "maximum": 500,
+     "minimum": 5,
+     "required": false
+    }
+   },
+   "partialData": false,
+   "supported": "SUPPORTED",
+   "unit": "percent"
+  },
+  "technical.bollinger_bands": {
+   "alternatives": [],
+   "category": "technical",
+   "classId": "class.volatility_band",
+   "dataPending": false,
+   "name": "볼린저 밴드",
+   "nameEn": "Bollinger Bands",
+   "operators": [
+    "crosses_above",
+    "crosses_below"
+   ],
+   "parameters": {
+    "period": {
+     "maximum": 250,
+     "minimum": 5,
+     "required": false
+    }
+   },
+   "partialData": false,
+   "supported": "SUPPORTED",
+   "unit": "event"
+  },
+  "technical.breakout": {
+   "alternatives": [],
+   "category": "technical",
+   "classId": "class.price_action",
+   "dataPending": false,
+   "name": "신고가 돌파",
+   "nameEn": "New-high breakout",
+   "operators": [
+    "crosses_above",
+    "crosses_below"
+   ],
+   "parameters": {
+    "lookback_period": {
+     "maximum": 500,
+     "minimum": 5,
+     "required": true
+    }
+   },
+   "partialData": false,
+   "supported": "SUPPORTED",
+   "unit": "event"
+  },
+  "technical.ema": {
+   "alternatives": [],
+   "category": "technical",
+   "classId": "class.moving_average",
+   "dataPending": false,
+   "name": "지수이동평균(EMA)",
+   "nameEn": "EMA",
+   "operators": [
+    "crosses_above",
+    "crosses_below",
+    ">",
+    "<"
+   ],
+   "parameters": {
+    "long_period": {
+     "maximum": 500,
+     "minimum": 3,
+     "required": false
+    },
+    "short_period": {
+     "maximum": 250,
+     "minimum": 1,
+     "required": false
+    }
+   },
+   "partialData": false,
+   "supported": "SUPPORTED",
+   "unit": "event"
+  },
+  "technical.ma_crossover": {
+   "alternatives": [],
+   "category": "technical",
+   "classId": "class.moving_average",
+   "dataPending": false,
+   "name": "이동평균 크로스오버",
+   "nameEn": "Moving-average crossover",
+   "operators": [
+    "crosses_above",
+    "crosses_below",
+    ">",
+    "<"
+   ],
+   "parameters": {
+    "long_period": {
+     "maximum": 500,
+     "minimum": 3,
+     "required": true
+    },
+    "short_period": {
+     "maximum": 250,
+     "minimum": 1,
+     "required": true
+    }
+   },
+   "partialData": false,
+   "supported": "SUPPORTED",
+   "unit": "event"
+  },
+  "technical.macd": {
+   "alternatives": [],
+   "category": "technical",
+   "classId": "class.trend",
+   "dataPending": false,
+   "name": "MACD",
+   "nameEn": "MACD",
+   "operators": [
+    "crosses_above",
+    "crosses_below"
+   ],
+   "parameters": {},
+   "partialData": false,
+   "supported": "SUPPORTED",
+   "unit": "event"
+  },
+  "technical.rsi": {
+   "alternatives": [],
+   "category": "technical",
+   "classId": "class.oscillator",
+   "dataPending": false,
+   "name": "RSI",
+   "nameEn": "RSI",
+   "operators": [
+    "<",
+    "<=",
+    ">",
+    ">=",
+    "crosses_above",
+    "crosses_below"
+   ],
+   "parameters": {
+    "period": {
+     "maximum": 250,
+     "minimum": 2,
+     "required": false
+    }
+   },
+   "partialData": false,
+   "supported": "SUPPORTED",
+   "unit": "point"
+  },
+  "technical.volume_ratio": {
+   "alternatives": [],
+   "category": "technical",
+   "classId": "class.volume",
+   "dataPending": false,
+   "name": "거래량 배수(평균 대비)",
+   "nameEn": "Volume ratio",
+   "operators": [
+    "<",
+    "<=",
+    ">",
+    ">="
+   ],
+   "parameters": {
+    "period": {
+     "maximum": 250,
+     "minimum": 2,
+     "required": false
+    }
+   },
+   "partialData": false,
+   "supported": "SUPPORTED",
+   "unit": "ratio"
+  }
+ },
+ "version": "fixture"
+}

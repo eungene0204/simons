@@ -1,0 +1,158 @@
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { confirmedInput, executedInput, META } from "@/lib/strategy-graph/fixtures";
+import { resetGraphMetaForTests } from "@/lib/strategy-graph/meta";
+import type { StrategyGraphInput } from "@/lib/strategy-graph/types";
+import StrategyGraphCard from "./StrategyGraphCard";
+import { createGraphSeen } from "./StrategyGraphView";
+
+const fetchMock = vi.fn();
+const ok = () => Promise.resolve({ ok: true, json: async () => META });
+const urls = () => fetchMock.mock.calls.map((c) => String(c[0]));
+
+beforeEach(() => {
+  resetGraphMetaForTests();
+  fetchMock.mockReset();
+  fetchMock.mockImplementation(ok);
+  vi.stubGlobal("fetch", fetchMock);
+});
+afterEach(() => vi.unstubAllGlobals());
+
+const renderCard = (input: StrategyGraphInput, title = "확정된 전략") => render(<StrategyGraphCard input={input} title={title} />);
+const node = (kind: string, text: string) =>
+  Array.from(document.querySelectorAll(`[data-kind="${kind}"]`)).find((n) => n.textContent?.includes(text)) as SVGGElement;
+
+describe("StrategyGraphCard", () => {
+  it("shows the confirmed graph without any extra open action and only calls the public metadata endpoint", async () => {
+    renderCard(confirmedInput("goldenCrossRsiAnd"));
+    expect(await screen.findByTestId("strategy-graph-canvas")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "확정된 전략" })).toBeInTheDocument();
+    expect(node("section", "매수 규칙")).toBeTruthy();
+    expect(node("condition", "RSI(14) < 70")).toBeTruthy();
+    expect(urls()).toEqual(["/api/strategy/graph-meta"]);
+  });
+
+  it("shows parameter leaves for a small strategy but keeps the classification hierarchy collapsed", async () => {
+    renderCard(confirmedInput("goldenCrossRsiAnd"));
+    await screen.findByTestId("strategy-graph-canvas");
+    expect(document.querySelector('[data-kind="indicator"]')).not.toBeNull();
+    expect(document.querySelector('[data-kind="class"]')).toBeNull();
+  });
+
+  it("starts a large strategy collapsed and opens a condition's details only when it is selected", async () => {
+    renderCard(confirmedInput("krComplex"));
+    await screen.findByTestId("strategy-graph-canvas");
+    expect(document.querySelector('[data-kind="indicator"]')).toBeNull();
+    fireEvent.click(node("condition", "RSI(14)"));
+    expect(document.querySelectorAll('[data-kind="indicator"]')).toHaveLength(1);
+  });
+
+  it("selecting a condition highlights its direct relations and dims the rest", async () => {
+    renderCard(confirmedInput("goldenCrossRsiAnd"));
+    await screen.findByTestId("strategy-graph-canvas");
+    fireEvent.click(node("condition", "RSI(14) < 70"));
+    expect(node("condition", "RSI(14) < 70").getAttribute("aria-pressed")).toBe("true");
+    expect(node("condition", "RSI(14) < 70").getAttribute("opacity")).toBe("1");
+    expect(node("section", "매도 규칙").getAttribute("opacity")).toBe("0.3");
+    // classification nodes are not part of the graph view any more
+    expect(document.querySelector('[data-kind="class"]')).toBeNull();
+  });
+
+  it("supports keyboard selection and Escape to clear", async () => {
+    renderCard(confirmedInput("goldenCrossRsiAnd"));
+    await screen.findByTestId("strategy-graph-canvas");
+    const cond = node("condition", "RSI(14) < 70");
+    cond.focus();
+    fireEvent.keyDown(cond, { key: "Enter" });
+    expect(cond.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.keyDown(cond, { key: "Escape" });
+    expect(cond.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("text view lists the same items as the graph", async () => {
+    renderCard(confirmedInput("krComplex"));
+    await screen.findByTestId("strategy-graph-canvas");
+    const graphLabels = Array.from(document.querySelectorAll("[data-node-id]"))
+      .filter((n) => !["strategy", "section", "indicator", "class"].includes(n.getAttribute("data-kind") as string))
+      .map((n) => n.getAttribute("data-node-id"));
+    fireEvent.click(screen.getByRole("button", { name: /텍스트로 보기/ }));
+    const textIds = Array.from(document.querySelectorAll("[data-outline-id]")).map((n) => n.getAttribute("data-outline-id"));
+    expect(textIds.sort()).toEqual(graphLabels.sort());
+  });
+
+  it("separates a metadata failure from the graph and retries only the metadata endpoint", async () => {
+    fetchMock.mockImplementationOnce(() => Promise.resolve({ ok: false, status: 502, json: async () => ({}) }));
+    renderCard(confirmedInput("goldenCrossRsiAnd"));
+    const banner = await screen.findByTestId("graph-meta-error");
+    expect(node("condition", "RSI(14)")).toBeTruthy(); // structure still shown
+    expect(document.querySelector('[data-kind="indicator"]')).toBeNull();
+    fireEvent.click(within(banner).getByRole("button", { name: "다시 시도" }));
+    await waitFor(() => expect(screen.queryByTestId("graph-meta-error")).toBeNull());
+    expect(urls()).toEqual(["/api/strategy/graph-meta", "/api/strategy/graph-meta"]);
+  });
+
+  it("retries a graph build error from the same snapshot without any network call", async () => {
+    let failures = 1;
+    const base = confirmedInput("goldenCrossRsiAnd");
+    const request = new Proxy(base.request as object, {
+      get(target, key, receiver) {
+        if (failures > 0 && key === "universe_id") {
+          failures -= 1;
+          throw new Error("boom");
+        }
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    renderCard({ ...base, request: request as never });
+    const alert = await screen.findByTestId("graph-build-error");
+    const callsBefore = fetchMock.mock.calls.length;
+    fireEvent.click(within(alert).getByRole("button", { name: "다시 시도" }));
+    await screen.findByTestId("strategy-graph-canvas");
+    expect(fetchMock.mock.calls.length).toBe(callsBefore);
+  });
+
+  it("shows the no-snapshot state instead of falling back to a current strategy", async () => {
+    renderCard({ origin: "none", schema: "none", sourceRef: "history:old" }, "실행된 전략");
+    expect(screen.getByTestId("graph-no-snapshot")).toHaveTextContent("이 실행의 전략 스냅샷이 저장되어 있지 않습니다.");
+    expect(document.querySelector("[data-node-id]")).toBeNull();
+  });
+
+  it("shows an empty state for a strategy without sections", async () => {
+    renderCard({ origin: "confirmed", schema: "parsed+request", sourceRef: "c", parsed: {} as never, request: { entry: {}, exit: {}, risk: {} } });
+    expect(await screen.findByTestId("graph-empty")).toBeInTheDocument();
+  });
+
+  it("executed snapshots use the executed label and keep the confirmed card unchanged", async () => {
+    const { unmount } = renderCard(executedInput("goldenCrossRsiAnd"), "실행된 전략");
+    await screen.findByTestId("strategy-graph-canvas");
+    expect(screen.getByRole("heading", { name: "실행된 전략" })).toBeInTheDocument();
+    expect(screen.getByTestId("graph-notes")).toHaveTextContent("미정 항목과 조건별 원문 인용은 확인할 수 없습니다");
+    unmount();
+  });
+
+  it("animates only what is new: a later card sharing the memory redraws nothing that already existed", async () => {
+    const seen = createGraphSeen();
+    const enterOf = (key: string) => document.querySelector(`[data-item-key="${key}"] .sg-enter`);
+    const first = render(<StrategyGraphCard input={confirmedInput("goldenCrossRsiAnd")} title="초안" seen={seen} />);
+    await screen.findByTestId("strategy-graph-canvas");
+    // First draw: everything is new and animates in.
+    expect(enterOf("node:strategy")).not.toBeNull();
+    expect(enterOf("node:cond:entry/entry.1")).not.toBeNull();
+    first.unmount();
+
+    // Next turn: a bigger strategy of the same conversation.
+    render(<StrategyGraphCard input={confirmedInput("entryOrWithFilters")} title="초안" seen={seen} />);
+    await screen.findByTestId("strategy-graph-canvas");
+    // Same item keys as before (strategy root, entry section pill, first RSI condition) are not replayed...
+    expect(enterOf("node:strategy")).toBeNull();
+    expect(enterOf("pill:section:entry:매수 규칙")).toBeNull();
+    // ...while items that did not exist before (the filter section) animate in.
+    expect(enterOf("pill:section:filters:종목 선정 필터")).not.toBeNull();
+    // Existing edges are not redrawn, new ones are.
+    const drawn = Array.from(document.querySelectorAll("path.sg-draw")).length;
+    const all = document.querySelectorAll("path.sg-edge").length;
+    expect(drawn).toBeGreaterThan(0);
+    expect(drawn).toBeLessThan(all);
+  });
+});

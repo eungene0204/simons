@@ -843,6 +843,60 @@ Represent and execute a user's strict comparison of the latest reported quarter'
 
 ---
 
+## Boundary X: Strategy Ontology Graph
+
+### Purpose
+사용자의 확정·실행 전략 스냅샷을 읽기 전용 온톨로지 그래프로 보여 주는 기능 전용 boundary. 공개 지표 메타데이터 전달,
+스냅샷→그래프 순수 변환, 그래프 UI, 세 진입점(확정 카드·결과 화면·저장된 결과 상세) 연결만 다룬다.
+계약·작업 명세: `docs/development/strategy-ontology-graph.md`. 상태: 구현 완료(2026-10-15, X-1~X-7).
+
+### Files
+수정(기존 파일):
+- backend/main.py (`include_router` 한 줄만)
+- app/analytics/new/page.tsx (확정 성공 가지의 스냅샷 보존·그래프 카드 렌더, 실행 시점 스냅샷 사본 전달, 되묻기 중 초안 요약 카드를 초안 그래프로 대체하는 DraftStrategyView만)
+- components/strategy/backtest/BacktestDashboard.tsx (전략 설명 영역의 그래프 진입점만)
+- app/backtest/[id]/page.tsx (저장된 실행 스냅샷 전달만)
+- lib/i18n/en.ts (그래프 신규 문구 번역만)
+- app/analytics/new/page.confirm.test.tsx (확정 자동 표시 사례 추가만)
+- app/backtest/[id]/page.test.tsx (그래프 스냅샷 전달 사례 추가만)
+- app/analytics/new/page.back-after-parse.test.tsx, page.scroll.test.tsx, page.unknown-intent.test.tsx (초안 그래프 미리보기용 compile 호출을 시나리오 mock에서 구분하는 가드만)
+
+신규(새로 만들 파일):
+- backend/strategy_conversation/registry/public_metadata.py
+- backend/api/strategy_graph_meta_routes.py
+- backend/tests/test_strategy_graph_meta.py
+- app/api/strategy/graph-meta/route.ts
+- app/api/strategy/graph-meta/route.test.ts
+- lib/strategy-graph/** (types, snapshot, meta, useGraphMeta, conditions, graphBuilder, transform*, concepts, textOutline, layout, fixtures, __fixtures__/*.json 및 각 *.test.ts)
+- components/strategy/graph/** (StrategyGraphView, StrategyGraphDetail, StrategyGraphText, StrategyGraphCard, graphLabels 및 *.test.tsx)
+- components/strategy/backtest/BacktestDashboard.strategyGraph.test.tsx
+- docs/development/strategy-ontology-graph.md
+
+### Allowed Tasks
+- IndicatorSpec/REGISTRY·온톨로지에서 공개 가능한 이름·단위·지원 상태·파라미터 범위·분류·개념 관계를 결정론적으로 추출해 읽기 전용 응답으로 제공
+- 출처가 명시된 스냅샷 입력 래퍼와 순수 그래프 변환(React·네트워크 의존 없음)
+- 자체 SVG 그래프·상세 패널·텍스트 보기·크게 보기 UI (신규 의존성 없음)
+- 확정 성공 시점과 백테스트 결과·저장 결과의 스냅샷을 그래프에 연결
+- 위 경로의 회귀 테스트 추가
+
+### Strict Rules
+- 한 작업은 이 boundary 안에서 3~5개 파일, 가능하면 200줄 미만으로 나눈다. 코드 작업과 Governance 문서 갱신은 별도 작업이다.
+- 기존 공개 응답·`types/strategy.ts`·전략 공개 계약을 변경하지 않는다. 그래프 전용 입력 래퍼만 새로 둔다.
+- 스냅샷은 확정 응답(`/strategy/compile`의 parsed·backtest_request·notices) 또는 실행 시점 요청(`executedReq`, 저장된 `result.executedRequest`)만 쓴다. `latestParsed`·`backtestReq`·`item.settings`를 실행/확정 스냅샷 대용으로 쓰지 않는다.
+- 표시용 요약 문자열을 역파싱하지 않는다. 사용자 원문에 정규식·키워드로 의미를 판정하지 않는다. LLM·검색을 호출하지 않는다.
+- 지표별 이름·단위·기본값·매매 의미 사전을 프론트엔드에 복제하지 않는다. `default`·`recommended_value`로 미정 사용자 값을 채우지 않는다.
+- 공개 메타데이터에는 사용자 전략·원문·다른 사용자 데이터, 관리자 진단(issues)을 싣지 않는다. 관리자 엔드포인트(`/api/admin/ontology/graph`)를 사용자 화면에서 호출하지 않는다.
+- 새 의존성이나 파일이 필요하면 구현 전에 이 목록과 `strategy-ontology-graph.md`를 먼저 갱신한다.
+
+### Forbidden
+- 전략 해석·검증·컴파일·백테스트 실행 코드(`backend/engine/**`, `backend/strategy_conversation/{interpreter,compiler,validation}/**`, `backend/engine/nl_parser.py`) 변경
+- 인증·세션·소유권 로직, `/api/backtest/history/**`의 소유권 검사 변경
+- DB 스키마(`prisma/**`) 변경
+- 그래프 DB, 그래프 편집으로 전략 변경, 추천·전망·성과 비교 기능
+- 범용 스크립트(`scripts/**`) 변경
+
+---
+
 ## Global Forbidden Paths
 
 Codex must NEVER modify:

@@ -2216,3 +2216,27 @@ Next 라우트 핸들러 ─► lib/server/backend.ts fetchBackend ─► X-UI-L
 예시 검증은 고정 입력의 backend 회귀, frontend 단위 검사, 실모델 API 전수 검사 및 그 응답의 표시 스윕으로 구분한다. 이번 현재 코드 검사에서 관련 회귀 181개와 frontend 2,436개가 통과했지만 외부 전송 승인 차단으로 새 실모델 응답은 없고, US 의미 게이트는 정답표가 없어 실행되지 않았다. 아키텍처 및 제품 코드 변경은 없다. [실행 명령·결과](development/example-tests-2026-10-15.md).
 
 사용자 명시 승인 후 한국 82개를 현재 무료 OpenRouter 모델로 새 전수 실행한 결과 **82/82 PASS**, 치명·미탐지·종목수·미대조 수치 0, 이번 응답의 화면 표시 **82/82·결함 0**을 확인했다. 모델 호출 305회 모두 동일 모델 정상 응답, 전송 오류·캐시 히트 0, 약 25분 소요. 승인 전 차단 상태는 해소됐고 미국 검사는 사용자 지시로 제외했다. 제품 코드 변경 없이 테스트 전용 서버를 종료했다. [승인 후 결과](development/example-tests-2026-10-15.md#사용자-승인-후-한국-82개-실모델-검사--pass).
+
+
+### 전략 온톨로지 그래프 — 읽기 전용 구조 보기 (2026-10-15)
+
+사용자가 "서비스가 내 전략을 어떻게 이해했는지"를 구조로 확인하는 기능이다. 전략 해석·검증·컴파일·실행 경로는 바꾸지 않는다. 계약·결정·제한은 [strategy-ontology-graph.md](development/strategy-ontology-graph.md), boundary는 `docs/architecture/boundaries.md` Boundary X.
+
+```text
+확정 응답 {parsed, backtest_request, notices}  ─┐ (이 전략으로 확정 성공, 한 건씩 메시지에 보존)
+실행 시점 요청 executedReq                      ─┼→ StrategyGraphInput(origin·schema·sourceRef)
+저장된 result.executedRequest                  ─┘          │
+GET /api/strategy/graph-meta ← 백엔드 /strategy/graph-meta   ▼
+(REGISTRY·온톨로지에서 결정론 추출, 공개 필드만)   buildStrategyGraph(input, meta)  — 순수 함수
+                                                  → nodes / edges / notes / metaState
+                                                  → SVG 그래프 · 텍스트 구조 · 상세 패널
+```
+
+- **공개 메타데이터** `backend/strategy_conversation/registry/public_metadata.py` — 지표 잎의 이름·영어 이름·단위·지원 상태·파라미터 범위·분류와 엔진 바인딩 색인("종류:필드"→잎), 분류·개념 관계만 낸다. 관리자 덤프(`/ontology/graph`)와 달리 issues·내부 메모·동의어·**기본값(default·recommended_value)**을 싣지 않는다. 사용자 전략·원문을 받지 않고 LLM·검색을 부르지 않는다. 프록시 `app/api/strategy/graph-meta/route.ts`는 세션이 필요 없다(사용자 데이터 없음).
+- **스냅샷 선택** `lib/strategy-graph/snapshot.ts` — 확정(`parsed+request`)/실행(`request`)/스냅샷 없음. 저장 결과는 `result.executedRequest`만 받고 `item.settings`(현재 전략)는 인자로 받지 않는다.
+- **순수 변환** `lib/strategy-graph/*` — 실행 의미는 `signals.py`·`simulator.py`와 대조해 고정했다: 진입 `logic`은 **필터가 아닌 신호 조건에만**, 필터는 **항상 AND**, 청산은 `logic`이 없으면 엔진 기본 OR(진입 논리를 청산에 쓰지 않음), 위험 청산은 최대 보유기간 → 손절 → 익절 → 트레일링 순(OR 평탄화 금지). 손절·익절은 매수가·장중 저/고가, 트레일링은 보유 중 장중 고점, 최대 보유는 거래일, 종목당 비중은 진입 시점 총자산 기준. 0·false는 유효 값, 교차는 "기준값 해당 없음", 값이 필요한데 없으면 "미정". ID는 스냅샷 안의 경로에서 결정론적으로 만든다.
+- **UI** `components/strategy/graph/*` — 자체 SVG(신규 의존성 없음): 확대·축소·화면에 맞추기, 선택·직접 관계 강조, 상세 패널, 개념·분류 점진 펼침, 범례, 그래프/텍스트 전환, 크게 보기(`useDialogBehavior`), 오류·재시도(확정·LLM 재호출 없음).
+- **진입점** 전략연구소 확정 카드(자동, `applyBuilderConfirmedStrategy` 성공 가지), 결과 화면 "전략 그래프"(`executedReq`), `/backtest/[id]`(`result.executedRequest`).
+- 플래너 State DAG와는 별개 개념이다 — 실행 단계·대화 순서를 섞지 않는다.
+
+- **초안 그래프(2026-10-16)**: 되묻기 중 요약 카드(`builderPresentation`)는 `DraftStrategyView`가 그 카드의 `parsed`를 `/api/strategy/compile`로 컴파일한 한 쌍(`origin: draft`)으로 그래프를 그린다(컴파일 실패 시 텍스트 요약). LLM 호출 없음.

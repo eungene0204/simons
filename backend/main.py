@@ -168,6 +168,10 @@ app.include_router(coach_router)
 from api.intent_routes import router as intent_router
 app.include_router(intent_router)
 
+# 전략 그래프용 공개 지표 메타데이터(읽기 전용)
+from api.strategy_graph_meta_routes import router as strategy_graph_meta_router
+app.include_router(strategy_graph_meta_router)
+
 # 운영 콘솔 실패 분류(관찰 계층 Trace 읽기 뷰)
 from api.observability_routes import router as observability_router
 app.include_router(observability_router)

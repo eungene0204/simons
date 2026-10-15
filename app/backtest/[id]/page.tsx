@@ -16,6 +16,7 @@ import {
 } from "../../analytics/new/parsedStrategyMerge";
 import { runWalkForwardStream, type WalkForwardProgressHandler } from "../../analytics/new/walkForwardStream";
 import { t } from "@/lib/i18n";
+import { fromSavedHistory } from "@/lib/strategy-graph/snapshot";
 
 const backtestEmptyStateClassName =
   "flex min-h-[calc(100dvh-var(--top-menu-bar-height,76px))] flex-col items-center justify-center gap-4 px-4 text-center text-gray-500";
@@ -170,6 +171,9 @@ export default function BacktestDetailPage() {
           riskScore={item.metrics.riskScore}
           overfitRisk={item.metrics.overfitRisk}
           strategySummary={{ ...strategySummary, universeName: strategySummary.universeName ?? "", strategyName: strategySummary.strategyName ?? "" }}
+          // The graph reads ONLY the request saved with this run. item.settings is the CURRENT
+          // strategy row and is deliberately not used here.
+          strategyGraphInput={fromSavedHistory({ historyId: item.id, result: item.result })}
         />
       </div>
     </DashboardLayout>

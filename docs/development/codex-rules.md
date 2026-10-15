@@ -36,6 +36,7 @@ Allowed:
 - App Shell / Navigation
 - Pricing / Plan UI
 - Governance / Policy Docs
+- Strategy Ontology Graph (Boundary X — read-only strategy graph; see boundaries.md)
 
 Never mix boundaries in one task.
 
