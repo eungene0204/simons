@@ -219,6 +219,14 @@ TypeScript uses 2-space indentation, double quotes, and PascalCase component nam
 Python follows PEP 8 with 4-space indentation, snake_case functions, and pytest fixtures in `conftest.py`. Linting currently relies on `next/core-web-vitals`; there is no separate Prettier or Ruff config in this repo, so match the surrounding file style closely.
 
 ## Testing Guidelines
+
+### 미국 검사 제외 (사용자 지시, 2026-10-15)
+
+- 사용자가 미국 검사를 명시적으로 다시 요청하기 전까지 미국(US) 전용 검사·예시 게이트·실모델 호출을 별도로 실행하거나 실행 가능 여부를 시험하지 않는다.
+- “예시 모두”, “전체 테스트” 같은 일반 요청의 예시 전수 검사 범위는 한국(KR)만이다. `qa_template_detect.py --source us`도 시도하지 않는다.
+- 미국 검사는 사용자 지시로 범위에서 제외된 것으로 보고한다. 정답표 부재 등을 확인하려고 매번 재시도하거나 재승인을 요청하지 않는다.
+- 저장소가 의무화한 공통 단위 테스트 명령은 유지한다. 그 스위트에 포함된 미국 관련 단위 테스트 때문에 별도 미국 게이트를 실행하거나 스위트를 임의 수정하지 않는다.
+
 Frontend tests use Vitest and Testing Library with `*.test.ts` or `*.test.tsx` names. Backend tests use pytest with `test_*.py` files. Add regression tests for API routes, strategy logic, and backtest engine changes, especially when fixing production bugs.
 
 When fixing a bug, add or update a unit/regression test that reproduces the original failure so the issue is prevented from recurring. Prefer tests that cover the exact broken path, such as fallback behavior for corrupted files, Git LFS pointer files, or malformed inputs.

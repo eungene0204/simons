@@ -55,6 +55,8 @@ If acceptance criteria is unclear → DO NOT RUN Codex.
 
 ### 3. Mandatory Test Execution
 
+User scope override (2026-10-15): US-specific checks, example gates, live-model calls, and execution probes are excluded until the user explicitly requests US testing again. General requests such as "all examples" mean KR examples only. Do not retry `qa_template_detect.py --source us`, probe missing expectations, or repeatedly request US approval. Report US as excluded by user instruction. Keep required shared unit-test commands intact even when their existing suites contain US-related unit tests; they do not authorize a separate US gate.
+
 Every Codex task must include:
 
 - Exact test command
