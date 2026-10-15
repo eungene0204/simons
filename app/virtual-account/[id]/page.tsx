@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useTransition } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, usePathname } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import VirtualTradingDashboard from "@/components/dashboard/VirtualTradingDashboard";
@@ -16,10 +16,11 @@ import {
   executeTrade,
   refreshAccountValue,
   updateTradingMode,
+  updateAccountVisibility,
   updateAccountStrategy,
 } from "@/lib/portfolio";
 import { getMarketLogs, type VirtualMarketLog } from "@/lib/virtual-market";
-import { Plus, Robot, Spinner, TrendUp } from "phosphor-react";
+import { Globe, Lock, Plus, Robot, Spinner, TrendUp } from "phosphor-react";
 import OrderBook from "@/components/order/OrderBook";
 import PortfolioPerformanceChart from "@/components/portfolio/PortfolioPerformanceChart";
 import StockSearchModal from "@/components/stock/StockSearchModal";
@@ -119,6 +120,8 @@ export default function VirtualAccountDetailPage() {
   const regionHref = useRegionHref();
   const params = useParams();
   const accountId = params.id as string;
+  // 공개 열람(/shared/virtual-account/{id}) — 같은 화면을 읽기 전용으로 보여준다(로그인·소유자 API 없음).
+  const isPublicView = (usePathname() ?? "").includes("/shared/virtual-account/");
 
   const [account, setAccount] = useState<(VirtualAccount & { cashEvents?: CashEvent[] }) | null>(null);
   const [holdings, setHoldings] = useState<PortfolioHolding[]>([]);
@@ -200,6 +203,7 @@ export default function VirtualAccountDetailPage() {
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   const handleForceLiquidate = async (symbol: string) => {
+    if (isPublicView) return;
     if (
       !(await confirm({
         title: t("{0} 포지션을 강제청산하시겠습니까?", symbol),
@@ -235,6 +239,7 @@ export default function VirtualAccountDetailPage() {
   );
 
   useEffect(() => {
+    if (isPublicView) return;
     const cached = readAccountDetailCache(accountId);
     if (!cached) return;
 
@@ -292,16 +297,20 @@ export default function VirtualAccountDetailPage() {
     const interval = setInterval(async () => {
       // 백그라운드 탭에서는 폴링을 쉬게 한다.
       if (document.hidden) return;
+      if (isPublicView) {
+        await loadPublicAccountData();
+        return;
+      }
       const result = await refreshAccountValue(accountId);
       if (!result) return;
       setAccount(result.account);
       setHoldings(resolveHoldingDisplayNames(result.holdings, stockMetadata));
-    }, 3000);
+    }, isPublicView ? 10000 : 3000);
     return () => clearInterval(interval);
   }, [accountId, stockMetadata]);
 
   useEffect(() => {
-    if (!accountId) return;
+    if (!accountId || isPublicView) return;
     loadSignalLogs();
     const interval = setInterval(() => {
       if (document.hidden) return;
@@ -356,7 +365,7 @@ export default function VirtualAccountDetailPage() {
   // 연결된 전략(strategyId)이 실제로 바뀔 때만 한 번 조회한다.
   useEffect(() => {
     const strategyId = account?.strategyId;
-    if (!strategyId) {
+    if (!strategyId || isPublicView) {
       setDbStrategyDescription(null);
       setDbStrategySettings(null);
       setDbStrategyHistorySummary(null);
@@ -395,7 +404,30 @@ export default function VirtualAccountDetailPage() {
     void refreshVirtualAccountOverviewCache();
   }, [isMissingStrategyModalOpen, router]);
 
+  const loadPublicAccountData = async () => {
+    const res = await fetch(`/api/shared/virtual-account/${accountId}`).catch(() => null);
+    if (!res || !res.ok) {
+      setIsPublicNotFound(true);
+      setIsTrackedSymbolsLoading(false);
+      setIsSignalLogsLoading(false);
+      return;
+    }
+    const data = await res.json();
+    setAccount(data.account as VirtualAccount & { cashEvents?: CashEvent[] });
+    setHoldings(resolveHoldingDisplayNames(data.holdings ?? [], stockMetadataRef.current));
+    setTransactions(
+      [...(data.transactions as Transaction[])].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      )
+    );
+    setTrackedSymbols(data.trackedSymbols ?? []);
+    setSignalLogs(data.signalLogs ?? []);
+    setIsTrackedSymbolsLoading(false);
+    setIsSignalLogsLoading(false);
+  };
+
   const loadAccountData = async () => {
+    if (isPublicView) return loadPublicAccountData();
     // 계정 정보(account/holdings/transactions)와 모니터링 종목(trackedSymbols)을 같은
     // Promise.all로 묶으면 두 상태가 항상 같은 렌더에서 함께 확정되어, 전체 페이지 스피너가
     // 걷힌 시점엔 이미 isTrackedSymbolsLoading도 false라 shimmer가 보일 틈이 없다.
@@ -451,6 +483,7 @@ export default function VirtualAccountDetailPage() {
   };
 
   const handleRemoveTrackedSymbol = async (symbol: string) => {
+    if (isPublicView) return;
     const merged = trackedSymbols.filter((s) => s.symbol !== symbol);
     const symbolList = merged.map((s) => s.symbol);
     try {
@@ -522,7 +555,49 @@ export default function VirtualAccountDetailPage() {
   };
 
   const handleStockSelect = (symbol: string, name: string) => {
+    if (isPublicView) return;
     router.push(regionHref(`/stock-order?symbol=${symbol}&name=${encodeURIComponent(name)}`));
+  };
+
+  const [isPublicNotFound, setIsPublicNotFound] = useState(false);
+  const [isUpdatingVisibility, setIsUpdatingVisibility] = useState(false);
+  const [visibilityTip, setVisibilityTip] = useState<string | null>(null);
+  const visibilityTipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showVisibilityTip = (message: string) => {
+    setVisibilityTip(message);
+    if (visibilityTipTimer.current) clearTimeout(visibilityTipTimer.current);
+    visibilityTipTimer.current = setTimeout(() => setVisibilityTip(null), 3000);
+  };
+  useEffect(() => () => {
+    if (visibilityTipTimer.current) clearTimeout(visibilityTipTimer.current);
+  }, []);
+
+  const handleVisibilityClick = async () => {
+    if (!account) return;
+    const nextPublic = !account.isPublic;
+    setIsUpdatingVisibility(true);
+    try {
+      const updated = await updateAccountVisibility(accountId, nextPublic);
+      const nextAccount = { ...account, isPublic: updated.isPublic === true };
+      setAccount(nextAccount);
+      writeAccountDetailCache(accountId, { account: nextAccount, holdings, transactions, trackedSymbols });
+      void refreshVirtualAccountOverviewCache({ force: true });
+      if (nextAccount.isPublic) {
+        const link = `${window.location.origin}/shared/virtual-account/${accountId}`;
+        try {
+          await navigator.clipboard.writeText(link);
+          showVisibilityTip(t("공개로 전환했습니다. 공유 링크를 복사했어요."));
+        } catch {
+          showVisibilityTip(t("공개로 전환했습니다. 공유 링크: {0}", link));
+        }
+      } else {
+        showVisibilityTip(t("비공개로 전환했습니다."));
+      }
+    } catch {
+      showVisibilityTip(t("공개 설정을 변경하지 못했습니다."));
+    } finally {
+      setIsUpdatingVisibility(false);
+    }
   };
 
   const handleAutoTradingClick = async () => {
@@ -572,6 +647,7 @@ export default function VirtualAccountDetailPage() {
   };
 
   const handleStrategyReplaceClick = async () => {
+    if (isPublicView) return;
     try {
       const response = await fetch("/api/strategy");
       const strategies = response.ok ? await response.json() : [];
@@ -661,6 +737,16 @@ export default function VirtualAccountDetailPage() {
     const filledTradeCount = transactions.filter((tv) => tv.status === "FILLED").length;
     return { profit: p, profitPercent: pp, holdingsCost, todayPnl, todayPnlPct, performanceData, hasCompletePerformanceHistory, activeDays: days, investedValue, cashRatio, filledTradeCount };
   }, [account, holdings, transactions]);
+
+  if (!account && isPublicNotFound) {
+    return (
+      <DashboardLayout userName={t("사용자")}>
+        <div className="flex min-h-[calc(100dvh-var(--top-menu-bar-height,76px))] items-center justify-center px-6 text-center">
+          <p className="text-sm font-bold text-gray-400">{t("공개되지 않았거나 존재하지 않는 계좌입니다.")}</p>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   if (!account) {
     return (
@@ -879,7 +965,7 @@ export default function VirtualAccountDetailPage() {
               {riskItems.length > 0 && (
                 <DelistingRiskBanner
                   items={riskItems}
-                  onForceLiquidate={handleForceLiquidate}
+                  onForceLiquidate={isPublicView ? undefined : handleForceLiquidate}
                 />
               )}
 
@@ -890,6 +976,11 @@ export default function VirtualAccountDetailPage() {
                   {isClosedAccount ? (
                     <span className="inline-flex items-center rounded-lg border border-white/[0.08] px-2.5 py-1 text-[11px] font-bold text-gray-500">
                       {t("삭제된 계좌")}
+                    </span>
+                  ) : isPublicView ? (
+                    <span className="inline-flex items-center gap-1 rounded-lg border border-sky-400/25 bg-sky-500/10 px-2 py-1 text-[10px] font-black text-sky-300">
+                      <Globe size={10} weight="bold" />
+                      {t("공개 · 읽기 전용")}
                     </span>
                   ) : (
                     <div className="flex items-center gap-1.5">
@@ -912,20 +1003,31 @@ export default function VirtualAccountDetailPage() {
                         <Robot size={10} weight="bold" />
                         {account.tradingMode === "auto" ? t("시뮬레이션 ON") : t("시뮬레이션 OFF")}
                       </button>
-                      <span
-                        className="group relative flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-white/[0.14] text-[10px] font-black text-gray-500 transition-colors duration-200 hover:border-white/[0.28] hover:text-white focus:outline-none focus:ring-2 focus:ring-white/20"
-                        role="button"
-                        tabIndex={0}
-                        aria-label={t("시뮬레이션 토글 설명")}
+                      <span className="relative inline-flex">
+                      <button
+                        type="button"
+                        onClick={handleVisibilityClick}
+                        disabled={isUpdatingVisibility}
+                        aria-pressed={account.isPublic === true}
+                        className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[10px] font-black transition-colors duration-200 ${
+                          account.isPublic
+                            ? "border-sky-400/25 bg-sky-500/10 text-sky-300"
+                            : "border-white/[0.08] bg-white/[0.03] text-gray-500 hover:border-white/[0.16] hover:text-gray-300"
+                        } disabled:cursor-not-allowed disabled:opacity-60`}
                       >
-                        <span aria-hidden="true">?</span>
+                        {account.isPublic ? <Globe size={10} weight="bold" /> : <Lock size={10} weight="bold" />}
+                        {account.isPublic ? t("공개") : t("비공개")}
+                      </button>
+                      {visibilityTip && (
                         <span
-                          className="pointer-events-none fixed inset-x-4 bottom-4 z-50 w-auto rounded-lg border border-white/[0.08] bg-[#1c1c1c] px-3 py-2 text-left text-xs font-bold leading-5 text-gray-300 opacity-0 shadow-xl transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 lg:absolute lg:inset-x-auto lg:bottom-auto lg:left-1/2 lg:top-full lg:z-30 lg:mt-2 lg:w-56 lg:-translate-x-1/2"
-                          data-testid="auto-trading-help-tooltip"
+                          role="status"
+                          data-testid="visibility-tooltip"
+                          className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 w-56 -translate-x-1/2 rounded-lg border border-white/[0.08] bg-[#1c1c1c] px-3 py-2 text-left text-xs font-bold leading-5 text-gray-300 shadow-xl"
                         >
-                          {t("ON이면 전략 조건을 만족할 때 가상 거래가 실행됩니다.")}
-                          <span className="absolute -top-[5px] left-1/2 hidden h-2.5 w-2.5 -translate-x-1/2 rotate-45 border-l border-t border-white/[0.08] bg-[#1c1c1c] lg:block" />
+                          {visibilityTip}
+                          <span className="absolute -top-[5px] left-1/2 h-2.5 w-2.5 -translate-x-1/2 rotate-45 border-l border-t border-white/[0.08] bg-[#1c1c1c]" />
                         </span>
+                      )}
                       </span>
                     </div>
                   )}
@@ -938,6 +1040,7 @@ export default function VirtualAccountDetailPage() {
                     </span>
                   )}
                 </div>
+                {!isPublicView && (
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
@@ -949,6 +1052,7 @@ export default function VirtualAccountDetailPage() {
                     {t("계좌닫기")}
                   </button>
                 </div>
+                )}
               </div>
 
               {/* KPI 5개 */}
@@ -1038,6 +1142,7 @@ export default function VirtualAccountDetailPage() {
                       <span className="text-xs font-bold text-gray-500 bg-white/[0.05] px-2.5 py-0.5 rounded-md">
                         {t("{0}개", trackedSymbols.length)}
                       </span>
+                      {!isPublicView && (
                       <button
                         type="button"
                         onClick={() => setIsStockSearchOpen(true)}
@@ -1047,6 +1152,7 @@ export default function VirtualAccountDetailPage() {
                         <Plus size={13} weight="bold" />
                         {t("종목 추가")}
                       </button>
+                      )}
                     </div>
                   </div>
                   {isTrackedSymbolsLoading ? (
@@ -1087,7 +1193,7 @@ export default function VirtualAccountDetailPage() {
                                 hasHolding={!!holding}
                                 listingStatus={ls}
                                 onSelect={handleStockSelect}
-                                onRemove={handleRemoveTrackedSymbol}
+                                onRemove={isPublicView ? undefined : handleRemoveTrackedSymbol}
                                 formatPrice={formatPrice}
                               />
                             );
@@ -1111,23 +1217,27 @@ export default function VirtualAccountDetailPage() {
                       </h2>
                       <p className="text-xs text-gray-500 mt-0.5">{t("현재 계좌에 적용된 매매 전략")}</p>
                     </div>
+                    {!isPublicView && (
                     <button
                       onClick={handleStrategyReplaceClick}
                       className="inline-flex items-center rounded-xl px-3 py-1.5 text-xs font-bold text-[var(--main-blue)] transition-colors duration-200 hover:text-[var(--main-blue)]/80"
                     >
                       {t("전략 교체")}
                     </button>
+                    )}
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-track]:bg-transparent space-y-3">
                     {strategies.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-full gap-2">
                         <p className="text-sm font-bold text-gray-600">{t("연결된 전략이 없습니다")}</p>
+                        {!isPublicView && (
                         <button
                           onClick={handleStrategyReplaceClick}
                           className="text-xs font-bold text-[var(--main-green)] hover:text-[var(--main-green)]/80 transition-colors"
                         >
                           {t("전략 연결하기")}
                         </button>
+                        )}
                       </div>
                     ) : isStrategyDetailLoading ? (
                       <StrategySummarySkeleton />
@@ -1215,7 +1325,7 @@ export default function VirtualAccountDetailPage() {
                       <SignalLog
                         logs={signalLogs}
                         accountCreatedAt={account.createdAt}
-                        onStrategyReplace={handleStrategyReplaceClick}
+                        onStrategyReplace={isPublicView ? undefined : handleStrategyReplaceClick}
                         currency={account.currency}
                       />
                     )}

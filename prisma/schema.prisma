@@ -585,6 +585,8 @@ model VirtualAccount {
   strategyName       String?
   tradingMode        String              @default("manual")
   delistingPolicy    String              @default("AUTO_LIQUIDATE")
+  // 공개 여부(2026-10-15) — true면 로그인 없이 /shared/virtual-account/{id} 링크로 읽기 전용 열람.
+  isPublic           Boolean             @default(false)
   createdAt          DateTime            @default(now())
   updatedAt          DateTime
   closedAt           DateTime?

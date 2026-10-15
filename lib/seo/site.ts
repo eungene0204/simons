@@ -176,6 +176,7 @@ export const PRIVATE_PATHS = [
   "/analytics",
   "/assets",
   "/virtual-account",
+  "/shared/",
   "/watchlist",
   "/stock-order",
   "/stock/",

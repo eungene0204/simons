@@ -46,6 +46,7 @@ function mapAccount(a: any, priceMap: Record<string, number>) {
     strategyId: a.strategyId ?? undefined,
     strategyName: a.strategyName ?? undefined,
     tradingMode: (a.tradingMode ?? "manual") as "auto" | "manual",
+    isPublic: a.isPublic === true,
     createdAt: a.createdAt.toISOString(),
     updatedAt: a.updatedAt.toISOString(),
   };

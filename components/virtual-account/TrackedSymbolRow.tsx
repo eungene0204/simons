@@ -16,7 +16,8 @@ interface TrackedSymbolRowProps {
   delistStatus?: DelistStatus;
   listingStatus?: ListingStatusValue | string;
   onSelect: (symbol: string, name: string) => void;
-  onRemove: (symbol: string) => void;
+  /** 없으면(공개 열람) 제거 버튼을 그리지 않는다. */
+  onRemove?: (symbol: string) => void;
   formatPrice: (price: number) => string;
 }
 
@@ -98,18 +99,22 @@ export default function TrackedSymbolRow({
           <span className="text-[10px] font-bold text-gray-600">{t("대기")}</span>
         )}
       </div>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove(symbol);
-        }}
-        className="flex items-center justify-center text-gray-600 opacity-100 transition-all duration-200 hover:text-[var(--main-red)] lg:opacity-0 lg:group-hover:opacity-100"
-        aria-label={t("{0} 추적 제거", name)}
-        title={t("추적 제거")}
-      >
-        <X size={12} />
-      </button>
+      {onRemove ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove(symbol);
+          }}
+          className="flex items-center justify-center text-gray-600 opacity-100 transition-all duration-200 hover:text-[var(--main-red)] lg:opacity-0 lg:group-hover:opacity-100"
+          aria-label={t("{0} 추적 제거", name)}
+          title={t("추적 제거")}
+        >
+          <X size={12} />
+        </button>
+      ) : (
+        <span aria-hidden="true" />
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getStockNameMap } from '@/lib/krx-stocks';
+import { mapOrder } from '@/lib/server/virtualAccountDetail';
 import {
   calcMarketFilledPrice,
   calcFee,
@@ -19,34 +20,6 @@ import {
   withOwnership,
 } from '@/lib/get-user';
 
-
-function mapOrder(o: any, nameMap: Record<string, string>) {
-  const filledPrice = o.filledPrice == null ? undefined : moneyToNumber(o.filledPrice);
-  const price = moneyToNumber(o.price);
-  const fee = o.fee ?? (filledPrice ? calcFee(filledPrice, o.quantity) : undefined);
-  // name이 없거나 symbol과 동일한 경우 korea-stocks.json에서 조회
-  const storedName = o.name as string | null | undefined;
-  const resolvedName = storedName && storedName !== o.symbol ? storedName : (nameMap[o.symbol] ?? o.symbol);
-  return {
-    id: o.id,
-    accountId: o.accountId,
-    type: o.side.toLowerCase() as 'buy' | 'sell',
-    symbol: o.symbol,
-    name: resolvedName,
-    quantity: o.quantity,
-    price,
-    filledPrice,
-    fee: fee == null ? undefined : moneyToNumber(fee),
-    tax: o.tax == null ? undefined : moneyToNumber(o.tax),
-    avgBuyPrice: o.avgBuyPrice == null ? undefined : moneyToNumber(o.avgBuyPrice),
-    realizedPnl: o.realizedPnl == null ? undefined : moneyToNumber(o.realizedPnl),
-    totalAmount: (filledPrice ?? price) * o.quantity,
-    orderType: o.type as 'MARKET' | 'LIMIT',
-    status: o.status as 'PENDING' | 'FILLED' | 'CANCELLED',
-    timestamp: o.createdAt.toISOString(),
-    filledAt: o.filledAt?.toISOString(),
-  };
-}
 
 // GET: 주문 조회 (?status=PENDING|FILLED|CANCELLED|ALL, 기본 FILLED)
 export async function GET(

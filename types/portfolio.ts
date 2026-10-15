@@ -13,6 +13,7 @@ export interface VirtualAccount {
   strategyName?: string; // 연결된 전략 이름
   tradingMode?: "auto" | "manual"; // "auto": 자동매매, "manual": 신호 알림 + 수동매매
   status?: "ACTIVE" | "CLOSED";
+  isPublic?: boolean; // true면 로그인 없이 공유 링크로 읽기 전용 열람
   createdAt: string;
   updatedAt: string;
   closedAt?: string;

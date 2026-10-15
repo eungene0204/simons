@@ -52,6 +52,19 @@ export async function updateTradingMode(
   return res.json();
 }
 
+export async function updateAccountVisibility(
+  accountId: string,
+  isPublic: boolean
+): Promise<VirtualAccount> {
+  const res = await fetch(`/api/virtual-account/${accountId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ isPublic }),
+  });
+  if (!res.ok) throw new Error("Failed to update visibility");
+  return res.json();
+}
+
 export async function updateAccountStrategy(
   accountId: string,
   strategyId: string,

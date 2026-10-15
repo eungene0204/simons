@@ -1,8 +1,7 @@
-import { totalContributed } from '@/lib/virtual-account/contributions';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { resolveTrackedSymbolsForStrategy } from '@/lib/strategy-tracked-symbols';
-import { getStockNameMap, loadEtfMasterNameMap } from '@/lib/krx-stocks';
+import { mapAccount, buildNameMap } from '@/lib/server/virtualAccountDetail';
 import {
   closeAccountWithSettlement,
   fetchSettlementPriceMap,
@@ -17,89 +16,6 @@ import {
 } from '@/lib/get-user';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
-
-function resolvePositionName(
-  symbol: string,
-  storedName: string | null | undefined,
-  stockNameMap: Record<string, string>
-) {
-  if (stockNameMap[symbol]) return stockNameMap[symbol];
-  if (storedName && storedName.trim().length > 0 && storedName !== symbol) return storedName;
-  return symbol;
-}
-
-async function loadEtfNameMapSafely(): Promise<Record<string, string>> {
-  try {
-    return await loadEtfMasterNameMap();
-  } catch {
-    return {};
-  }
-}
-
-function mapAccount(
-  a: any,
-  priceMap: Record<string, number>,
-  stockNameMap: Record<string, string>,
-  settlementValue?: number
-) {
-  const positions = a.VirtualPosition ?? [];
-  const currentCash = moneyToNumber(a.currentCash);
-  const liveValue =
-    currentCash +
-    positions.reduce((sum: number, p: any) => {
-      const currentPrice = priceMap[p.symbol] ?? moneyToNumber(p.currentPrice ?? p.avgPrice);
-      return sum + p.quantity * currentPrice;
-    }, 0);
-  // CLOSED 계좌는 강제 정산 후 currentCash/포지션이 0/삭제되므로, 정산 시점 금액을 그대로 보여준다.
-  const totalValue = a.status === "CLOSED" && settlementValue != null ? settlementValue : liveValue;
-  const holdings = positions.map((p: any) => {
-    const avgPrice = moneyToNumber(p.avgPrice);
-    const currentPrice = priceMap[p.symbol] ?? moneyToNumber(p.currentPrice ?? p.avgPrice);
-    const cost = p.quantity * avgPrice;
-    const totalVal = p.quantity * currentPrice;
-    const profit = totalVal - cost;
-    return {
-      symbol: p.symbol,
-      name: resolvePositionName(p.symbol, p.name, stockNameMap),
-      quantity: p.quantity,
-      averagePrice: avgPrice,
-      currentPrice,
-      totalValue: totalVal,
-      profit,
-      profitPercent: cost > 0 ? (profit / cost) * 100 : 0,
-    };
-  });
-  return {
-    id: a.id,
-    name: a.name,
-    initialAmount: moneyToNumber(a.initialCash),
-    totalContributed: totalContributed(a.initialCash, a.contributedCash),
-    currency: (a.currency ?? "KRW") as "KRW" | "USD",
-    currentBalance: currentCash,
-    totalValue,
-    status: a.status ?? "ACTIVE",
-    strategyId: a.strategyId ?? undefined,
-    strategyName: a.strategyName ?? undefined,
-    tradingMode: (a.tradingMode ?? "manual") as "auto" | "manual",
-    createdAt: a.createdAt.toISOString(),
-    updatedAt: a.updatedAt.toISOString(),
-    closedAt: a.closedAt ? a.closedAt.toISOString() : undefined,
-    holdings,
-  };
-}
-
-async function buildNameMap(symbols: string[]): Promise<Record<string, string>> {
-  const [stockNameMap, etfNameMap, dbStocks] = await Promise.all([
-    getStockNameMap(),
-    loadEtfNameMapSafely(),
-    symbols.length > 0
-      ? prisma.stock.findMany({ where: { symbol: { in: symbols }, name: { not: null } }, select: { symbol: true, name: true } })
-      : Promise.resolve([]),
-  ]);
-  const merged: Record<string, string> = {};
-  for (const s of dbStocks) if (s.name) merged[s.symbol] = s.name;
-  return { ...merged, ...etfNameMap, ...stockNameMap };
-}
 
 async function findOwnedAccountById(
   id: string,
@@ -192,6 +108,7 @@ export async function PATCH(
       data: {
         ...(body.currentBalance !== undefined && { currentCash: toMoney(body.currentBalance) }),
         ...(body.tradingMode !== undefined && { tradingMode: body.tradingMode }),
+        ...(typeof body.isPublic === "boolean" && { isPublic: body.isPublic }),
         ...(body.strategyId !== undefined && { strategyId: body.strategyId }),
         ...(body.strategyName !== undefined && { strategyName: body.strategyName }),
         updatedAt: new Date(),

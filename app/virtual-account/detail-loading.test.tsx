@@ -365,11 +365,9 @@ describe("VirtualAccountDetailPage loading", () => {
 
     render(<VirtualAccountDetailPage />);
 
-    expect(await screen.findByRole("button", { name: "시뮬레이션 토글 설명" })).toHaveAttribute("tabindex", "0");
-    expect(screen.getByRole("button", { name: "모니터링 종목 설명" })).toHaveAttribute("tabindex", "0");
+    expect(await screen.findByRole("button", { name: "모니터링 종목 설명" })).toHaveAttribute("tabindex", "0");
 
     for (const tooltip of [
-      screen.getByTestId("auto-trading-help-tooltip"),
       screen.getByTestId("tracked-symbols-help-tooltip"),
     ]) {
       expect(tooltip).toHaveClass(
@@ -577,10 +575,7 @@ describe("VirtualAccountDetailPage loading", () => {
     render(<VirtualAccountDetailPage />);
 
     expect(
-      await screen.findByText("ON이면 전략 조건을 만족할 때 가상 거래가 실행됩니다.")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("연결된 전략의 백테스트에서 성과가 높았던 종목들 입니다.")
+      await screen.findByText("연결된 전략의 백테스트에서 성과가 높았던 종목들 입니다.")
     ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "모니터링 종목" })
