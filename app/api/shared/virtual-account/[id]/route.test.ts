@@ -10,7 +10,11 @@ vi.mock("@/lib/prisma", () => ({
     virtualMarketState: { findUnique: vi.fn() },
     virtualMarketLog: { findMany: vi.fn() },
     stock: { findMany: vi.fn().mockResolvedValue([]) },
+    strategy: { findFirst: vi.fn() },
   },
+}));
+vi.mock("@/lib/server/strategyHistorySummary", () => ({
+  findBacktestHistorySummary: vi.fn().mockResolvedValue({ universeName: "KOSPI" }),
 }));
 vi.mock("@/lib/krx-stocks", () => ({
   getStockNameMap: vi.fn().mockResolvedValue({ "005930": "삼성전자" }),
@@ -46,6 +50,9 @@ describe("GET /api/shared/virtual-account/[id]", () => {
     vi.mocked(prisma.virtualOrder.findMany).mockResolvedValue([]);
     vi.mocked(prisma.virtualMarketState.findUnique).mockResolvedValue({ symbols: '["005930"]' } as any);
     vi.mocked(prisma.virtualMarketLog.findMany).mockResolvedValue([]);
+    vi.mocked(prisma.strategy.findFirst).mockResolvedValue({
+      id: "s1", description: "RSI 30 이하 매수", settings: '{"universe":{"id":"KOSPI"}}',
+    } as any);
 
     const res = await GET(new Request("http://localhost/x"), { params: { id: "a1" } });
     const body = await res.json();
@@ -54,6 +61,13 @@ describe("GET /api/shared/virtual-account/[id]", () => {
     expect(body.account).toMatchObject({ id: "a1", name: "반도체etf", strategyName: "전략A", isPublic: true });
     expect(body.account.strategyId).toBeUndefined();
     expect(body.account).not.toHaveProperty("userId");
+    // 운용 전략은 계좌 소유자의 전략으로만 조회하고, 내용(설명·설정·요약)을 싣는다.
+    expect(vi.mocked(prisma.strategy.findFirst).mock.calls[0][0]).toEqual({ where: { id: "s1", userId: 7 } });
+    expect(body.strategy).toMatchObject({
+      description: "RSI 30 이하 매수",
+      settings: { universe: { id: "KOSPI" } },
+      historySummary: { universeName: "KOSPI" },
+    });
     expect(body.holdings[0]).toMatchObject({ name: "삼성전자", quantity: 10 });
     expect(body.trackedSymbols).toEqual([{ symbol: "005930", name: "삼성전자" }]);
   });

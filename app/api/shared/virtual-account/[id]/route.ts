@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getStockNameMap } from '@/lib/krx-stocks';
 import { getAccountSettlementValues, moneyToNumber } from '@/lib/server/assetService';
+import { findBacktestHistorySummary } from '@/lib/server/strategyHistorySummary';
 import { mapAccount, mapOrder, buildNameMap } from '@/lib/server/virtualAccountDetail';
 
 // 공개(isPublic) 계좌의 읽기 전용 열람 — 로그인 불필요, 소유자 정보·운용 전략의 상세 규칙은 싣지 않는다.
@@ -46,6 +47,23 @@ export async function GET(
     ];
     const [nameMap, stockNameMap] = await Promise.all([buildNameMap(symbols), getStockNameMap()]);
 
+    // 운용 전략 — 계좌 소유자의 전략만 조회한다(전략 ID 자체는 응답에 싣지 않는다).
+    let strategy: { description: string | null; settings: unknown; historySummary: unknown } | null = null;
+    if (account.strategyId && account.userId != null) {
+      const row = await prisma.strategy.findFirst({ where: { id: account.strategyId, userId: account.userId } });
+      if (row) {
+        let settings: any = null;
+        try {
+          settings = JSON.parse(row.settings);
+        } catch {}
+        strategy = {
+          description: row.description ?? null,
+          settings,
+          historySummary: await findBacktestHistorySummary(row, row.id, account.userId, settings),
+        };
+      }
+    }
+
     const mapped = mapAccount(account, {}, nameMap, settlementValues[account.id]);
     return NextResponse.json({
       account: {
@@ -58,6 +76,7 @@ export async function GET(
           amount: moneyToNumber(e.amount),
         })),
       },
+      strategy,
       holdings: mapped.holdings,
       transactions: orders.map((o) => mapOrder(o, stockNameMap)),
       trackedSymbols: trackedSymbols.map((symbol) => ({ symbol, name: nameMap[symbol] ?? symbol })),

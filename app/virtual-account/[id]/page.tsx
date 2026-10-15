@@ -364,8 +364,10 @@ export default function VirtualAccountDetailPage() {
   // 운용 전략은 고정 데이터이므로 loadAccountData가 반복 호출돼도 다시 읽지 않고,
   // 연결된 전략(strategyId)이 실제로 바뀔 때만 한 번 조회한다.
   useEffect(() => {
+    // 공개 열람은 운용 전략을 공개 API 응답(loadPublicAccountData)에서 받는다.
+    if (isPublicView) return;
     const strategyId = account?.strategyId;
-    if (!strategyId || isPublicView) {
+    if (!strategyId) {
       setDbStrategyDescription(null);
       setDbStrategySettings(null);
       setDbStrategyHistorySummary(null);
@@ -422,6 +424,10 @@ export default function VirtualAccountDetailPage() {
     );
     setTrackedSymbols(data.trackedSymbols ?? []);
     setSignalLogs(data.signalLogs ?? []);
+    setDbStrategyDescription(data.strategy?.description ?? null);
+    setDbStrategySettings((data.strategy?.settings as StrategyDSL | null) ?? null);
+    setDbStrategyHistorySummary(data.strategy?.historySummary ?? null);
+    setIsStrategyDetailLoading(false);
     setIsTrackedSymbolsLoading(false);
     setIsSignalLogsLoading(false);
   };
