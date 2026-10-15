@@ -15,7 +15,7 @@ import {
   ReferenceLine,
   Cell,
 } from "recharts";
-import type { DashboardStats } from "@/app/api/virtual-account/[id]/dashboard/route";
+import type { DashboardStats } from "@/lib/server/virtualAccountDashboard";
 import {
   resolveStockDisplayName,
   type StockMetadataMap,
@@ -29,6 +29,11 @@ interface Props {
   totalContributed?: number;
   // 계좌 통화(기본 KRW) — USD 계좌는 금액을 $ 표기(숫자=통화 단위 그대로).
   currency?: "KRW" | "USD";
+  /**
+   * 공개 열람 전용 — 서버가 준 성과 리포트를 그대로 쓰고 소유자 API를 부르지 않는다(비로그인은 401).
+   * null이면 아직 로딩 중. undefined(기본)이면 종전처럼 소유자 API를 부른다.
+   */
+  publicStats?: DashboardStats | null;
 }
 
 const fmt = (n: number) =>
@@ -190,7 +195,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   );
 };
 
-export default function VirtualTradingDashboard({ accountId, initialAmount, totalContributed, currency }: Props) {
+export default function VirtualTradingDashboard({ accountId, initialAmount, totalContributed, currency, publicStats }: Props) {
   const usd = currency === "USD";
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [stockMetadata, setStockMetadata] = useState<StockMetadataMap>({});
@@ -198,6 +203,11 @@ export default function VirtualTradingDashboard({ accountId, initialAmount, tota
   const [dailyRange, setDailyRange] = useState<30 | 60 | 90>(30);
 
   useEffect(() => {
+    if (publicStats !== undefined) {
+      setStats(publicStats);
+      setLoading(publicStats === null);
+      return;
+    }
     fetch(`/api/virtual-account/${accountId}/dashboard`)
       .then((r) => r.json())
       .then((data) => {
@@ -205,7 +215,7 @@ export default function VirtualTradingDashboard({ accountId, initialAmount, tota
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [accountId]);
+  }, [accountId, publicStats]);
 
   useEffect(() => {
     if (!stats?.bySymbol.some((item) => item.name === item.symbol)) return;

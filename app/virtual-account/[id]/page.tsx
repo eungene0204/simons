@@ -5,6 +5,7 @@ import { useRouter, useParams, usePathname } from "next/navigation";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import VirtualTradingDashboard from "@/components/dashboard/VirtualTradingDashboard";
+import type { DashboardStats } from "@/lib/server/virtualAccountDashboard";
 import {
   VirtualAccount,
   PortfolioHolding,
@@ -424,6 +425,7 @@ export default function VirtualAccountDetailPage() {
     );
     setTrackedSymbols(data.trackedSymbols ?? []);
     setSignalLogs(data.signalLogs ?? []);
+    setPublicDashboardStats(data.dashboard ?? null);
     setDbStrategyDescription(data.strategy?.description ?? null);
     setDbStrategySettings((data.strategy?.settings as StrategyDSL | null) ?? null);
     setDbStrategyHistorySummary(data.strategy?.historySummary ?? null);
@@ -566,6 +568,7 @@ export default function VirtualAccountDetailPage() {
   };
 
   const [isPublicNotFound, setIsPublicNotFound] = useState(false);
+  const [publicDashboardStats, setPublicDashboardStats] = useState<DashboardStats | null>(null);
   const [isUpdatingVisibility, setIsUpdatingVisibility] = useState(false);
   const [visibilityTip, setVisibilityTip] = useState<string | null>(null);
   const visibilityTipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1621,7 +1624,7 @@ export default function VirtualAccountDetailPage() {
                           DETAIL
                         </span>
                       </div>
-                      <VirtualTradingDashboard accountId={accountId} initialAmount={account.initialAmount} totalContributed={account.totalContributed} currency={account.currency} />
+                      <VirtualTradingDashboard accountId={accountId} initialAmount={account.initialAmount} totalContributed={account.totalContributed} currency={account.currency} publicStats={isPublicView ? publicDashboardStats : undefined} />
                     </div>
                   </div>
                 )}

@@ -4,6 +4,7 @@ import { getStockNameMap } from '@/lib/krx-stocks';
 import { getAccountSettlementValues, moneyToNumber } from '@/lib/server/assetService';
 import { findBacktestHistorySummary } from '@/lib/server/strategyHistorySummary';
 import { mapAccount, mapOrder, buildNameMap } from '@/lib/server/virtualAccountDetail';
+import { buildDashboardStats } from '@/lib/server/virtualAccountDashboard';
 
 // 공개(isPublic) 계좌의 읽기 전용 열람 — 로그인 불필요, 소유자 정보·운용 전략의 상세 규칙은 싣지 않는다.
 // 비공개·없는 계좌는 모두 404(존재 여부를 알리지 않는다).
@@ -77,6 +78,8 @@ export async function GET(
         })),
       },
       strategy,
+      // 성과 리포트(소유자 대시보드와 같은 계산). 체결 주문 전체로 만든다.
+      dashboard: buildDashboardStats(account, orders),
       holdings: mapped.holdings,
       transactions: orders.map((o) => mapOrder(o, stockNameMap)),
       trackedSymbols: trackedSymbols.map((symbol) => ({ symbol, name: nameMap[symbol] ?? symbol })),

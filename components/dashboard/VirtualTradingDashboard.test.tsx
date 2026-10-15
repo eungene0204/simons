@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import VirtualTradingDashboard from "@/components/dashboard/VirtualTradingDashboard";
-import type { DashboardStats } from "@/app/api/virtual-account/[id]/dashboard/route";
+import type { DashboardStats } from "@/lib/server/virtualAccountDashboard";
 
 const fetchMock = vi.fn();
 
@@ -34,6 +34,28 @@ function getMetricValue(label: string, value: string) {
   if (!cell) throw new Error(`Metric cell not found: ${label}`);
   return within(cell).getByText(value);
 }
+
+describe("VirtualTradingDashboard public mode", () => {
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  it("공개 열람은 소유자 API를 부르지 않고 서버가 준 성과를 그대로 쓴다", async () => {
+    render(<VirtualTradingDashboard accountId="acc" initialAmount={9_000_000} publicStats={zeroStats} />);
+
+    expect(await screen.findByText("총 실현 손익")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/virtual-account/acc/dashboard");
+    expect(getMetricValue("총 실현 손익", "0원")).toHaveClass("text-white");
+  });
+
+  it("공개 열람 값이 아직 없으면 소유자 API 대신 로딩 상태에 머문다", () => {
+    render(<VirtualTradingDashboard accountId="acc" initialAmount={9_000_000} publicStats={null} />);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByText("총 실현 손익")).not.toBeInTheDocument();
+  });
+});
 
 describe("VirtualTradingDashboard metric formatting", () => {
   beforeEach(() => {

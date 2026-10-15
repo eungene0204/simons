@@ -68,6 +68,9 @@ describe("GET /api/shared/virtual-account/[id]", () => {
       settings: { universe: { id: "KOSPI" } },
       historySummary: { universeName: "KOSPI" },
     });
+    // 성과 리포트는 소유자 대시보드와 같은 계산으로 싣는다(체결 없으면 0).
+    expect(body.dashboard).toMatchObject({ totalTrades: 0, totalRealizedPnl: 0 });
+    expect(body.dashboard.dailyPnl).toHaveLength(90);
     expect(body.holdings[0]).toMatchObject({ name: "삼성전자", quantity: 10 });
     expect(body.trackedSymbols).toEqual([{ symbol: "005930", name: "삼성전자" }]);
   });
