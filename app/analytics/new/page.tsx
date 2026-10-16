@@ -1348,11 +1348,11 @@ function buildAnimatedHeadline(lines: string[]) {
   });
 }
 
-const HEADLINE_LINES = ["퀀트 전략을 백테스트하고", "모의투자로 시뮬레이션하세요"];
+const HEADLINE_LINES = ["퀀트 전략을 입력하세요"];
 
 // 플레이스홀더는 첫 입력에서만 보여준다 — inline 입력창은 대화 시작 전(messages 0건)에만
 // 렌더되므로, 대화가 시작된 뒤의 하단 고정(fixed) 입력창에서는 노출하지 않는다.
-const FIRST_INPUT_PLACEHOLDER = "어떤 투자 아이디어를 테스트해볼까요?";
+const FIRST_INPUT_PLACEHOLDER = "어떤 투자 전략을 만들어 볼까요?";
 
 function AnimatedHeadline({ lines }: { lines: string[] }) {
   return <>{buildAnimatedHeadline(lines)}</>;

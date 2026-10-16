@@ -12,7 +12,7 @@ describe("전략연구소 채팅 입력창 텍스트", () => {
   );
 
   it("placeholder와 버튼 라벨이 실제 한글로 들어있다", () => {
-    expect(source).toContain('const FIRST_INPUT_PLACEHOLDER = "어떤 투자 아이디어를 테스트해볼까요?"');
+    expect(source).toContain('const FIRST_INPUT_PLACEHOLDER = "어떤 투자 전략을 만들어 볼까요?"');
     expect(source).toContain("대화 종료");
   });
 
