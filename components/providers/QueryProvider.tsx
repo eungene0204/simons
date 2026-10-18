@@ -11,7 +11,7 @@ import { stripRegionPrefix } from "@/lib/geo/region";
 const PUBLIC_PATHS = new Set(["/", "/login", "/register", "/guest"]);
 // 하위 경로까지 공개인 화면 — 백테스트 가이드(`/guide`, `/guide/<slug>`)는 검색 유입용 공개 글이다.
 // 공개 가상계좌 열람(`/shared/virtual-account/<id>`)도 비로그인 읽기 전용 화면이다(소유자가 공개로 전환한 계좌만).
-const PUBLIC_PATH_PREFIXES = ["/guide", "/shared/virtual-account"];
+const PUBLIC_PATH_PREFIXES = ["/guide", "/board", "/shared/virtual-account"];
 
 function isPublicPath(pathname: string | null) {
   if (!pathname) return true;

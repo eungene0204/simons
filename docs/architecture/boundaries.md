@@ -1,5 +1,12 @@
 # Simons System Boundaries (Codex Control Layer)
 
+## Boundary Y: Anonymous Community Board
+
+사용자 승인(2026-10-19). 전용 범위와 실행 명세는
+`docs/development/community-board.md`에 정의한다. 해당 문서에 명시된 게시판
+UI/API/Prisma/테스트/공개 진입점/문서만 변경한다. 신규 게시판 스키마와
+관리자 검수 연결을 허용하며 기존 인증 계약은 보존한다.
+
 This document defines HARD boundaries for AI-assisted development.
 
 Codex MUST operate within a single boundary.

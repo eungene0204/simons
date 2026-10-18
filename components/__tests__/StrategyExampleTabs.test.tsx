@@ -41,7 +41,10 @@ describe("StrategyExampleTabs", () => {
     const guideLink = within(usageNotice).getByRole("link", { name: "백테스트 가이드" });
     expect(guideLink).toHaveAttribute("href", "/guide");
     expect(usageNotice.firstElementChild).toBe(guideLink);
-    expect(guideLink.nextElementSibling).toBe(termsLink);
+    const boardLink = within(usageNotice).getByRole("link", { name: "자유게시판" });
+    expect(boardLink).toHaveAttribute("href", "/board");
+    expect(guideLink.nextElementSibling).toBe(boardLink);
+    expect(boardLink.nextElementSibling).toBe(termsLink);
     expect(within(usageNotice).getByText(
       "널스탁에서 제공하는 투자 정보는 고객의 투자 판단을 위한 단순 참고용일 뿐입니다. 백테스트 입력 예시에 쓰인 수치는 단순 예시값이며, 투자 추천이나 미래 성과를 의미하지 않습니다."
     )).toBeInTheDocument();

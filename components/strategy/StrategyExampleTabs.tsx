@@ -1006,6 +1006,11 @@ export function StrategyExampleTabs({
               {t("백테스트 가이드")}
             </Link>
           )}
+          {region !== "us" && (
+            <Link href="/board" className="mb-3 mr-4 inline-flex text-xs font-black text-gray-400 underline-offset-4 transition-colors hover:text-white hover:underline">
+              {t("자유게시판")}
+            </Link>
+          )}
           <Link
             href={regionHref("/?legal=terms")}
             className="mb-3 inline-flex text-xs font-black text-gray-400 underline-offset-4 transition-colors hover:text-white hover:underline"

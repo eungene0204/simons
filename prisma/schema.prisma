@@ -2,6 +2,69 @@ generator client {
   provider = "prisma-client-js"
 }
 
+model BoardPost {
+  id           String @id @default(cuid())
+  category     String @default("자유") @db.VarChar(10)
+  title        String @db.VarChar(120)
+  nickname     String @db.VarChar(24)
+  body         String @db.VarChar(10000)
+  passwordHash String
+  status       String @default("PUBLIC")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  comments     BoardComment[]
+  reports      BoardReport[]
+  @@index([status, category, createdAt])
+  @@index([status, createdAt])
+}
+
+model BoardComment {
+  id           String @id @default(cuid())
+  postId       String
+  nickname     String @db.VarChar(24)
+  body         String @db.VarChar(2000)
+  passwordHash String
+  status       String @default("PUBLIC")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  post         BoardPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  reports      BoardReport[]
+  @@index([postId, status, createdAt])
+}
+
+model BoardReport {
+  id         String @id @default(cuid())
+  postId     String?
+  commentId  String?
+  reason     String
+  status     String @default("OPEN")
+  reporter   String?
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  post       BoardPost? @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment    BoardComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  @@index([status, createdAt])
+  @@index([reporter, createdAt])
+}
+
+model BoardGuard {
+  key       String @id
+  count     Int @default(1)
+  expiresAt DateTime
+  @@index([expiresAt])
+}
+
+model BoardAudit {
+  id        String @id @default(cuid())
+  adminId   Int
+  targetId  String
+  targetType String
+  action    String
+  reason    String @db.VarChar(500)
+  createdAt DateTime @default(now())
+  @@index([createdAt])
+}
+
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")

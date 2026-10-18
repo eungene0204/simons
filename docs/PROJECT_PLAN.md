@@ -2461,3 +2461,10 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 - ✅ 해석 칸: 방향을 이름에 담은 개념 ID `technical.breakout_low`(lookback_period만, 연산자 없음) + 별칭("신저가"·"52주 신저가" 등), `unsupported.new_low` 삭제, 온톨로지 JSON, 컴파일러/디컴파일러 왕복, 프론트 요약 라벨·전략 그래프·영어 번역. 프롬프트 8.15(규칙 5-1-1, 미지원 목록에서 신저가 제거).
 - ✅ 같이 수리: "매수 후 N거래일이 지나면 매도"가 최소 보유(`min_hold_period_days`)로 읽혀 청산이 비던 오배정 — 최소/최대 보유 규칙 한 줄로 `hold_period_days`로 고정(120B 5/5 재표본).
 - 검증: 회귀 테스트 `backend/tests/test_breakout_low_entry.py` 13건 + 프론트 라벨 1건. 되묻기 하니스 modify 120B 42/42(8.14에서는 41/42 — 위 오배정), fill은 기존과 같음(HARNESS_INVALID 32는 원래 백엔드에서도 동일한 하니스 전제 문제).
+
+### 자유게시판 (2026-10-19)
+
+- Boundary Y: 비로그인 게시글·댓글, 비밀번호 수정/삭제, 검색·분류·페이지,
+  신고·관리자 검수 및 PostgreSQL 저장 구현.
+- 백테스트 가이드 오른쪽 공개 진입점 추가. 운영/검증 기록:
+  [community-board.md](development/community-board.md).

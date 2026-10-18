@@ -43,6 +43,8 @@ describe("AuthSessionGuard 공개 경로", () => {
     "/",
     "/guide",
     "/guide/what-is-backtest",
+    "/board",
+    "/board/new",
   ])(
     "%s 는 비로그인이어도 머문다(세션 조회조차 하지 않는다)",
     async (pathname) => {

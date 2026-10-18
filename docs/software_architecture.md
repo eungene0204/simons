@@ -2241,3 +2241,11 @@ GET /api/strategy/graph-meta ← 백엔드 /strategy/graph-meta   ▼
 - 플래너 State DAG와는 별개 개념이다 — 실행 단계·대화 순서를 섞지 않는다.
 
 - **초안 그래프(2026-10-16)**: 되묻기 중 요약 카드(`builderPresentation`)는 `DraftStrategyView`가 그 카드의 `parsed`를 `/api/strategy/compile`로 컴파일한 한 쌍(`origin: draft`)으로 그래프를 그린다(컴파일 실패 시 텍스트 요약). LLM 호출 없음.
+
+### 자유게시판 추가 (2026-10-19)
+
+Next.js /board와 /api/board가 기존 Prisma/PostgreSQL을 사용한다.
+BoardPost/BoardComment/BoardReport를 분리하고 BoardGuard로 분산 요청 제한,
+BoardAudit로 검수 조치를 기록한다. 기존 requireAdmin 인증을 재사용하며
+공개 응답은 비밀번호 해시를 제외한 필드만 선택한다.
+배포·신뢰 프록시·보존 정책은 docs/development/community-board.md 참조.
