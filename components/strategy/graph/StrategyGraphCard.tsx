@@ -28,8 +28,7 @@ type View = "graph" | "text";
 function Workspace({ graph, seen, view }: { graph: StrategyGraph; seen?: GraphSeen; view: View }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => defaultExpanded(graph));
-  // Classification nodes stay collapsed: the graph shows only the strategy and its indicators.
-  const open = useMemo(() => ({ expanded, classes: new Set<string>() }), [expanded]);
+  const open = useMemo(() => ({ expanded }), [expanded]);
   const expandable = useMemo(() => new Set(expandableIds(graph)), [graph]);
 
   const toggle = (set: ReadonlySet<string>, id: string, force?: boolean) => {

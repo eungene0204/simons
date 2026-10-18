@@ -59,6 +59,11 @@ export function buildStrategyGraph(input: StrategyGraphInput, meta: GraphMeta | 
   if (input.origin === "executed") {
     notes.push(t("실행에 쓰인 요청만 저장되어 있어 미정 항목과 조건별 원문 인용은 확인할 수 없습니다."));
   }
+  // A combination the snapshot does not state (engine default) must be disclosed on the graph itself:
+  // a folded section header would otherwise read like a value the user chose.
+  for (const n of b.nodes()) {
+    if (n.kind === "group" && n.details.valueSource === "engine_default" && n.details.statusNote) notes.push(n.details.statusNote);
+  }
   return { ...base, nodes: b.nodes(), edges: b.edges(), notes };
 }
 

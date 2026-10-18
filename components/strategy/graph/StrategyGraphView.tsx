@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ArrowsIn, MagnifyingGlassMinus, MagnifyingGlassPlus } from "phosphor-react";
 import { t } from "@/lib/i18n";
 import { layoutTree, type LayoutItem, type OpenState } from "@/lib/strategy-graph/layout";
@@ -45,20 +45,35 @@ export default function StrategyGraphView({ graph, selectedId, open, onSelect, s
   const hostRef = useRef<HTMLDivElement>(null);
   const refs = useRef(new Map<string, SVGGElement>());
   const [scale, setScale] = useState(DEFAULT_SCALE);
+  const layoutWidth = useRef(layout.width);
+  layoutWidth.current = layout.width;
+  // Starts fitted to the available width (as if "화면에 맞추기" had been pressed) and follows the
+  // width of the card until the user zooms by hand. Opening an item never re-fits the view.
+  const auto = useRef(true);
 
-  const fit = useCallback(
-    (floor = MIN_SCALE) => {
-      const host = hostRef.current;
-      if (!host || host.clientWidth === 0) return;
-      const next = (host.clientWidth - PAD * 2) / Math.max(1, layout.width);
-      setScale(Math.max(floor, Math.min(1, next)));
-      host.scrollTo?.({ left: 0, top: 0 });
-    },
-    [layout.width],
-  );
+  const fit = useCallback((floor = MIN_SCALE) => {
+    const host = hostRef.current;
+    if (!host || host.clientWidth === 0) return;
+    const next = (host.clientWidth - PAD * 2) / Math.max(1, layoutWidth.current);
+    setScale(Math.max(floor, Math.min(1, next)));
+    host.scrollTo?.({ left: 0, top: 0 });
+  }, []);
 
-  // The default view is DEFAULT_SCALE; "fit to screen" is the explicit way
-  // to shrink everything into the available width. Nothing scrolls the view on selection.
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    if (auto.current) fit();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => auto.current && fit());
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [fit]);
+
+  const zoom = (change: (s: number) => number) => {
+    auto.current = false;
+    setScale(change);
+  };
+  // Nothing scrolls the view on selection.
   // Direct relations of the selection (graph edges), used to dim everything else.
   const related = useMemo(() => {
     if (!selectedId) return null;
@@ -121,13 +136,13 @@ export default function StrategyGraphView({ graph, selectedId, open, onSelect, s
     <div className="flex min-w-0 flex-col gap-2">
       <style>{ANIMATION_CSS}</style>
       <div className="flex items-center gap-1.5">
-        <button type="button" aria-label={t("축소")} onClick={() => { setScale((s) => Math.max(MIN_SCALE, +(s - 0.15).toFixed(2))); }} className={toolButton}>
+        <button type="button" aria-label={t("축소")} onClick={() => zoom((s) => Math.max(MIN_SCALE, +(s - 0.15).toFixed(2)))} className={toolButton}>
           <MagnifyingGlassMinus size={16} />
         </button>
-        <button type="button" aria-label={t("확대")} onClick={() => { setScale((s) => Math.min(MAX_SCALE, +(s + 0.15).toFixed(2))); }} className={toolButton}>
+        <button type="button" aria-label={t("확대")} onClick={() => zoom((s) => Math.min(MAX_SCALE, +(s + 0.15).toFixed(2)))} className={toolButton}>
           <MagnifyingGlassPlus size={16} />
         </button>
-        <button type="button" onClick={() => fit()} className={`${toolButton} gap-1 px-2.5 text-xs font-bold`}>
+        <button type="button" onClick={() => { auto.current = true; fit(); }} className={`${toolButton} gap-1 px-2.5 text-xs font-bold`}>
           <ArrowsIn size={14} />
           {t("화면에 맞추기")}
         </button>

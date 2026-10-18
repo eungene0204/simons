@@ -55,6 +55,9 @@ describe("2. entry_logic OR and its scope", () => {
     expect(exit?.label).toContain("OR");
     expect(exit?.details.valueSource).toBe("engine_default");
   });
+  it("discloses an engine-default combination on the graph itself, not only in the text view", () => {
+    expect(g.notes).toContain("스냅샷에 결합 방식이 없어 엔진 기본값(OR)이 적용됩니다.");
+  });
 });
 
 describe("3/4. same indicator on both sides; different periods", () => {

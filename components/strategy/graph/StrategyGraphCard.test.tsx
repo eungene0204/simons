@@ -33,9 +33,11 @@ describe("StrategyGraphCard", () => {
     expect(urls()).toEqual(["/api/strategy/graph-meta"]);
   });
 
-  it("shows parameter leaves for a small strategy but keeps the classification hierarchy collapsed", async () => {
+  it("starts even a small strategy collapsed; selecting a condition shows its indicator, never the classification", async () => {
     renderCard(confirmedInput("goldenCrossRsiAnd"));
     await screen.findByTestId("strategy-graph-canvas");
+    expect(document.querySelector('[data-kind="indicator"]')).toBeNull();
+    fireEvent.click(node("condition", "RSI(14) < 70"));
     expect(document.querySelector('[data-kind="indicator"]')).not.toBeNull();
     expect(document.querySelector('[data-kind="class"]')).toBeNull();
   });
@@ -59,6 +61,24 @@ describe("StrategyGraphCard", () => {
     expect(document.querySelector('[data-kind="class"]')).toBeNull();
   });
 
+  it("starts fitted to the available width, like pressing '화면에 맞추기'", async () => {
+    const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(500);
+    try {
+      renderCard(confirmedInput("krComplex"));
+      await screen.findByTestId("strategy-graph-canvas");
+      const percent = () => Number(screen.getByText(/^\d+%$/).textContent!.replace("%", ""));
+      const fitted = percent();
+      expect(fitted).toBeLessThan(70); // narrower than the old fixed 70% start
+      // Opening an item must not re-fit; zooming by hand switches auto-fit off.
+      fireEvent.click(node("condition", "RSI(14)"));
+      expect(percent()).toBe(fitted);
+      fireEvent.click(screen.getByRole("button", { name: "확대" }));
+      expect(percent()).toBeGreaterThan(fitted);
+    } finally {
+      width.mockRestore();
+    }
+  });
+
   it("supports keyboard selection and Escape to clear", async () => {
     renderCard(confirmedInput("goldenCrossRsiAnd"));
     await screen.findByTestId("strategy-graph-canvas");
@@ -76,9 +96,11 @@ describe("StrategyGraphCard", () => {
     const graphLabels = Array.from(document.querySelectorAll("[data-node-id]"))
       .filter((n) => !["strategy", "section", "indicator", "class"].includes(n.getAttribute("data-kind") as string))
       .map((n) => n.getAttribute("data-node-id"));
+    // Resolved AND/OR groups are folded into the section label in the graph (the text view still lists them).
+    const folded = new Set(["group:entry", "group:filters", "group:exit"]);
     fireEvent.click(screen.getByRole("button", { name: /텍스트로 보기/ }));
     const textIds = Array.from(document.querySelectorAll("[data-outline-id]")).map((n) => n.getAttribute("data-outline-id"));
-    expect(textIds.sort()).toEqual(graphLabels.sort());
+    expect(textIds.filter((id) => !folded.has(id ?? "")).sort()).toEqual(graphLabels.sort());
   });
 
   it("separates a metadata failure from the graph and retries only the metadata endpoint", async () => {

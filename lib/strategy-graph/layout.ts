@@ -1,17 +1,16 @@
 import { t } from "@/lib/i18n";
-import type { NodeKind, NodeStatus, StrategyGraph } from "./types";
+import type { NodeKind, NodeStatus, SectionKey, StrategyGraph } from "./types";
 
-// Top-down tree layout of the strategy graph. The graph model is unchanged; this only decides how
-// to draw it: section labels and edge labels become "pill" items on the edges, a condition's
-// parameters and indicator become leaf items (only for expanded conditions), and classification
-// nodes hang under the indicator leaf (only when opened). Deterministic: same graph + same open
-// state -> same positions.
+// Trade-flow layout of the strategy graph, read left to right: the strategy -> where it picks
+// stocks -> when it buys -> how it holds -> when it sells. The graph model is unchanged; this only
+// decides how to draw it. Each stage is a column of sections (a pill header with its items stacked
+// below); a resolved AND/OR group is folded into its section's header. A selected item's
+// parameters and indicator hang below it as leaves. Deterministic: same graph + same open state ->
+// same positions.
 
 export interface OpenState {
   /** Instance ids (conditions/settings) whose parameter leaves + indicator are shown. */
   expanded: ReadonlySet<string>;
-  /** Indicator ids whose classification chain is shown. */
-  classes: ReadonlySet<string>;
 }
 
 export type ItemKind = "node" | "pill" | "leaf";
@@ -53,8 +52,10 @@ export interface TreeLayout {
   height: number;
 }
 
-const TREE_EDGES = new Set(["has_section", "contains", "combined_by"]);
-const H_GAP = 28;
+const TREE_EDGES = new Set(["has_section", "contains"]);
+const COL_GAP = 64;
+const ROW_GAP = 16;
+const SECTION_GAP = 30;
 const NODE_PAD_X = 22;
 const LINE_H = 20;
 const FONT = 14;
@@ -67,7 +68,10 @@ const STATUS_LABELS: Partial<Record<NodeStatus, string>> = {
   check_needed: "확인 필요",
 };
 
-const charW = (ch: string): number => (/[ᄀ-ᇿ㄰-㆏가-힣一-鿿]/.test(ch) ? FONT : FONT * 0.6);
+/** Which flow stage (column) each section belongs to: pick -> buy -> hold -> sell. */
+const STAGES: SectionKey[][] = [["universe", "filters", "ranking"], ["entry"], ["allocation", "rebalance"], ["exit", "risk"]];
+
+const charW = (ch: string): number => (/[ᄀ-ᇿ㄰-㆏가-힣一-鿿]/.test(ch) ? FONT : FONT * 0.68);
 export const textWidth = (s: string): number => Array.from(s).reduce((sum, ch) => sum + charW(ch), 0);
 
 function wrap(text: string, maxW: number): string[] {
@@ -88,13 +92,7 @@ function wrap(text: string, maxW: number): string[] {
   return lines.length ? lines : [""];
 }
 
-interface TNode {
-  item: Omit<LayoutItem, "x" | "y" | "depth" | "parentKey">;
-  children: TNode[];
-  sub: number;
-  /** Childless siblings under a section pill are stacked in one column instead of one wide row. */
-  stack?: boolean;
-}
+type Draft = Omit<LayoutItem, "x" | "y" | "depth" | "parentKey">;
 
 function makeItem(
   key: string,
@@ -105,26 +103,25 @@ function makeItem(
   rawLines: string[],
   sub: string | null,
   unresolved: boolean,
-): TNode {
-  const maxText = kind === "pill" ? 200 : kind === "leaf" ? 220 : 260;
+): Draft {
+  const maxText = kind === "pill" ? 400 : kind === "leaf" ? 220 : 260;
   const lines = rawLines.flatMap((l) => wrap(l, maxText));
   const widest = Math.max(...lines.map(textWidth), sub ? textWidth(sub) * 0.8 : 0);
   const minW = kind === "pill" ? 56 : kind === "leaf" ? 84 : 120;
-  const w = Math.max(minW, Math.ceil(widest + (kind === "pill" ? 28 : NODE_PAD_X * 2)));
-  const h = kind === "pill" ? 32 : lines.length * LINE_H + (sub ? 16 : 0) + (kind === "leaf" ? 22 : 30);
-  return { item: { key, kind, nodeId, owner, graphKind, lines, sub, unresolved, w, h }, children: [], sub: 0 };
+  const w = Math.max(minW, Math.ceil(widest + (kind === "pill" ? 44 : NODE_PAD_X * 2)));
+  const h = kind === "pill" ? Math.max(32, lines.length * LINE_H + 12) : lines.length * LINE_H + (sub ? 16 : 0) + (kind === "leaf" ? 22 : 30);
+  return { key, kind, nodeId, owner, graphKind, lines, sub, unresolved, w, h };
 }
 
 export function layoutTree(graph: StrategyGraph, open: OpenState): TreeLayout {
   const nodeById = new Map(graph.nodes.map((n) => [n.id, n] as const));
-  const kids = new Map<string, Array<{ id: string; label: string; kind: string }>>();
+  const kids = new Map<string, string[]>();
   const usesIndicator = new Map<string, string>();
-  const parentClass = new Map<string, string>();
   for (const e of graph.edges) {
-    if (TREE_EDGES.has(e.kind)) kids.set(e.source, [...(kids.get(e.source) ?? []), { id: e.target, label: e.label, kind: e.kind }]);
+    if (TREE_EDGES.has(e.kind) || e.kind === "combined_by") kids.set(e.source, [...(kids.get(e.source) ?? []), e.target]);
     else if (e.kind === "uses_indicator") usesIndicator.set(e.source, e.target);
-    else if (e.kind === "is_a") parentClass.set(e.source, e.target);
   }
+  if (!nodeById.has("strategy")) return { items: new Map(), order: [], edges: [], width: 0, height: 0 };
 
   const used = new Map<string, number>();
   const uniq = (base: string) => {
@@ -132,167 +129,116 @@ export function layoutTree(graph: StrategyGraph, open: OpenState): TreeLayout {
     used.set(base, n);
     return n === 1 ? base : `${base}~${n}`;
   };
-  let conditionNo = 0;
 
-  const pill = (label: string, owner: string, nodeId: string | null, child?: TNode): TNode => {
-    const p = makeItem(uniq(`pill:${owner}:${label}`), "pill", nodeId, owner, nodeId ? nodeById.get(nodeId)?.kind ?? null : null, [label], null, false);
-    if (child) p.children.push(child);
-    return p;
-  };
-
-  const classChain = (indicatorId: string, owner: string): TNode[] => {
-    const up = parentClass.get(indicatorId);
-    if (!up || !open.classes.has(indicatorId)) return [];
-    const walk = (id: string): TNode => {
-      const n = nodeById.get(id)!;
-      const leaf = makeItem(uniq(`leaf:${id}`), "leaf", id, owner, n.kind, [n.label], null, false);
-      const next = parentClass.get(id);
-      if (next && nodeById.has(next)) leaf.children.push(pill(t("분류"), owner, null, walk(next)));
-      return leaf;
-    };
-    return [pill(t("분류"), owner, null, walk(up))];
-  };
-
-  const detailLeaves = (id: string): TNode[] => {
+  const nodeDraft = (id: string): Draft => {
     const n = nodeById.get(id)!;
-    const out: TNode[] = [];
-    for (const r of n.details.rows) out.push(pill(r.label, id, null, makeItem(uniq(`leaf:${id}:${r.label}`), "leaf", null, id, null, [r.value], null, false)));
+    const status = STATUS_LABELS[n.status];
+    return makeItem(uniq(`node:${id}`), "node", id, id, n.kind, [n.label], status ? t(status) : null, ["pending", "check_needed", "unsupported", "data_pending"].includes(n.status));
+  };
+
+  /** Parameters and the used indicator of an opened item, as small leaves hanging below it. */
+  const detailDrafts = (id: string): Draft[] => {
+    const n = nodeById.get(id)!;
+    const out = n.details.rows.map((r) => makeItem(uniq(`leaf:${id}:${r.label}`), "leaf", null, id, null, [`${r.label}: ${r.value}`], null, false));
     const ind = usesIndicator.get(id);
     const indNode = ind ? nodeById.get(ind) : undefined;
-    if (ind && indNode) {
-      const leaf = makeItem(uniq(`leaf:${ind}@${id}`), "leaf", ind, id, "indicator", [indNode.label], null, false);
-      leaf.children.push(...classChain(ind, id));
-      out.push(pill(t("사용 지표"), id, null, leaf));
-    }
+    if (ind && indNode) out.push(makeItem(uniq(`leaf:${ind}@${id}`), "leaf", ind, id, "indicator", [`${t("사용 지표")}: ${indNode.label}`], null, false));
     return out;
   };
 
-  const childrenOf = (id: string): TNode[] =>
-    (kids.get(id) ?? []).map((c) => {
-      const child = nodeT(c.id);
-      return c.kind === "combined_by" && c.label ? pill(c.label, c.id, null, child) : child;
-    });
-
-  const nodeT = (id: string, withChildren = true): TNode => {
-    const n = nodeById.get(id)!;
-    const lines = n.kind === "condition" ? [`${t("조건")} ${(conditionNo += 1)}`, n.label] : [n.label];
-    const status = STATUS_LABELS[n.status];
-    const node = makeItem(uniq(`node:${id}`), "node", id, id, n.kind, lines, status ? t(status) : null, ["pending", "check_needed", "unsupported", "data_pending"].includes(n.status));
-    if (!withChildren) return node;
-    node.children.push(...childrenOf(id));
-    if (open.expanded.has(id)) node.children.push(...detailLeaves(id));
-    return node;
+  // A stage column = its sections. Each section is a header pill; its items hang from the header
+  // as a tree (a trunk with one branch per item), so items of one section are siblings, never a
+  // chain. Only real relations are drawn: header -> header (stage order) and parent -> child.
+  interface Entry {
+    d: Draft;
+    depth: number;
+    parent: number;
+  }
+  interface Block {
+    header: Draft;
+    entries: Entry[];
+  }
+  const sectionOf = (key: SectionKey) => nodeById.get(`section:${key}`);
+  const blockOf = (key: SectionKey): Block | null => {
+    const sec = sectionOf(key);
+    if (!sec) return null;
+    const members = (kids.get(sec.id) ?? []).map((id) => nodeById.get(id)!);
+    // A resolved AND/OR group is folded into the header; an unresolved one stays a node.
+    const group = members.find((n) => n.kind === "group" && n.status === "ok") ?? null;
+    const shown = group ? `${sec.label} · ${group.label}` : sec.label;
+    const header = makeItem(uniq(`pill:${sec.id}:${sec.label}`), "pill", sec.id, sec.id, "section", [shown], null, false);
+    const ids = members.flatMap((n) => (group && n.id === group.id ? kids.get(group.id) ?? [] : [n.id]));
+    const entries: Entry[] = [];
+    // Nested items (e.g. the components of a composite ranking) and an opened item's details hang
+    // from their own parent.
+    const add = (id: string, depth: number, parent: number) => {
+      const at = entries.push({ d: nodeDraft(id), depth, parent }) - 1;
+      if (open.expanded.has(id)) detailDrafts(id).forEach((leaf) => entries.push({ d: leaf, depth: depth + 1, parent: at }));
+      (kids.get(id) ?? []).forEach((c) => add(c, depth + 1, at));
+    };
+    ids.forEach((id) => add(id, 1, -1));
+    return { header, entries };
   };
 
-  if (!nodeById.has("strategy")) return { items: new Map(), order: [], edges: [], width: 0, height: 0 };
-  const root = nodeT("strategy", false);
-  // Section pills carry the section label between the strategy and its items.
-  root.children = (kids.get("strategy") ?? []).map((s) => {
-    const sec = pill(nodeById.get(s.id)!.label, s.id, s.id);
-    sec.children.push(...childrenOf(s.id));
-    sec.stack = sec.children.length >= 3 && sec.children.every((c) => c.children.length === 0);
-    return sec;
-  });
-
-
-  // ── measure (subtree widths) ─────────────────────────────────────────────────────────────
-  const measure = (n: TNode): number => {
-    const childW = n.children.map(measure);
-    if (n.stack) {
-      n.sub = Math.max(n.item.w, ...childW);
-      return n.sub;
-    }
-    const block = childW.reduce((a, b) => a + b, 0) + H_GAP * Math.max(0, n.children.length - 1);
-    n.sub = Math.max(n.item.w, block);
-    return n.sub;
-  };
-  // Bands: every section is its own top-down tree; bands are stacked vertically and joined to the
-  // strategy by a trunk line on the left. This keeps the graph wide-but-short per band instead of
-  // one very wide row of all sections.
   const items = new Map<string, LayoutItem>();
   const order: string[] = [];
   const edges: LayoutEdge[] = [];
-  const gapBelow = (n: TNode) => (n.item.kind === "pill" ? 30 : 34 + Math.min(n.children.length - 1, 6) * 12);
-  const STACK_GAP = 14;
-
-  const place = (n: TNode, left: number, y: number, depth: number, parentKey: string | null): number => {
-    const k = n.children.length;
-    if (n.stack) {
-      let cy = y + n.item.h + 30;
-      for (const c of n.children) {
-        place(c, left + (n.sub - c.sub) / 2, cy, depth + 1, n.item.key);
-        cy += c.item.h + STACK_GAP;
-      }
-      items.set(n.item.key, { ...n.item, x: left + n.sub / 2 - n.item.w / 2, y, depth, parentKey });
-      order.push(n.item.key);
-      return left + n.sub / 2;
-    }
-    const block = n.children.reduce((a, c) => a + c.sub, 0) + H_GAP * Math.max(0, k - 1);
-    let cursor = left + (n.sub - block) / 2;
-    const childY = y + n.item.h + gapBelow(n);
-    const centers = n.children.map((c) => {
-      const cx = place(c, cursor, childY, depth + 1, n.item.key);
-      cursor += c.sub + H_GAP;
-      return cx;
-    });
-    const center = k === 0 ? left + n.sub / 2 : (centers[0] + centers[k - 1]) / 2;
-    items.set(n.item.key, { ...n.item, x: center - n.item.w / 2, y, depth, parentKey });
-    order.push(n.item.key);
-    return center;
+  const put = (d: Draft, x: number, y: number, depth: number, parentKey: string | null) => {
+    items.set(d.key, { ...d, x, y, depth, parentKey });
+    order.push(d.key);
+  };
+  const INDENT = 28;
+  const TRUNK = 16;
+  /** Branch from a parent's trunk (below its left part) into the child's left edge. */
+  const branch = (parent: LayoutItem, child: LayoutItem) => {
+    const tx = parent.x + TRUNK;
+    const cy = child.y + child.h / 2;
+    edges.push({ key: `${parent.key}>${child.key}`, from: parent.key, to: child.key, d: `M ${tx} ${parent.y + parent.h} V ${cy - 6} Q ${tx} ${cy} ${tx + 6} ${cy} H ${child.x}`, arrow: false });
   };
 
-  const TRUNK_X = 22;
-  const BAND_LEFT = 44;
-  const BAND_GAP = 40;
-  items.set(root.item.key, { ...root.item, x: 0, y: 0, depth: 0, parentKey: null });
-  order.push(root.item.key);
-  const rootItem = items.get(root.item.key)!;
-  let bandTop = rootItem.h + 36;
-  for (const sec of root.children) {
-    measure(sec);
-    const before = order.length;
-    place(sec, BAND_LEFT, bandTop, 1, root.item.key);
-    let bandBottom = bandTop;
-    for (const key of order.slice(before)) {
-      const i = items.get(key)!;
-      bandBottom = Math.max(bandBottom, i.y + i.h);
-    }
-    const pillItem = items.get(sec.item.key)!;
-    const cy = pillItem.y + pillItem.h / 2;
-    edges.push({ key: `${root.item.key}>${pillItem.key}`, from: root.item.key, to: pillItem.key, d: `M ${TRUNK_X} ${rootItem.h} V ${cy - 8} Q ${TRUNK_X} ${cy} ${TRUNK_X + 8} ${cy} H ${pillItem.x}`, arrow: true, end: { x: pillItem.x, y: cy, dir: "right" } });
-    bandTop = bandBottom + BAND_GAP;
-  }
+  const ROW_CENTER = 40;
+  const SIDE = 20;
+  const root = nodeDraft("strategy");
+  put(root, 0, ROW_CENTER - root.h / 2, 0, null);
+  let prevHead: LayoutItem = items.get(root.key)!;
+  let left = root.w + COL_GAP;
 
-  // ── edges inside each band (elbow connectors; farther targets run higher, like a staircase) ─
-  const walk = (n: TNode) => {
-    const p = items.get(n.item.key)!;
-    const k = n.children.length;
-    const bottom = p.y + p.h;
-    if (n.stack) {
-      for (const c of n.children) {
-        const ci = items.get(c.item.key)!;
-        const x = p.x + p.w / 2;
-        edges.push({ key: `${p.key}>${ci.key}`, from: p.key, to: ci.key, d: `M ${x} ${bottom} V ${ci.y}`, arrow: false });
-        walk(c);
+  STAGES.forEach((stage, col) => {
+    const blocks = stage.map(blockOf).filter((b): b is Block => b !== null);
+    if (blocks.length === 0) return;
+    const colW = Math.max(...blocks.flatMap((b) => [b.header.w, ...b.entries.map((e) => e.depth * INDENT + e.d.w)]));
+    let y = 0;
+    let prevSection: LayoutItem | null = null;
+    blocks.forEach((b, bi) => {
+      // The first header of every column sits on the flow line; later sections start below.
+      const hy = bi === 0 ? ROW_CENTER - b.header.h / 2 : y;
+      put(b.header, left, hy, col + 1, null);
+      const head = items.get(b.header.key)!;
+      const cy = head.y + head.h / 2;
+      if (bi === 0) {
+        edges.push({ key: `${prevHead.key}>${head.key}`, from: prevHead.key, to: head.key, d: `M ${prevHead.x + prevHead.w} ${prevHead.y + prevHead.h / 2} H ${head.x}`, arrow: true, end: { x: head.x, y: cy, dir: "right" } });
+        prevHead = head;
+      } else if (prevSection) {
+        // Stage order inside a column: previous section header -> this one, routed along the
+        // left side so it never crosses the items hanging below the previous header.
+        const from = prevSection;
+        edges.push({ key: `${from.key}>${head.key}`, from: from.key, to: head.key, d: `M ${from.x} ${from.y + from.h / 2} H ${left - SIDE} V ${cy} H ${head.x}`, arrow: true, end: { x: head.x, y: cy, dir: "right" } });
       }
-      return;
-    }
-    const rows = n.children.map((c, i) => {
-      const ci = items.get(c.item.key)!;
-      const sx = p.kind === "pill" || k === 1 ? p.x + p.w / 2 : p.x + (p.w * (i + 1)) / (k + 1);
-      return { c, ci, sx, cx: ci.x + ci.w / 2, dx: ci.x + ci.w / 2 - sx };
+      prevSection = head;
+      const placed: LayoutItem[] = [];
+      y = head.y + head.h + 18;
+      for (const e of b.entries) {
+        const parent = e.parent < 0 ? head : placed[e.parent];
+        put(e.d, left + e.depth * INDENT, y, col + 1 + e.depth, parent.key);
+        const it = items.get(e.d.key)!;
+        branch(parent, it);
+        placed.push(it);
+        y += it.h + ROW_GAP;
+      }
+      y += SECTION_GAP;
     });
-    const midY = new Map<string, number>();
-    for (const side of [-1, 1]) {
-      const same = rows.filter((r) => Math.sign(r.dx) === side).sort((a, b) => Math.abs(b.dx) - Math.abs(a.dx));
-      same.forEach((r, rank) => midY.set(r.ci.key, bottom + 14 + rank * 12));
-    }
-    for (const r of rows) {
-      edges.push({ key: `${p.key}>${r.ci.key}`, from: p.key, to: r.ci.key, d: elbowPath(r.sx, bottom, r.cx, r.ci.y, midY.get(r.ci.key) ?? bottom + 14), arrow: p.kind === "pill", end: p.kind === "pill" ? { x: r.cx, y: r.ci.y, dir: "down" } : undefined });
-      walk(r.c);
-    }
-  };
-  root.children.forEach(walk);
+    left += colW + COL_GAP;
+  });
 
   let width = 0;
   let height = 0;
@@ -300,36 +246,7 @@ export function layoutTree(graph: StrategyGraph, open: OpenState): TreeLayout {
     width = Math.max(width, i.x + i.w);
     height = Math.max(height, i.y + i.h);
   });
-  // Items can sit left of 0 when a parent is wider than its children block; shift everything right.
-  let minX = 0;
-  items.forEach((i) => (minX = Math.min(minX, i.x)));
-  if (minX < 0) {
-    items.forEach((i) => (i.x -= minX));
-    width -= minX;
-    edges.forEach((e) => {
-      e.d = shiftPath(e.d, -minX);
-      if (e.end) e.end = { ...e.end, x: e.end.x - minX };
-    });
-  }
   return { items, order, edges, width, height };
-}
-
-function shiftPath(d: string, dx: number): string {
-  // Paths are built from absolute "M x,y", "H x", "Q cx,cy x,y" commands (V has no x).
-  return d
-    .replace(/M ([\d.-]+) ([\d.-]+)/, (_, x, y) => `M ${+x + dx} ${y}`)
-    .replace(/H ([\d.-]+)/g, (_, x) => `H ${+x + dx}`)
-    .replace(/Q ([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+)/g, (_, a, b, c, e) => `Q ${+a + dx} ${b} ${+c + dx} ${e}`)
-    .replace(/V ([\d.-]+)/g, (_, y) => `V ${y}`);
-}
-
-/** Orthogonal connector with rounded corners: down, across at midY, down into the child. */
-export function elbowPath(sx: number, sy: number, cx: number, cy: number, midY: number): string {
-  const dx = cx - sx;
-  if (Math.abs(dx) < 1) return `M ${sx} ${sy} V ${cy}`;
-  const dir = Math.sign(dx);
-  const r = Math.min(10, Math.abs(dx) / 2, Math.max(2, (cy - midY) / 2));
-  return `M ${sx} ${sy} V ${midY - r} Q ${sx} ${midY} ${sx + dir * r} ${midY} H ${cx - dir * r} Q ${cx} ${midY} ${cx} ${midY + r} V ${cy}`;
 }
 
 /** Instance nodes that can show parameter leaves / an indicator. */
@@ -340,10 +257,7 @@ export function expandableIds(graph: StrategyGraph): string[] {
     .map((n) => n.id);
 }
 
-/** Small strategies open every condition by default; large ones start collapsed (expand on select). */
-export function defaultExpanded(graph: StrategyGraph, maxLeaves = 24): Set<string> {
-  const withIndicator = new Set(graph.edges.filter((e) => e.kind === "uses_indicator").map((e) => e.source));
-  const ids = expandableIds(graph).filter((id) => graph.nodes.find((n) => n.id === id)?.kind === "condition");
-  const leaves = ids.reduce((sum, id) => sum + (graph.nodes.find((n) => n.id === id)?.details.rows.length ?? 0) + (withIndicator.has(id) ? 1 : 0), 0);
-  return leaves <= maxLeaves ? new Set(ids) : new Set();
+/** Every item starts collapsed: the first view shows only the strategy's flow (expand on select). */
+export function defaultExpanded(_graph: StrategyGraph): Set<string> {
+  return new Set();
 }
