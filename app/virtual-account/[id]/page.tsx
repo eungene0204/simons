@@ -1574,7 +1574,7 @@ export default function VirtualAccountDetailPage() {
                             </p>
                           </div>
                         </div>
-                        <div className="h-72">
+                        <div className="h-56">
                           {hasCompletePerformanceHistory
                             ? <PortfolioPerformanceChart data={performanceData} />
                             : <p className="text-sm text-[var(--text-label)]">{t("표시할 수익률 데이터가 없습니다.")}</p>}
