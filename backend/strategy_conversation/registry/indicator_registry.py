@@ -350,6 +350,15 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                {"lookback_period": ParamSpec(default=60, minimum=5, maximum=500, required=True)},
                notes="매수는 crosses_above로 최근 N일 고가 돌파, 청산은 crosses_below로 최근 N일 저가 이탈. "
                      "역할과 반대인 방향은 지원하지 않음. parameters.lookback_period=N"),
+    # 신저가 돌파(엔진 v16.41) — 방향(저가를 아래로 깸)을 개념 ID 이름이 담는다(연산자 없음). 종전엔
+    # 신고가 돌파(breakout)만 있어 '신저가 매수'가 미지원 개념으로 거절됐다. 역할과 무관하게 같은 사건이다.
+    replace(
+        _technical("breakout_low", "신저가 돌파", "event", (),
+                   {"lookback_period": ParamSpec(default=60, minimum=5, maximum=500, required=True)},
+                   notes="당일 저가가 직전 N일 최저 저가를 아래로 깬 날(신저가 경신). 52주=252일. "
+                         "parameters.lookback_period=N, operator/value 없음. 신고가 돌파와 반대 방향"),
+        engine_binding=("technical_signal", "breakout"),
+    ),
     _technical("consecutive_up", "종가 연속 상승", "event", (),
                {"period": ParamSpec(minimum=1, maximum=250, required=True)},
                notes="최근 N거래일 각각의 종가가 직전 거래일 종가보다 높음. "
@@ -513,7 +522,6 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                  alternatives=("fundamental.eps",),
                  notes="단일 시점 흑자/적자 여부는 fundamental.eps(>0/<0)로 표현 가능"),
     _unsupported("ema_alignment", "정배열/역배열", "technical"),
-    _unsupported("new_low", "신저가 조건", "technical"),
     _unsupported("earnings_estimate", "실적 컨센서스/추정치", "fundamental"),
     _unsupported("moat", "경제적 해자 등 정성 평가", "quality"),
 )
@@ -708,7 +716,8 @@ _ALIASES: Dict[str, str] = {
     "흑자전환": "unsupported.profitability_transition",
     "턴어라운드": "unsupported.profitability_transition",
     "정배열": "unsupported.ema_alignment", "역배열": "unsupported.ema_alignment",
-    "신저가": "unsupported.new_low",
+    "신저가": "technical.breakout_low", "신저가돌파": "technical.breakout_low",
+    "신저가경신": "technical.breakout_low", "52주신저가": "technical.breakout_low",
     "경제적해자": "unsupported.moat",
 }
 

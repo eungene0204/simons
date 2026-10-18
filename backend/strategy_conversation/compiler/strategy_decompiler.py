@@ -67,7 +67,10 @@ def _decompile_technical(sig: TechnicalSignal) -> StrategyCondition:
     elif sig.indicator == "macd":
         operator = "crosses_above" if sig.signal_type == "buy" else "crosses_below"
     elif sig.indicator == "breakout":
-        operator = "crosses_above"
+        if sig.side == "low":
+            factor = "technical.breakout_low"      # 신저가 돌파(v16.41) — 연산자 없는 개념 ID
+        else:
+            operator = "crosses_above"
         if sig.lookback_period is not None:
             parameters["lookback_period"] = float(sig.lookback_period)
     elif sig.indicator in ("ai_model", "ai_drop_model"):

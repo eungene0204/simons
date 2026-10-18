@@ -148,6 +148,19 @@ describe("getSignalLabel — 크로스 방향 구체화", () => {
     expect(getSignalLabel({ indicator: "bollinger_bands", signal_type: "buy" }, "entry")).toBe("볼린저밴드");
   });
 
+  it("신저가 돌파(엔진 v16.41)는 매수 칸에서도 신저가로 적는다", () => {
+    expect(
+      getSignalLabel({ indicator: "breakout", signal_type: "buy", lookback_period: 252, side: "low" }, "entry")
+    ).toBe("52주 신저가 돌파");
+    expect(
+      getSignalLabel({ indicator: "breakout", signal_type: "buy", lookback_period: 20, side: "low" }, "entry")
+    ).toBe("20일 신저가 돌파");
+    // side가 없으면 기존 신고가 돌파 표기 그대로
+    expect(
+      getSignalLabel({ indicator: "breakout", signal_type: "buy", lookback_period: 252 }, "entry")
+    ).toBe("52주 신고가 돌파");
+  });
+
   it("RSI 반등(rebound)은 임계선 재돌파를 상향 반등/하향 반전으로 표기한다", () => {
     expect(
       getSignalLabel({ indicator: "rsi", signal_type: "buy", mode: "rebound", value: 30 }, "entry")

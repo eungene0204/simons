@@ -167,6 +167,8 @@ def _compile_technical(
                     f"표현할 수 없습니다 (밴드를 지정한 볼린저 조건을 쓰세요)")
     elif indicator == "breakout":
         kwargs["lookback_period"] = _int_param("lookback_period")
+        if cond.factor == "technical.breakout_low":
+            kwargs["side"] = "low"                         # 신저가 돌파(v16.41) — 방향은 개념 ID가 정한다
     elif indicator in ("ai_model", "ai_drop_model"):
         # 사용자가 준 값이 Registry 기본값(70)보다 항상 우선한다. _param을 먼저 부르면
         # 기본값이 채워져 cond.value가 영원히 무시된다 — "상승 확률 80% 이상"이 조용히

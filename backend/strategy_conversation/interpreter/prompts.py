@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "8.14"  # 8.14: EMA 한 선 이탈 청산 예시(진입 EMA 쌍 복사 방지). 8.13: 코치의 직전 질문을 수정 턴 문맥으로 전달
+PROMPT_VERSION = "8.15"  # 8.15: "N거래일 지나면 매도"=hold_period_days(최소 보유로 읽던 오배정). 8.14: EMA 한 선 이탈 청산 예시(진입 EMA 쌍 복사 방지). 8.13: 코치의 직전 질문을 수정 턴 문맥으로 전달
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -248,7 +248,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
    랭킹(금지), 현금흐름 흑자→증가율(금지), 우선주→보통주(금지) — 전부 unsupported_features에 원문 조각으로.
    (일부·절반 익절은 미지원이 아니라 risk_management.partial_take_profits, 하락 단계별 추가 매수는 risk_management.scale_in_buys입니다 — 규칙 7-1-2.)
    **자주 놓치는 미지원 개념**(보이면 반드시 unsupported_features에):
-   흑자전환·연속 흑자, 주가의 N거래일 연속 하락, 장중·분봉 매매, 우선주, VWAP, 고정 현금 비중, 신저가,
+   흑자전환·연속 흑자, 주가의 N거래일 연속 하락, 장중·분봉 매매, 우선주, VWAP, 고정 현금 비중,
    베타, 뉴스·수급, 실적 추정치·컨센서스(상향·하향 — 수익률·시장 대비 수익률로 바꾸지 말 것), **공매도·숏(short/short-selling)**(엔진은 매수 후 매도만 지원합니다 —
    "Short overvalued stocks"의 'Short'를 버리고 매수 전략으로 바꾸지 마세요).
    미국 **시장·지수**(S&P500·나스닥·다우·미국 ETF)는 지원합니다 — 규칙 6의 매핑을 쓰세요.
@@ -301,7 +301,8 @@ NON_STRATEGY_REQUEST(전략과 무관)
    매도', 'RSI 70 이상이면 매도'는 보유 기간을 함께 말했더라도 exit_conditions에 반드시
    남깁니다("20일선을 이탈하면 청산하고, 최대 보유 기간은 6개월" → exit_conditions에
    ma_crossover crosses_below(1/20) **그리고** portfolio.hold_period_days=126, 둘 다).
-   최소 N거래일 보유→portfolio.min_hold_period_days=N, 최대 N거래일 보유→portfolio.hold_period_days=N(만료 시 청산).
+   최소 N거래일 보유→portfolio.min_hold_period_days=N(N거래일 전에는 팔지 않는다는 하한), 최대 N거래일 보유→portfolio.hold_period_days=N(만료 시 청산).
+   '매수 후 N거래일(한 달)이 지나면 매도/정리'는 N거래일 뒤 파는 말이므로 hold_period_days입니다(min_hold_period_days 아님).
    영어 입력의 위험·보유 표기도 같은 슬롯입니다(실측 2026-08-26: 아래 표기가 조건으로
    오배치되거나 통째로 소실됐습니다): "Set the stop-loss (example value) to -9%" →
    risk_management.stop_loss=9 (조건이 아닙니다 — trading_value 등 다른 지표로 옮기지
@@ -340,6 +341,11 @@ NON_STRATEGY_REQUEST(전략과 무관)
    영어 표기도 같습니다: "breaks (above) the 60-day high"→lookback_period=60,
    "52-week high"→252. lookback_period 외의 파라미터(short_period 등)를 지어 넣지
    마세요(실측 2026-08-26: 미지원 파라미터로 검증에 걸려 조건이 값-대기로 빠졌습니다).
+5-1-1. 신저가 돌파(technical.breakout_low)는 operator/value 없이 parameters.lookback_period만 씁니다:
+   '52주 신저가 경신/갱신'=252, 'N일 신저가'=N(당일 저가가 직전 N일 최저 저가를 아래로 깬 날).
+   매수 칸에 앉으면 '신저가를 찍은 종목 매수', 청산 칸에 앉으면 '신저가 이탈 시 청산'입니다.
+   technical.breakout(신고가)에 crosses_below를 붙여 신저가 매수를 표현하지 마세요 —
+   그 조합은 진입 신호로 표현할 수 없습니다. 기간 언급이 없으면 lookback_period는 비워 두세요(되묻기).
 5-2. '거래량이 급증/평소보다 늘어남/평균 대비 증가/터짐'처럼 **배수 없이** 말한 거래량 조건은
    거래량 급증 신호(technical.volume_spike, value=null)입니다 — 억원 임계가 있는 거래대금
    조건으로 분류하지 마세요. '평소보다 3배'·'20일 평균보다 1.5배 많은'처럼 **배수**를 말했으면

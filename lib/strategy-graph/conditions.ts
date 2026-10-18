@@ -236,7 +236,7 @@ export function describeCondition(cond: EngineCondition, meta: GraphMeta | null)
     const rows = [...(period !== null ? [row(t("확인 기간"), t("{0}거래일", period))] : []), row(t("판정 방식"), t("돌파 사건")), NO_THRESHOLD()];
     return {
       ...base,
-      expression: sell
+      expression: sell || p.side === "low"
         ? t("저가가 직전 {0}거래일 최저가를 하향 돌파", period ?? "?")
         : t("고가가 직전 {0}거래일 최고가를 상향 돌파", period ?? "?"),
       rows,

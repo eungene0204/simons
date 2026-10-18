@@ -41,6 +41,8 @@ STRUCTURAL_PARAM_KEYS = frozenset({
     "pattern", "timeframe",
     # 볼린저 밴드 지정(v16.39) — 중심선이면 이동평균 열이 필요하고, 하단 터치 이력은 워밍업 길이를 바꾼다.
     "band", "touchLookback",
+    # 신저가 돌파(v16.41) — 같은 high/low 열을 쓰지만 어느 쪽으로 읽는지가 요청 키에 남아야 한다.
+    "side",
 })
 
 _DEFAULT_BUDGET_MB = 2048

@@ -37,6 +37,7 @@ export interface ParsedSummary {
     band?: string | null;
     cross?: string | null;
     touch_lookback?: number | null;
+    side?: string | null;
   }>;
   exit_signals: Array<{
     indicator: string;
@@ -51,6 +52,7 @@ export interface ParsedSummary {
     band?: string | null;
     cross?: string | null;
     touch_lookback?: number | null;
+    side?: string | null;
   }>;
   // 진입 게이트 필터(추세·거래대금·RSI 결합) — 진입 신호와 AND 결합. 빌더 전용, 없으면 생략.
   entry_filters?: Array<{
@@ -603,6 +605,7 @@ export function getSignalLabel(
     band?: string | null;
     cross?: string | null;
     touch_lookback?: number | null;
+    side?: string | null;
   },
   context: "entry" | "exit"
 ): string {
@@ -641,6 +644,14 @@ function getSignalLabelBase(
   // 브레이크아웃은 기준 기간(lookback_period)에 따라 의미가 달라진다 — 252일(≈52주)은 "52주 신고가",
   // 그 밖의 N일은 "N일 고점 돌파"(매수)/"N일 저점 이탈"(매도)로 구체화한다. 기간 미상이면 일반 라벨.
   if (signal.indicator === "breakout") {
+    // 신저가 돌파(엔진 v16.41) — 역할과 무관하게 저가를 아래로 깬 날이다(매수 칸이면 신저가 진입).
+    if (signal.side === "low") {
+      return signal.lookback_period === 252
+        ? t("52주 신저가 돌파")
+        : signal.lookback_period != null
+          ? t("{0}일 신저가 돌파", signal.lookback_period)
+          : t("신저가 돌파");
+    }
     const isDown =
       signal.signal_type === "sell" || (signal.signal_type == null && context === "exit");
     const days = signal.lookback_period ?? null;
@@ -1775,6 +1786,7 @@ function conditionToSignal(condition: CompiledCondition & { id: string }) {
     band: typeof params?.band === "string" ? params.band : null,
     cross: typeof params?.cross === "string" ? params.cross : null,
     touch_lookback: paramNumber(params, "touchLookback"),
+    side: typeof params?.side === "string" ? params.side : null,
   };
 }
 

@@ -2381,6 +2381,7 @@ export const en: Record<string, string> = {
   "{0}조 {1}억": "₩{0}T {1}00M",
   "52주 신고가 돌파": "52-week high breakout",
   "52주 신저가 이탈": "52-week low breakdown",
+  "신저가 돌파": "New-low breakout",
   "AI 매수 예측": "AI buy prediction",
   "AI 하락 예측": "AI drop prediction",
   "EMA 골든크로스": "EMA golden cross",

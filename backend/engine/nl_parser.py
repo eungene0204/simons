@@ -788,6 +788,9 @@ class TechnicalSignal(BaseModel):
 
     # 브레이크아웃
     lookback_period: Optional[int] = Field(default=None, description="브레이크아웃 기준 기간 (breakout)")
+    # side="low"=역할과 무관하게 최근 N일 저가를 아래로 깬 날(신저가 돌파, v16.41). 없으면 역할 고정
+    # (매수=N일 고가 돌파, 매도=N일 저가 이탈) — 기존 전략의 요청·결과는 그대로다.
+    side: Optional[Literal["low"]] = Field(default=None, description="신저가 돌파 (breakout, 신저가 진입·청산)")
 
     # 볼린저 밴드 지정(엔진 v16.39) — band가 있으면 '종가가 그 밴드를 cross 방향으로 교차'한 날이고,
     # touch_lookback=N이면 직전 N거래일 안에 종가가 하단 이하였던 적이 있어야 한다('하단 터치 후

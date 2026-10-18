@@ -475,7 +475,7 @@ class SignalEngine:
             current_low = get_col('low')
             if current_high is None or current_low is None:
                 return result
-            if p.get('signalType') == 'sell':
+            if p.get('signalType') == 'sell' or p.get('side') == 'low':
                 prev_min = get_col(f'low_{period}_min')
                 if prev_min is None:
                     return result
@@ -885,7 +885,7 @@ class SignalEngine:
             current_low = safe_get('low', idx)
             if idx < period or current_high is None or current_low is None:
                 return False
-            if p.get('signalType') == 'sell':
+            if p.get('signalType') == 'sell' or p.get('side') == 'low':
                 prev_min = safe_get(f'low_{period}_min', idx - 1)
                 return compare(current_low, '<', prev_min)
             else:
@@ -1133,8 +1133,8 @@ class SignalEngine:
             return [tr.part(tr.TRADING_VALUE_RATIO, period, f"{float(val):g}", tvr_op_seg)]
         elif cid == 'breakout':
             period = p.get('lookbackPeriod', 20)
-            sell = p.get('signalType') == 'sell'
-            return [tr.part(tr.BREAKOUT_LOW if sell else tr.BREAKOUT_HIGH, period)]
+            low = p.get('signalType') == 'sell' or p.get('side') == 'low'
+            return [tr.part(tr.BREAKOUT_LOW if low else tr.BREAKOUT_HIGH, period)]
         elif cid in ['ai_model', 'ai_drop_model']:
             target_type = p.get('targetType')
             if cid == 'ai_drop_model' and not target_type:
