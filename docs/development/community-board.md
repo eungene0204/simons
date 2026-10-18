@@ -77,6 +77,13 @@ WHERE "expiresAt" < CURRENT_TIMESTAMP AND "reporter" IS NOT NULL;
 
 ## 검증 기록 (2026-10-19)
 
+- 배포 CI 회귀 수정: 즉시 게시 검수 함수의 반환값 대신 허용/거절 동작을 검증하고,
+  게시판 화면 테스트에 실제 앱과 동일한 QueryClientProvider를 구성한다.
+  각 테스트는 독립 QueryClient를 사용해 조회 캐시가 다음 테스트에 섞이지 않도록 한다.
+- 재배포 전 재검증: 게시판 15개 테스트 및 전체 프런트 테스트 2,558개 통과
+  (345개 파일 통과, 1개 파일/2개 테스트 skip). lint와 격리 폴더의 production build 성공.
+  이전 배포 CI의 backend/engine-version-guard는 통과했으며 실패는 게시판 테스트 3건이었다.
+
 - npm run db:generate 성공. npx prisma migrate deploy로 기존 연결 DB에
   신규 마이그레이션 적용 완료. DB 연결 및 게시판 테이블 조회 확인.
 - npm run test:frontend: 345개 파일 통과, 1개 파일 skip;

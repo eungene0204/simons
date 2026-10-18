@@ -36,8 +36,8 @@ describe("board validation and moderation", () => {
     expect(() => password("가".repeat(25))).toThrow();
     expect(password("secure-password")).toBe("secure-password");
   });
-  it("uses context and review instead of rejecting every keyword", () => {
-    expect(moderate("광고에 대한 질문입니다")).toBe("PUBLIC");
+  it("allows contextual discussion immediately and rejects clear violations", () => {
+    expect(() => moderate("광고에 대한 질문입니다")).not.toThrow();
     expect(moderate("카지노 관련 질문입니다")).toBeUndefined();
     expect(() => moderate("무료 가입 https://spam.example")).toThrow();
     expect(() => moderate("외국인을 말살하자")).toThrow();
