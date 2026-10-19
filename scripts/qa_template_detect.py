@@ -45,7 +45,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
 
 
-TSX_PATH = ROOT / "components/strategy/StrategyExampleTabs.tsx"
+EXAMPLES_PATH = ROOT / "components/strategy/strategyExamples.ts"  # 예시 정본(2026-10-19 분리, StrategyExampleTabs는 재노출)
 RAW_CACHE = ROOT / "scripts/.template_parse_cache.json"
 EXPECTATIONS_PATH = ROOT / "scripts/qa_template_expectations.json"
 KR_EXPECTATIONS: dict[str, dict] = json.loads(EXPECTATIONS_PATH.read_text(encoding="utf-8"))
@@ -67,9 +67,9 @@ class Template:
         return self.input or self.prompt
 
 
-# 예시 소스 — kr: 한국 예시(StrategyExampleTabs), us: 미국 예시(usExamples, US 레인 Phase 4)
+# 예시 소스 — kr: 한국 예시(strategyExamples), us: 미국 예시(usExamples, US 레인 Phase 4)
 _SOURCES = {
-    "kr": (TSX_PATH, "export const EXAMPLES"),
+    "kr": (EXAMPLES_PATH, "export const EXAMPLES"),
     "us": (ROOT / "components/strategy/usExamples.ts", "export const US_EXAMPLES"),
 }
 

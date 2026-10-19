@@ -593,6 +593,6 @@ def test_touch_lookback_waiting_is_not_fatal(qatd):
 def test_bollinger_table_titles_exist_in_examples(qatd):
     """정답표 키가 실제 예시 제목과 어긋나면 대조가 조용히 꺼진다."""
     root = Path(__file__).resolve().parents[2] / "components" / "strategy"
-    source = (root / "StrategyExampleTabs.tsx").read_text() + (root / "usExamples.ts").read_text()
+    source = (root / "strategyExamples.ts").read_text() + (root / "usExamples.ts").read_text()
     for title in qatd.BOLLINGER_EXPECTED:
         assert f'title: "{title}"' in source

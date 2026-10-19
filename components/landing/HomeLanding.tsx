@@ -112,7 +112,7 @@ export function HomeLanding() {
           <p className="text-xs font-black tracking-[0.18em] text-[var(--chat-accent)]">
             투자 연구 · 백테스트 · 시뮬레이션 플랫폼
           </p>
-          <h1 className="mt-5 font-serif text-3xl font-bold leading-[1.25] tracking-normal text-white sm:text-4xl lg:text-5xl">
+          <h1 className="mt-5 font-serif text-3xl font-bold leading-[1.25] tracking-normal text-white sm:text-4xl sm:leading-[1.25] lg:text-5xl lg:leading-[1.25]">
             {/* md 이상에서는 두 줄 고정 — 글자 크기는 두 번째 줄이 한 줄에 들어가는 폭으로 잡았다. */}
             <span className="md:whitespace-nowrap">투자 전략을 입력하면,</span>
             <br />
@@ -135,7 +135,7 @@ export function HomeLanding() {
 
       <section id="how-it-works" className={`${SECTION} border-t border-white/[0.08]`}>
         <div className="mx-auto max-w-5xl">
-          <h2 className={SECTION_TITLE}>설계에서 모의투자까지, 세 단계</h2>
+          <h2 className={`${SECTION_TITLE} text-center`}>설계에서 모의투자까지, 세 단계</h2>
           <ol className="mt-12 flex flex-col gap-16 sm:gap-24">
             {STEPS.map((step) => (
               <li key={step.no}>
@@ -154,7 +154,7 @@ export function HomeLanding() {
 
           {/* 전략 예시들 — 세 단계를 본 뒤 바로 해볼 수 있도록 03 모의투자 아래에 둔다. */}
           <div className="mt-20 sm:mt-28">
-            <h3 className="text-2xl font-black text-white sm:text-3xl">
+            <h3 className="text-center text-2xl font-black text-white sm:text-3xl">
               전략 예시들
             </h3>
             <div className="mt-6">
@@ -166,10 +166,9 @@ export function HomeLanding() {
 
       <section className={`${SECTION} border-t border-white/[0.08]`} aria-labelledby="landing-audience">
         <div className="mx-auto max-w-5xl">
-          <h2 id="landing-audience" className={SECTION_TITLE}>
+          <h2 id="landing-audience" className={`${SECTION_TITLE} text-center`}>
             널스탁은 누구를 위한 서비스인가요?
           </h2>
-          <p className="mt-3 text-sm font-medium text-gray-400">이런 일을 직접 해보고 싶은 분을 위한 연구 도구입니다.</p>
           <ul className="mt-10 grid gap-4 sm:grid-cols-2">
             {AUDIENCES.map(({ icon, title, body }) => (
               <li key={title} className="flat-card rounded-2xl border border-white/[0.09] bg-[var(--card-bg)] p-6">
@@ -184,12 +183,9 @@ export function HomeLanding() {
 
       <section className={`${SECTION} border-t border-white/[0.08]`} aria-labelledby="landing-plans">
         <div className="mx-auto max-w-5xl">
-          <h2 id="landing-plans" className={SECTION_TITLE}>
+          <h2 id="landing-plans" className={`${SECTION_TITLE} text-center`}>
             요금제
           </h2>
-          <p className="mt-3 text-sm font-medium text-gray-400">
-            플랜은 백테스트 횟수, 가상계좌 수, 전략 저장 수 한도의 차이입니다. 가상계좌의 투자금은 모의 금액입니다.
-          </p>
           <ul className="mt-10 grid gap-4 md:grid-cols-3">
             {PLAN_ORDER.map((planId) => {
               const plan = PLANS[planId];
@@ -217,7 +213,7 @@ export function HomeLanding() {
 
       <section className={`${SECTION} border-t border-white/[0.08]`}>
         <div className="mx-auto max-w-3xl">
-          <h2 className={SECTION_TITLE}>자주 묻는 질문</h2>
+          <h2 className={`${SECTION_TITLE} text-center`}>자주 묻는 질문</h2>
           <div className="mt-8 divide-y divide-white/[0.08] border-y border-white/[0.08]">
             {FAQ.map((item) => (
               <details key={item.q} className="group py-5">
