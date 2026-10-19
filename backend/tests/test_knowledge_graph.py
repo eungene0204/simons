@@ -1304,3 +1304,24 @@ def test_cross_source_fold_requires_shared_company_and_different_source(tmp_path
     assert {"theme:naver-b", "theme:naver-c"} <= set(graph.nodes)   # 같은 출처 → 접지 않음
 
     monkeypatch.setattr(kg, "_CACHED", None)
+
+
+def test_wire_cable_is_a_theme_without_sector_membership():
+    """[회귀, 2026-10-19] '전선 관련주'가 시드 개념의 'IT 하드웨어' 소속 엣지에 걸려 업종으로
+    확정되던 사고. 전선은 전력·통신·소재에 걸친 테마이므로 단일 섹터 소속을 두지 않고
+    (data-center와 같은 계약) 카탈로그 테마 종목으로 풀려야 한다."""
+    from engine import knowledge_graph as kg
+
+    graph = kg.get_graph()
+    assert graph.nodes["cable"]["category"] == "theme"
+    assert kg.resolve_sector_from_text("전선 관련주") is None
+
+    found = kg.theme_listed_companies("전선 관련주")
+    assert found is not None
+    names = set(found["companies"]) if all(isinstance(c, str) for c in found["companies"]) else {
+        c.get("name") for c in found["companies"]
+    }
+    assert {"가온전선", "대한전선", "대원전선", "일진전기"} <= names
+    # 사용자 지정 합집합: 네이버 '전선' 8곳 + 주달 themeIdx=588 12곳 = 13곳
+    assert {"LS마린솔루션", "엘에스일렉트릭", "제일일렉트릭", "세명전기", "한국선재", "피앤씨테크"} <= names
+    assert len(names) == 13

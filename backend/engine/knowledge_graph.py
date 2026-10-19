@@ -1009,6 +1009,14 @@ def theme_listed_companies(text: str) -> Optional[dict]:
     if companies:
         catalog_hit = True
         via = "카탈로그 표기 정합"
+        # 사용자 지정 합집합(2026-10-19 '전선': 네이버 8 + 주달 588 12). 출처 순위는 같은
+        # 표기의 하위 출처 목록을 버리지만, 시드 테마가 union_direct_edges로 표시되면
+        # 시드 직접 엣지(주달 등 하위 출처에서 옮겨 적은 종목)를 카탈로그 목록에 합친다.
+        if anchor.get("union_direct_edges"):
+            for c in graph.listed_companies(anchor["id"]):
+                if c["symbol"] not in seen:
+                    seen.add(c["symbol"])
+                    companies.append(c)
     if not companies:
         companies = graph.listed_companies(anchor["id"])
     if not companies and anchor.get("category") == "learned":

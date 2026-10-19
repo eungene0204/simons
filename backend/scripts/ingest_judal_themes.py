@@ -105,10 +105,14 @@ def parse_theme_list(html: str) -> list[dict]:
 
 
 def parse_theme_stocks(html: str) -> list[tuple[str, str]]:
-    """테마 페이지의 종목 행 — 종목 링크가 네이버 증권 주소(…/domestic/stock/{코드}/price)다."""
-    pat = re.compile(r'/domestic/stock/(\w{6})/price"[^>]*>\s*<b[^>]*>([^<]+)</b>', re.S)
+    """테마 페이지의 종목 행 — 종목 링크는 네이버 증권 주소(…/domestic/stock/{코드}/price)였다가
+    주달 자체 주소(/stock/code/{코드})로 다시 바뀌었다(2026-10-19 실측). 두 형식을 모두 읽는다."""
+    pat = re.compile(
+        r'(?:/domestic/stock/(\w{6})/price|/stock/code/(\w{6}))"[^>]*>\s*<b[^>]*>([^<]+)</b>', re.S
+    )
     out, seen = [], set()
-    for code, name in pat.findall(html):
+    for naver_code, judal_code, name in pat.findall(html):
+        code = naver_code or judal_code
         if code not in seen:
             seen.add(code)
             out.append((code, unescape(name).strip()))
@@ -215,6 +219,10 @@ def main() -> None:
         "retrieved_at": date.today().isoformat(),
         "themes": catalog_themes,
     }
+    if not catalog_themes:
+        # 종목 마크업이 또 바뀌면 모든 테마가 0종목이라 빈 카탈로그로 기존 파일을 덮어쓴다 —
+        # 목록 파서(parse_theme_list)와 같은 조용한 고장 방지.
+        raise RuntimeError("주달 수집 결과가 0개입니다 — 종목 행 마크업 변경 의심, 기존 카탈로그를 유지합니다")
     OUT_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
 
     print("\n=== 수집 결과 ===")

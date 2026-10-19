@@ -43,3 +43,21 @@ def test_parse_theme_list_empty_is_failure_not_silence():
 
 def test_parse_theme_stocks_reads_naver_stock_links():
     assert judal.parse_theme_stocks(_THEME_HTML) == [("039130", "하나투어"), ("048550", "SM C&C")]
+
+
+_THEME_HTML_JUDAL_LINKS = """
+<th scope="row" class="table-success text-start">
+    <a href="/stock/code/199820" target="_blank" rel="noopener" role="button" class="btn p-0 m-0 text-start noBoxLine">
+        <b style='font-size:.95em'>제일일렉트릭</b><br/>
+<th scope="row" class="table-success text-start">
+    <a href="/stock/code/006340" target="_blank" rel="noopener" role="button" class="btn">
+        <b style='font-size:.95em'>대원전선</b><br/>
+"""
+
+
+def test_parse_theme_stocks_reads_judal_own_stock_links():
+    """[회귀, 2026-10-19] 종목 링크가 /stock/code/{코드}로 다시 바뀌어 옛 파서가 전 테마를
+    0종목으로 읽었다(주달 themeIdx=588 '전선' 12종목 실측)."""
+    assert judal.parse_theme_stocks(_THEME_HTML_JUDAL_LINKS) == [
+        ("199820", "제일일렉트릭"), ("006340", "대원전선"),
+    ]
