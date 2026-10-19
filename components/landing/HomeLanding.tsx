@@ -38,38 +38,29 @@ const STEPS = [
   },
 ] as const;
 
-const FEATURES: readonly { icon: LandingIconName; title: string; body: string }[] = [
+// 누구를 위한 서비스인가 — 나이·자산·성향이 아니라 '하고 싶은 일'로 나눈다(개인 맞춤형 조언 표현 회피).
+const AUDIENCES: readonly { icon: LandingIconName; title: string; body: string }[] = [
   {
     icon: "ChatCircleText",
-    title: "자연어 전략 설계",
-    body: "RSI, PER, ROE, 이동평균, 거래대금 같은 기술·재무 조건을 문장으로 조합합니다. 해석된 조건은 눈으로 확인하고 고칠 수 있습니다.",
+    title: "코딩 없이 전략을 검증해 보고 싶은 분",
+    body: "RSI, PER, ROE, 이동평균, 거래대금 등 원하는 조건을 일상적인 문장으로 입력하면, 복잡한 설정 없이 투자 전략을 만들 수 있습니다.",
   },
   {
     icon: "ChartLineUp",
-    title: "백테스트",
-    body: "CAGR, 최대 낙폭, 샤프 비율, 손익비, 거래 통계와 수익곡선을 과거 데이터 기준으로 계산해 보여줍니다.",
+    title: "과거 데이터로 투자 전략의 성과를 확인하고 싶은 분",
+    body: "과거 시장 데이터로 전략을 테스트하고, 연평균 수익률(CAGR), 최대 낙폭, 샤프 비율, 손익비 등 주요 지표와 거래 통계, 수익 곡선을 통해 성과를 확인할 수 있습니다.",
   },
   {
     icon: "ShieldCheck",
-    title: "워크포워드 검증",
-    body: "기간을 나눠 학습 구간과 검증 구간의 결과를 비교해, 특정 기간에 맞춰진 전략인지 살펴봅니다.",
-  },
-  {
-    icon: "DiceFive",
-    title: "몬테카를로 시뮬레이션",
-    body: "거래 순서를 바꿔 수천 개의 경로를 만들어 결과가 얼마나 흔들리는지 범위로 확인합니다.",
+    title: "백테스트 결과를 한 번 더 검증하고 싶은 분",
+    body: "워크포워드와 몬테카를로 분석으로 투자 성과가 우연이나 특정 시장 상황에 치우친 결과는 아닌지 확인합니다.",
   },
   {
     icon: "Flask",
-    title: "모의투자 가상계좌",
-    body: "계좌를 만들고 전략을 연결해 가상 체결로 운영합니다. 모의투자만 제공하며 실제 주문은 일어나지 않습니다.",
+    title: "실시간 시장 데이터로 투자 전략을 검증하고 싶은 분",
+    body: "실시간 시장 데이터를 바탕으로 가상계좌에서 투자 전략을 실행하고 성과를 확인합니다. 모든 거래는 모의투자로 진행되며, 실제 주문은 발생하지 않습니다.",
   },
-  {
-    icon: "GitBranch",
-    title: "전략 저장",
-    body: "만든 전략과 백테스트 기록을 저장하고, 저장된 전략을 가상계좌에 연결해 모의투자를 할 수 있습니다.",
-  },
-];
+] as const;
 
 const FAQ = [
   {
@@ -173,11 +164,14 @@ export function HomeLanding() {
         </div>
       </section>
 
-      <section className={`${SECTION} border-t border-white/[0.08]`}>
+      <section className={`${SECTION} border-t border-white/[0.08]`} aria-labelledby="landing-audience">
         <div className="mx-auto max-w-5xl">
-          <h2 className={SECTION_TITLE}>연구에 필요한 도구를 한곳에</h2>
-          <ul className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {FEATURES.map(({ icon, title, body }) => (
+          <h2 id="landing-audience" className={SECTION_TITLE}>
+            널스탁은 누구를 위한 서비스인가요?
+          </h2>
+          <p className="mt-3 text-sm font-medium text-gray-400">이런 일을 직접 해보고 싶은 분을 위한 연구 도구입니다.</p>
+          <ul className="mt-10 grid gap-4 sm:grid-cols-2">
+            {AUDIENCES.map(({ icon, title, body }) => (
               <li key={title} className="flat-card rounded-2xl border border-white/[0.09] bg-[var(--card-bg)] p-6">
                 <LandingIcon name={icon} className="text-gray-300" />
                 <h3 className="mt-4 text-base font-black text-white">{title}</h3>
