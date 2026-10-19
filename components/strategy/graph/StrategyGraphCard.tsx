@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Graph, ListBullets } from "phosphor-react";
 import { t } from "@/lib/i18n";
 import { isEmptyGraph, buildStrategyGraph } from "@/lib/strategy-graph/transform";
@@ -25,8 +25,44 @@ interface CardProps {
 
 type View = "graph" | "text";
 
+const REVEAL_GAP = 16;
+const REVEAL_TOP_KEEP = 72;
+
+function scrollParent(el: HTMLElement): HTMLElement | null {
+  for (let node = el.parentElement; node; node = node.parentElement) {
+    const { overflowY } = getComputedStyle(node);
+    if ((overflowY === "auto" || overflowY === "scroll") && node.scrollHeight > node.clientHeight) return node;
+  }
+  return null;
+}
+
+/**
+ * Opening a node grows the graph downward, which can slide it under the fixed bottom docks (chat
+ * input bar, clarification card). Scroll the chat just enough that the whole graph clears the
+ * docks, but never so far that the selected node leaves the top of the view.
+ */
+function revealGraph(root: HTMLElement, selectedId: string) {
+  const canvas = root.querySelector<HTMLElement>('[data-testid="strategy-graph-canvas"]');
+  const svg = canvas?.querySelector("svg");
+  if (!canvas || !svg) return;
+  const docks = Array.from(document.querySelectorAll<HTMLElement>(".dock-bottom"))
+    .filter((d) => getComputedStyle(d).position === "fixed")
+    .map((d) => d.getBoundingClientRect().top);
+  const limit = docks.length ? Math.min(...docks) : window.innerHeight;
+  const overlap = svg.getBoundingClientRect().bottom - (limit - REVEAL_GAP);
+  if (overlap <= 0) return;
+  const node = Array.from(root.querySelectorAll<SVGElement>("[data-node-id]")).find((n) => n.dataset.nodeId === selectedId);
+  const room = node ? node.getBoundingClientRect().top - REVEAL_TOP_KEEP : overlap;
+  const delta = Math.min(overlap, room);
+  const parent = scrollParent(canvas);
+  if (delta <= 0 || !parent) return;
+  const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  parent.scrollBy({ top: delta, behavior: reduce ? "auto" : "smooth" });
+}
+
 function Workspace({ graph, seen, view }: { graph: StrategyGraph; seen?: GraphSeen; view: View }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => defaultExpanded(graph));
   const open = useMemo(() => ({ expanded }), [expanded]);
   const expandable = useMemo(() => new Set(expandableIds(graph)), [graph]);
@@ -39,15 +75,31 @@ function Workspace({ graph, seen, view }: { graph: StrategyGraph; seen?: GraphSe
   };
   const select = useCallback(
     (id: string | null) => {
+      // Selecting the selected item again deselects it and folds its details back up.
+      if (id && id === selectedId) {
+        setSelectedId(null);
+        if (expandable.has(id)) setExpanded((prev) => toggle(prev, id, false));
+        return;
+      }
       setSelectedId(id);
       // Progressive disclosure: selecting an item opens only its own parameters and indicator.
       if (id && expandable.has(id)) setExpanded((prev) => toggle(prev, id, true));
     },
-    [expandable],
+    [expandable, selectedId],
   );
 
+  const opened = selectedId != null && expanded.has(selectedId);
+  useEffect(() => {
+    if (!opened || !selectedId || view !== "graph") return;
+    // wait for the opened items to be laid out before measuring
+    const frame = requestAnimationFrame(() => {
+      if (rootRef.current) revealGraph(rootRef.current, selectedId);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [opened, selectedId, view]);
+
   return (
-    <div className="flex flex-col gap-3">
+    <div ref={rootRef} className="flex flex-col gap-3">
       {view === "text" ? (
         <StrategyGraphText graph={graph} />
       ) : (

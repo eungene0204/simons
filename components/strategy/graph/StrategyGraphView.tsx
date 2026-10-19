@@ -157,7 +157,7 @@ export default function StrategyGraphView({ graph, selectedId, open, onSelect, s
   const onKey = (event: React.KeyboardEvent, item: LayoutItem) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      onSelect(item.nodeId === selectedId ? null : item.nodeId);
+      onSelect(item.nodeId);
     } else if (event.key === "Escape" && selectedId) {
       event.stopPropagation();
       onSelect(null);
@@ -260,7 +260,7 @@ export default function StrategyGraphView({ graph, selectedId, open, onSelect, s
                         "aria-label": [i.graphKind ? kindLabel(i.graphKind) : "", label, i.sub].filter(Boolean).join(", "),
                         "data-node-id": i.nodeId,
                         "data-kind": i.graphKind === "section" ? "section" : i.graphKind,
-                        onClick: () => onSelect(selected ? null : i.nodeId),
+                        onClick: () => onSelect(i.nodeId),
                         onKeyDown: (ev: React.KeyboardEvent) => onKey(ev, i),
                         className: "sg-item cursor-pointer outline-none [&:focus-visible_rect]:stroke-[var(--chat-accent)] [&:focus-visible_rect]:stroke-[3px]",
                       }

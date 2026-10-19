@@ -50,6 +50,50 @@ describe("StrategyGraphCard", () => {
     expect(document.querySelectorAll('[data-kind="indicator"]')).toHaveLength(1);
   });
 
+  it("clicking the selected node again deselects it and folds its details", async () => {
+    renderCard(confirmedInput("krComplex"));
+    await screen.findByTestId("strategy-graph-canvas");
+    fireEvent.click(node("condition", "RSI(14)"));
+    expect(document.querySelectorAll('[data-kind="indicator"]')).toHaveLength(1);
+    fireEvent.click(node("condition", "RSI(14)"));
+    expect(document.querySelector('[data-kind="indicator"]')).toBeNull();
+    expect(node("condition", "RSI(14)").getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("scrolls the chat so an opened graph clears the fixed bottom dock", async () => {
+    const dock = document.createElement("div");
+    dock.className = "dock-bottom";
+    dock.style.position = "fixed";
+    dock.getBoundingClientRect = () => ({ top: 500 }) as DOMRect;
+    const scroller = document.createElement("div");
+    scroller.style.overflowY = "auto";
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 2000 });
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 600 });
+    const scrollBy = vi.fn();
+    scroller.scrollBy = scrollBy as unknown as typeof scroller.scrollBy;
+    document.body.append(dock, scroller);
+    const rect = (bottom: number, top = 0) => () => ({ top, bottom }) as DOMRect;
+    const proto = Element.prototype;
+    const original = proto.getBoundingClientRect;
+    proto.getBoundingClientRect = function (this: Element) {
+      if (this.tagName.toLowerCase() === "svg") return rect(620)();
+      if (this.hasAttribute("data-node-id")) return rect(200, 180)();
+      return original.call(this);
+    };
+    try {
+      render(<StrategyGraphCard input={confirmedInput("krComplex")} title="t" />, { container: scroller.appendChild(document.createElement("div")) });
+      await screen.findByTestId("strategy-graph-canvas");
+      fireEvent.click(node("condition", "RSI(14)"));
+      await waitFor(() => expect(scrollBy).toHaveBeenCalled());
+      // svg bottom 620 vs dock top 500 - gap 16 → 136 px, within the room above the selected node (180 - 72)
+      expect(scrollBy.mock.calls[0][0].top).toBe(108);
+    } finally {
+      proto.getBoundingClientRect = original;
+      dock.remove();
+      scroller.remove();
+    }
+  });
+
   it("selecting a condition highlights its direct relations and dims the rest", async () => {
     renderCard(confirmedInput("goldenCrossRsiAnd"));
     await screen.findByTestId("strategy-graph-canvas");
