@@ -110,6 +110,8 @@ SKILL.md 2단계 표의 기호별 상세. 각 절은 **식별 신호 → 실제 
   (project_interpreter_output_shape_authority.md, project_trading_value_ratio_indicator.md,
   project_openrouter_gate_flake_vs_defect.md, project_interpreter_prompt_volume_regression.md, project_quote_check_120b_false_drop.md)
 
+- **역할 칸 복사(2026-10-20)**: "진입과 청산에 동일한 조건" 안내는 대개 검증기 오탐이 아니라 LLM이 매도 조각을 매수 칸에도 복사한 것(인용·조건 동일). 원출력부터 본다. 수리=`output_repair.cross_role_duplicate_fields` 형식 재생성(어느 칸인지 결정론이 정하지 않음). 120B 발생률 실측 2/4.
+
 ## E — 엔진 부재(진짜 미지원)
 
 - **신호**: LLM이 정직하게 `unsupported_features`로 신고했고 capability_validator도 같은 판단을 냈다.

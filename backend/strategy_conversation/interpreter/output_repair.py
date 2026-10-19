@@ -330,6 +330,51 @@ def split_bollinger_recovery_error(paths: list) -> str:
     )
 
 
+def cross_role_duplicate_fields(intent) -> list:
+    """같은 인용·같은 조건이 매수 칸과 매도 칸에 **함께** 있는 조건 경로 목록(형식 위반).
+
+    입력의 한 조각은 매수 규칙이거나 매도 규칙이다 — 같은 조각을 두 칸에 복사한 출력은 매수한 날
+    곧바로 매도 조건도 참이 되어 전략이 성립하지 않는다(conflict_validator의 '진입과 청산에 동일한
+    조건' 안내). 120B는 'RSI가 30 이하로 떨어졌다가 다시 반등하면 매수하고, RSI가 70 이상으로
+    올라오면 매도'의 매도 조각을 매수 칸에도 복사했다(2026-10-20 실측). 판정은 LLM 출력끼리의
+    대조다(인용 표기·factor·operator·value 동일) — 원문을 읽지 않고, 어느 칸이 맞는지도 정하지
+    않는다(재생성에서 LLM이 다시 옮긴다).
+    """
+    from engine.nl_parser import _compact
+
+    strategy = getattr(intent, "strategy", None)
+    if strategy is None:
+        return []
+
+    def _key(cond):
+        quote = _compact(cond.source_text or "")
+        if not quote or not cond.operator or cond.value is None:
+            return None
+        return (quote, cond.factor, cond.operator, cond.value)
+
+    exit_keys = {}
+    for index, cond in enumerate(strategy.exit_conditions):
+        key = _key(cond)
+        if key is not None:
+            exit_keys.setdefault(key, []).append(f"strategy.exit_conditions[{index}]")
+    paths = []
+    for index, cond in enumerate(strategy.entry_conditions):
+        key = _key(cond)
+        if key in exit_keys:
+            paths.append(f"strategy.entry_conditions[{index}]")
+            paths.extend(p for p in exit_keys[key] if p not in paths)
+    return paths
+
+
+def cross_role_duplicate_error(paths: list) -> str:
+    """매수·매도 두 칸에 복사된 같은 조건을 LLM에 되돌려줄 검증 오류 문구."""
+    return (
+        f"{' / '.join(paths)}: 같은 source_text의 같은 조건이 entry_conditions와 exit_conditions에 "
+        "함께 있습니다 — 이대로는 매수한 날 매도 조건도 참이 되어 전략이 성립하지 않습니다. "
+        "입력에서 그 조각이 매수를 말하는지 매도를 말하는지 보고 그 칸에만 두세요."
+    )
+
+
 def is_bare_unsupported_request(intent) -> bool:
     """무엇이 지원되지 않는지 적지 않은 UNSUPPORTED_REQUEST인가(형식 위반).
 

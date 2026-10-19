@@ -2469,3 +2469,4 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
   신고·관리자 검수 및 PostgreSQL 저장 구현.
 - 백테스트 가이드 오른쪽 공개 진입점 추가. 운영/검증 기록:
   [community-board.md](development/community-board.md).
+- ✅ 완료(2026-10-20) 매수·매도 중복 조건 형식 재생성: 120B가 'RSI가 70 이상으로 올라오면 매도'를 매수 칸에도 복사해 "진입과 청산에 동일한 조건(technical.rsi >= 70.0)" 안내가 뜨던 사고. 같은 인용·조건이 두 칸에 있으면 오류를 LLM에 돌려 1회 재생성(`output_repair.cross_role_duplicate_fields`). 회귀 `tests/test_cross_role_duplicate_condition.py`. 실서버 120B 3회: 1회 복사 발생→재생성 정상, 2회 정상. 게이트(예시 전수·되묻기 하니스) 미실행.

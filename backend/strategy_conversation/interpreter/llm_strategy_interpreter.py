@@ -36,6 +36,8 @@ from strategy_conversation.interpreter.holding_period_check import reconcile_hol
 from strategy_conversation.interpreter.output_repair import (
     bare_unsupported_request_error,
     build_repair_prompt,
+    cross_role_duplicate_error,
+    cross_role_duplicate_fields,
     is_bare_unsupported_request,
     misfiled_trading_value_error,
     misfiled_trading_value_fields,
@@ -564,6 +566,24 @@ class StrategyInterpreter:
                         build_repair_prompt(user_input, current_raw, error_message, draft),
                     )
                     _log_llm(f"◀ 볼린저 차례 신호 재생성 응답({attempts}회차)", current_raw.strip())
+                    continue
+                # 출력 형식 위반 — 같은 인용·같은 조건을 매수·매도 두 칸에 복사했다(매수 직후 매도,
+                # cross_role_duplicate_fields). 같은 레인으로 1회 재생성한다. 남으면 그대로 진행한다
+                # (conflict_validator 안내가 맡는다). 생성 턴만 본다.
+                cross_dup = cross_role_duplicate_fields(intent) if draft is None else []
+                if (cross_dup and format_fallback_raw is None
+                        and attempts < config.MAX_REPAIR_ATTEMPTS):
+                    format_fallback_raw = current_raw
+                    format_protected_conditions = _unaffected_conditions(intent, cross_dup)
+                    format_original_other_slots = _other_strategy_slots(intent)
+                    attempts += 1
+                    error_message = cross_role_duplicate_error(cross_dup)
+                    _log_llm(f"⟳ 매수·매도 중복 재생성 요청({attempts}회차)", error_message)
+                    current_raw = self._chat(
+                        self._system_prompt,
+                        build_repair_prompt(user_input, current_raw, error_message, draft),
+                    )
+                    _log_llm(f"◀ 매수·매도 중복 재생성 응답({attempts}회차)", current_raw.strip())
                     continue
                 if format_violations:
                     _log_llm("△ 입력 전체 인용 잔존",
