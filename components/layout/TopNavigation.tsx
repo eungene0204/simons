@@ -7,6 +7,7 @@ import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/firebase";
 import { useDialogBehavior } from "@/lib/hooks/useDialogBehavior";
 import { trackEvent } from "@/lib/analytics";
+import { OPEN_LOGIN_EVENT } from "@/lib/auth/loginEvents";
 import {
   PENDING_STRATEGY_PROMPT_KEY,
 } from "@/components/strategy/strategyTemplateSession";
@@ -299,6 +300,12 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
         // 쿠키 경로에서 조기 반환되므로 페이지 로드마다 중복 전송되지 않는다.
         trackEvent("login", { method: "google" });
 
+        // 소개 페이지(`/`)에서 시작한 로그인이면 소개 페이지로 되돌아오지 말고 전략연구소로 간다.
+        // 복귀 주소는 `/`(OAuth 허용 주소)라 서버는 이 시점까지 비로그인으로 그렸다.
+        if (region === "kr" && stripRegionPrefix(window.location.pathname) === "/" && !new URLSearchParams(window.location.search).has("legal")) {
+          router.replace(regionHref("/analytics"));
+        }
+
         setAuthState("authenticated");
         setUserProfile({
           name:
@@ -410,6 +417,21 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
     setIsSearchModalOpen(true);
   };
 
+  // 다른 화면(소개 페이지의 '무료로 시작하기' 등)이 보내는 로그인 모달 요청.
+  // 이미 로그인했으면 모달 대신 전략연구소로 보낸다.
+  useEffect(() => {
+    const handleOpenLogin = (event: Event) => {
+      event.preventDefault();
+      if (authState === "authenticated") {
+        router.push(regionHref("/analytics"));
+        return;
+      }
+      setIsLoginModalOpen(true);
+    };
+    window.addEventListener(OPEN_LOGIN_EVENT, handleOpenLogin);
+    return () => window.removeEventListener(OPEN_LOGIN_EVENT, handleOpenLogin);
+  }, [authState, router, regionHref]);
+
   const handleGoogleLogin = async () => {
     if (isStartingLogin || !isSupabaseConfigured()) return;
 
@@ -509,7 +531,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
 
     if (item.id === "analytics") {
       e.preventDefault();
-      leaveStrategyConversation(regionHref("/"));
+      leaveStrategyConversation(regionHref(item.href));
       return;
     }
 
@@ -631,7 +653,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             return (
               <Link
                 key={item.id}
-                href={regionHref(item.id === "analytics" ? "/" : item.href)}
+                href={regionHref(item.href)}
                 prefetch={item.prefetch}
                 onClick={(e) => handleMenuClick(item, e)}
                 className={`relative flex items-center gap-1.5 px-2.5 py-2 rounded-xl transition-all duration-300 whitespace-nowrap group xl:gap-2 xl:px-3 2xl:px-4 ${
@@ -756,7 +778,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                   return (
                     <Link
                       key={item.id}
-                      href={regionHref(item.id === "analytics" ? "/" : item.href)}
+                      href={regionHref(item.href)}
                       prefetch={item.prefetch}
                       onClick={(event) => handleMenuClick(item, event)}
                       className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 transition-colors ${

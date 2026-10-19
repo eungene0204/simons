@@ -42,6 +42,14 @@ describe("tree layout", () => {
     expect(text).toEqual(expect.arrayContaining(["기간: 14일", "연산자: <", "기준값: 70", "사용 지표: RSI"]));
   });
 
+  it("does not hang a leaf that only repeats its setting's label", () => {
+    const dup = big.nodes.find((n) => n.kind === "setting" && n.details.rows.some((r) => n.label.includes(r.value)));
+    expect(dup).toBeDefined();
+    const l = layoutTree(big, { expanded: new Set(expandableIds(big)) });
+    const text = Array.from(l.items.values()).filter((i) => i.kind === "leaf").map((i) => i.lines.join(" "));
+    dup!.details.rows.filter((r) => dup!.label.includes(r.value)).forEach((r) => expect(text).not.toContain(`${r.label}: ${r.value}`));
+  });
+
   it("reads left to right as pick -> buy -> hold -> sell", () => {
     const x = (id: string) => Array.from(layoutTree(big, closed).items.values()).find((i) => i.nodeId === id)!.x;
     expect(x("strategy")).toBeLessThan(x("section:universe"));

@@ -90,6 +90,33 @@ describe("StrategyGraphCard", () => {
     expect(cond.getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("clears the highlight when clicking outside a node, but not on a node or the zoom toolbar", async () => {
+    renderCard(confirmedInput("goldenCrossRsiAnd"));
+    await screen.findByTestId("strategy-graph-canvas");
+    const cond = node("condition", "RSI(14) < 70");
+    fireEvent.click(cond);
+    expect(cond.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "확대" }));
+    expect(cond.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(document.body);
+    expect(cond.getAttribute("aria-pressed")).toBe("false");
+    expect(node("section", "매도 규칙").getAttribute("opacity")).toBe("1");
+  });
+
+  it("marks the items drawn in this batch, so the page can scroll to the newly added ones", async () => {
+    const seen = createGraphSeen();
+    const first = render(<StrategyGraphCard input={confirmedInput("goldenCrossRsiAnd")} title="초안" seen={seen} />);
+    await screen.findByTestId("strategy-graph-canvas");
+    const all = document.querySelectorAll("[data-item-key]").length;
+    expect(document.querySelectorAll('[data-fresh="true"]')).toHaveLength(all);
+    first.unmount();
+
+    // A later card of the same conversation: what was already drawn is not fresh any more.
+    render(<StrategyGraphCard input={confirmedInput("goldenCrossRsiAnd")} title="초안" seen={seen} />);
+    await screen.findByTestId("strategy-graph-canvas");
+    expect(document.querySelectorAll('[data-fresh="true"]')).toHaveLength(0);
+  });
+
   it("text view lists the same items as the graph", async () => {
     renderCard(confirmedInput("krComplex"));
     await screen.findByTestId("strategy-graph-canvas");

@@ -191,7 +191,7 @@ export function buildUniverse(ctx: SectionCtx): void {
     setting(ctx, "universe", sec, { key: "targets", label: t("지정 종목 {0}개", targets.length), rows: [row(t("종목"), targets.join(", "))], path: "request.target_stocks" });
   } else if (req.universe_id) {
     const tokens = req.universe_id.split("_").map((tok) => t(UNIVERSE_LABELS[tok] ?? UNIVERSE_LABELS[tok.toLowerCase()] ?? tok.toUpperCase()));
-    setting(ctx, "universe", sec, { key: "markets", label: tokens.join(" + "), rows: [row(t("시장"), tokens.join(", "))], path: "request.universe_id" });
+    setting(ctx, "universe", sec, { key: "markets", label: tokens.join(" + "), rows: [], path: "request.universe_id" });
   }
   const sector = Array.isArray(req.sector) ? req.sector.join(", ") : req.sector;
   if (sector) setting(ctx, "universe", sec, { key: "sector", label: t("업종: {0}", sector), rows: [row(t("업종"), sector)], path: "request.sector" });

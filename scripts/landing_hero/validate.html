@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>랜딩 '검증' 단계 영상 원본</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+  /* 워크포워드 분석 → 몬테카를로 시뮬레이션. 화면의 용어는 실제 전략 최적화 화면(OptimizationPage)을 따른다.
+     결과 장면은 막대·곡선의 모양만 그린다 — 수익률·낙폭 같은 숫자는 담지 않는다. */
+  .panel { left:90px; top:96px; width:1100px; height:540px; padding:0; }
+  .panel .head { left:36px; top:30px; width:760px; }
+  .panel .start { right:36px; top:28px; width:200px; height:46px; }
+  /* 워크포워드 */
+  #wfChips { left:36px; top:112px; display:flex; gap:10px; align-items:center; }
+  #wfRows { left:36px; top:172px; width:760px; height:260px; }
+  .wfLabel { position:absolute; left:0; font-size:14px; font-weight:700; color:var(--muted); }
+  .bar { position:absolute; height:34px; border-radius:9px; }
+  .bar.train { background:rgba(244,241,234,.16); }
+  .bar.test { background:var(--accent); }
+  #wfAxis { left:36px; top:452px; width:760px; }
+  #wfLegend { left:36px; top:478px; display:flex; gap:22px; font-size:14px; font-weight:700; color:var(--muted); }
+  #wfLegend i { display:inline-block; width:14px; height:14px; border-radius:4px; margin-right:8px; vertical-align:-2px; }
+  #wfTile { left:836px; top:172px; width:228px; height:170px; }
+  #wfNote { left:836px; top:358px; width:228px; font-size:14px; line-height:1.6; }
+  /* 몬테카를로 */
+  #mcRow1 { left:36px; top:104px; display:flex; gap:10px; align-items:center; }
+  #mcRow2 { left:36px; top:152px; display:flex; gap:10px; align-items:center; }
+  .mcLbl { width:110px; }
+  #mcFan { left:36px; top:218px; width:580px; height:262px; }
+  #mcHist { left:650px; top:218px; width:414px; height:262px; }
+  #mcCap { left:36px; top:492px; width:1028px; display:flex; gap:12px; }
+  .stat { font-size:14px; font-weight:800; padding:8px 14px; border-radius:10px; background:rgba(244,241,234,.07); }
+  .stat.orig { background:rgba(224,128,92,.16); color:var(--accent); }
+  #foot { left:90px; top:652px; width:1100px; font-size:14px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="abs brand"><i></i>널스탁 <span>전략 검증</span></div>
+  <div class="abs demo-badge">가상 예시 수치</div>
+
+  <div class="abs card panel" id="wf">
+    <div class="abs head"><div class="title">워크포워드 분석</div><div class="sub" style="margin-top:8px">과거를 학습 구간과 검증 구간으로 번갈아 나눠, 학습 구간에서 맞춘 설정을 그다음 검증 구간에 적용해 봅니다.</div></div>
+    <div class="abs btn start" id="wfStart">워크포워드 분석 시작<div class="fill" id="wfFill"></div></div>
+    <div class="abs" id="wfChips"><span class="lbl" style="width:96px">구간 방식</span><span class="chip on" id="chipRolling">롤링</span><span class="chip">확장</span></div>
+    <div class="abs" id="wfRows"></div>
+    <div class="abs lbl" id="wfAxis">시간 →</div>
+    <div class="abs" id="wfLegend"><span><i style="background:rgba(244,241,234,.3)"></i>학습 구간</span><span><i style="background:var(--accent)"></i>검증 구간</span></div>
+    <div class="abs tile" id="wfTile"><b>WFE</b><div style="font-size:38px;font-weight:800;letter-spacing:-.02em">64%</div><div class="lbl" style="margin-top:10px;line-height:1.7">학습 구간 CAGR 14.2%<br />검증 구간 CAGR 9.1%</div></div>
+    <div class="abs note" id="wfNote">검증 구간의 연평균 수익률을 학습 구간과 견줘, 설정이 처음 보는 구간에서도 유지되는지 확인합니다.</div>
+  </div>
+
+  <div class="abs card panel hide" id="mc">
+    <div class="abs head"><div class="title">몬테카를로 시뮬레이션</div><div class="sub" style="margin-top:8px">백테스트 결과를 여러 방식으로 다시 섞어 보며 수익률과 손실 폭이 얼마나 달라질 수 있는지 확인합니다.</div></div>
+    <div class="abs btn start" id="mcStart">시뮬레이션 시작<div class="fill" id="mcFill"></div></div>
+    <div class="abs" id="mcRow1"><span class="lbl mcLbl">반복 횟수</span><span class="chip" id="c500">500회</span><span class="chip on" id="c1000">1,000회</span><span class="chip" id="c5000">5,000회</span></div>
+    <div class="abs" id="mcRow2"><span class="lbl mcLbl">시뮬레이션 방식</span><span class="chip on" id="mDaily">일별 재표본</span><span class="chip" id="mBlock">10일 블록</span><span class="chip" id="mStat">가변 블록</span><span class="chip" id="mTrade">거래 재표본</span></div>
+    <svg class="abs" id="mcFan" width="580" height="262" viewBox="0 0 580 262"></svg>
+    <svg class="abs" id="mcHist" width="414" height="262" viewBox="0 0 414 262"></svg>
+    <div class="abs" id="mcCap"><span class="stat orig">원래 순서 CAGR 12.4%</span><span class="stat">몬테카를로 CAGR 5%값 4.1%</span><span class="stat">MDD 95%값 -31.8%</span><span class="lbl" style="margin-left:auto;align-self:center">오른쪽: 경로별 연평균 수익률 분포 (y축: 시나리오 수)</span></div>
+  </div>
+
+  <div class="abs note" id="foot">화면과 수치는 설명을 위한 가상 예시이며 실제 백테스트 결과가 아닙니다. 과거 데이터 기반 시뮬레이션 결과는 미래 수익을 보장하지 않습니다.</div>
+</div>
+<script src="shared.js"></script>
+<script>
+const DURATION = 28;
+mountOverlay();
+
+// ── 워크포워드: 5개 구간이 한 칸씩 밀리며 학습 → 검증 ─────────────────
+const ROWS = 5, W = 640, X0 = 100, OFF = 0.075, TRAIN = 0.5, TEST = 0.17;
+const rowsEl = $("wfRows");
+const wfBars = [];
+for (let i = 0; i < ROWS; i++) {
+  const y = i * 52;
+  const label = document.createElement("div");
+  label.className = "wfLabel"; label.style.top = y + 7 + "px"; label.textContent = `구간 ${i + 1}`;
+  rowsEl.appendChild(label);
+  const train = document.createElement("div");
+  train.className = "bar train"; train.style.top = y + "px"; train.style.left = X0 - 36 + i * OFF * W + "px"; train.style.width = "0px";
+  const test = document.createElement("div");
+  test.className = "bar test"; test.style.top = y + "px"; test.style.left = X0 - 36 + (i * OFF + TRAIN) * W + "px"; test.style.width = "0px";
+  rowsEl.appendChild(train); rowsEl.appendChild(test);
+  wfBars.push({ label, train, test });
+}
+
+// ── 몬테카를로: 가상 경로 다발 + 분포 막대 ────────────────────────────
+const rnd = seeded(11);
+const PATHS = 36, PTS = 70;
+const fan = $("mcFan");
+svgEl("rect", { x: 0, y: 0, width: 580, height: 262, rx: 14, fill: "rgba(244,241,234,.03)", stroke: "rgba(244,241,234,.08)" }, fan);
+const pathEls = [];
+let orig = null;
+for (let p = 0; p <= PATHS; p++) {
+  let v = 0.5; const pts = [];
+  for (let i = 0; i < PTS; i++) { v += (rnd() - 0.47) * 0.055; pts.push(v); }
+  const lo = Math.min(...pts), hi = Math.max(...pts);
+  const d = pts.map((y, i) => `${i ? "L" : "M"}${(16 + (548 * i) / (PTS - 1)).toFixed(1)},${(232 - ((y - lo) / (hi - lo)) * 200).toFixed(1)}`).join(" ");
+  const isOrig = p === PATHS;
+  const el = svgEl("path", { d, fill: "none", "stroke-linejoin": "round", pathLength: 1, stroke: isOrig ? "#e0805c" : "rgba(244,241,234,.28)", "stroke-width": isOrig ? 3 : 1.4 }, fan);
+  el.style.strokeDasharray = "1";
+  pathEls.push({ el, isOrig });
+}
+const hist = $("mcHist");
+svgEl("rect", { x: 0, y: 0, width: 414, height: 262, rx: 14, fill: "rgba(244,241,234,.03)", stroke: "rgba(244,241,234,.08)" }, hist);
+const BINS = 21;
+const shape = Array.from({ length: BINS }, (_, i) => { const z = (i - 10) / 3.6; return Math.exp(-z * z / 2) * (0.85 + rnd() * 0.3); });
+const mx = Math.max(...shape);
+const barEls = shape.map((h, i) => {
+  const bh = (h / mx) * 190;
+  const r = svgEl("rect", { x: 20 + i * 18, y: 232 - bh, width: 14, height: bh, rx: 4, fill: "rgba(244,241,234,.22)" }, hist);
+  return { r, bh };
+});
+const origX = 20 + ((12.4 + 5) / 30) * (BINS * 18);
+[["-5%", 0], ["5%", 10 / 30], ["15%", 20 / 30], ["25%", 1]].forEach(([label, k]) => {
+  const tx = svgEl("text", { x: 20 + k * (BINS * 18) - 4, y: 254, fill: "#a8a49a", "font-size": 12, "font-weight": 700 }, hist);
+  tx.textContent = label;
+});
+const dash = svgEl("line", { x1: origX, x2: origX, y1: 22, y2: 232, stroke: "#e0805c", "stroke-width": 2.4, "stroke-dasharray": "6 5" }, hist);
+const origLbl = svgEl("text", { x: origX + 8, y: 34, fill: "#e0805c", "font-size": 13, "font-weight": 800 }, hist);
+origLbl.textContent = "원래 순서";
+
+// ── 시간표(초) ─────────────────────────────────────────────────────────
+// 0.5~  워크포워드 시작 버튼 → 3.4 구간 막대 5줄(0.9초 간격) → 9.4 WFE·설명 → 11.4 몬테카를로로 교체
+// 12.4~ 반복 횟수·방식 고르기 → 15.2 시작 → 16.5~22 경로·분포 → 25 정지 → 루프
+const PT = [
+  [0.6, [820, 520]], [1.8, "wfStart"], [2.2, "wfStart"], [3.0, [1000, 300]],
+  [12.0, [800, 540]], [12.9, "c1000"], [13.1, "c1000"], [14.0, "mStat"], [14.3, "mStat"], [15.4, "mcStart"], [15.8, "mcStart"], [16.8, [900, 560]],
+];
+const CLICKS = [1.8, 12.9, 14.0, 15.4];
+
+window.renderAt = function (t) {
+  // 워크포워드
+  const swap = ease(prog(t, 11.0, 11.8));
+  show($("wf"), 1 - swap, `translateY(${-10 * swap}px)`);
+  $("wfStart").style.transform = `scale(${pressScale(t, 1.8)})`;
+  $("wfFill").style.width = prog(t, 2.2, 3.6) * 100 + "%";
+  $("wfStart").firstChild.textContent = t > 2.3 && t < 11 ? "구간별로 계산하는 중" : "워크포워드 분석 시작";
+  wfBars.forEach((b, i) => {
+    const a = 3.6 + i * 1.0;
+    const k1 = easeOut(prog(t, a, a + 0.55));
+    const k2 = easeOut(prog(t, a + 0.45, a + 0.9));
+    b.label.style.opacity = prog(t, a - 0.2, a + 0.1);
+    b.train.style.width = TRAIN * W * k1 + "px";
+    b.test.style.width = TEST * W * k2 + "px";
+  });
+  $("wfLegend").style.opacity = prog(t, 3.4, 4.0);
+  $("wfAxis").style.opacity = prog(t, 3.4, 4.0);
+  show($("wfTile"), easeOut(prog(t, 8.6, 9.3)), `translateY(${(1 - easeOut(prog(t, 8.6, 9.3))) * 12}px)`);
+  $("wfNote").style.opacity = prog(t, 9.2, 10.0);
+
+  // 몬테카를로
+  const inK = ease(prog(t, 11.2, 12.0));
+  show($("mc"), inK, `translateY(${(1 - inK) * 12}px)`);
+  // 반복 횟수는 처음부터 1,000회가 골라져 있다(기본값). 방식은 일별 재표본 → 가변 블록으로 바꾼다.
+  $("mDaily").classList.toggle("on", t < 14.0);
+  $("mStat").classList.toggle("on", t >= 14.0);
+  $("mcStart").style.transform = `scale(${pressScale(t, 15.4)})`;
+  $("mcFill").style.width = prog(t, 15.8, 17.2) * 100 + "%";
+  $("mcStart").firstChild.textContent = t > 15.9 && t < 24.5 ? "다시 섞어 계산하는 중" : "시뮬레이션 시작";
+  pathEls.forEach((p, i) => {
+    const a = 16.6 + (p.isOrig ? 3.2 : (i / PATHS) * 2.4);
+    p.el.style.strokeDashoffset = 1 - easeOut(prog(t, a, a + 1.6));
+    p.el.style.opacity = prog(t, a, a + 0.2);
+  });
+  barEls.forEach((b, i) => {
+    const a = 19.4 + Math.abs(i - 10) * 0.07;
+    const k = easeOut(prog(t, a, a + 0.9));
+    b.r.setAttribute("y", 232 - b.bh * k);
+    b.r.setAttribute("height", Math.max(0, b.bh * k));
+  });
+  const dashK = prog(t, 21.8, 22.6);
+  dash.style.opacity = dashK; origLbl.style.opacity = dashK;
+  $("mcCap").style.opacity = prog(t, 19.0, 19.8);
+
+  // 하단 안내는 계속 보인다(성과 수치를 담지 않았다는 고지)
+  $("foot").style.opacity = prog(t, 1.0, 1.8);
+
+  drivePointer(t, PT, CLICKS, [[3.2, 11.9], [16.9, 99]]);
+  loopFade(t, DURATION);
+};
+window.DURATION = DURATION;
+window.POSTER_AT = 22.8;
+window.renderAt(0);
+</script>
+</body>
+</html>

@@ -7,15 +7,20 @@ import { layoutTree, type LayoutItem, type OpenState } from "@/lib/strategy-grap
 import type { StrategyGraph } from "@/lib/strategy-graph/types";
 import { kindLabel } from "./graphLabels";
 
-// One calm blue family for every node (kind is told apart by position, label and shape, not by
-// per-kind colour); edge labels sit on the edges as pills.
-const NODE_FILL = "#0e2748";
-const NODE_STROKE = "#24457a";
-const NODE_TEXT = "#bcd7ff";
-const PILL_FILL = "#08172b";
-const PILL_STROKE = "#1d3a66";
-const EDGE = "#9aa3b2";
-const SELECT = "#e8f1ff";
+// Warm dark palette (docs/UI_GUIDELINES.md): flat cards on the page background, the strategy root
+// in the single terracotta accent, soft cream hairlines for edges. Kind is told apart by position,
+// label and shape, not by per-kind colour.
+const NODE_FILL = "#1e1d1a";
+const NODE_STROKE = "rgba(244,241,234,0.16)";
+const NODE_TEXT = "#f4f1ea";
+const LEAF_FILL = "rgba(244,241,234,0.03)";
+const LEAF_TEXT = "#d8d4cb";
+const PILL_FILL = "rgba(244,241,234,0.07)";
+const PILL_STROKE = "rgba(244,241,234,0.16)";
+const ROOT_FILL = "#e0805c";
+const ROOT_TEXT = "#1c0f09";
+const EDGE = "rgba(244,241,234,0.3)";
+const SELECT = "#e0805c";
 
 const MIN_SCALE = 0.3;
 // Default size of the whole graph (nodes and text scale together); zoom buttons change it.
@@ -27,7 +32,6 @@ const BUILD_UP_MIN_ITEMS = 4;
 const BUILD_UP_STEP_MS = 380;
 const BUILD_UP_TOTAL_MS = 7000;
 const BUILD_UP_EDGE_LEAD_MS = 320;
-
 /** Keys of what has already been drawn; only what is not in here animates in. */
 export interface GraphSeen {
   items: Set<string>;
@@ -55,7 +59,6 @@ export default function StrategyGraphView({ graph, selectedId, open, onSelect, s
   // Starts fitted to the available width (as if "화면에 맞추기" had been pressed) and follows the
   // width of the card until the user zooms by hand. Opening an item never re-fits the view.
   const auto = useRef(true);
-
   const fit = useCallback((floor = MIN_SCALE) => {
     const host = hostRef.current;
     if (!host || host.clientWidth === 0) return;
@@ -118,6 +121,18 @@ export default function StrategyGraphView({ graph, selectedId, open, onSelect, s
     layout.edges.forEach((e) => drawn.edges.add(e.key));
   }, [layout, drawn]);
 
+  // A click anywhere other than a node (or the zoom toolbar) clears the selection.
+  useEffect(() => {
+    if (!selectedId) return;
+    const clear = (event: MouseEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest("[data-node-id], [data-graph-toolbar]")) return;
+      onSelect(null);
+    };
+    document.addEventListener("click", clear);
+    return () => document.removeEventListener("click", clear);
+  }, [selectedId, onSelect]);
+
   const isDim = (i: LayoutItem) => related != null && !related.has(i.owner) && !(i.nodeId && related.has(i.nodeId));
   const focusable = (i: LayoutItem) => i.nodeId != null;
   const tabStopKey = useMemo(() => {
@@ -159,7 +174,7 @@ export default function StrategyGraphView({ graph, selectedId, open, onSelect, s
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <style>{ANIMATION_CSS}</style>
-      <div className="flex items-center gap-1.5">
+      <div data-graph-toolbar className="flex items-center gap-1.5">
         <button type="button" aria-label={t("축소")} onClick={() => zoom((s) => Math.max(MIN_SCALE, +(s - 0.15).toFixed(2)))} className={toolButton}>
           <MagnifyingGlassMinus size={16} />
         </button>
@@ -195,7 +210,7 @@ export default function StrategyGraphView({ graph, selectedId, open, onSelect, s
                     style={{ animationDelay: delay, d: `path("${e.d}")` } as CSSProperties}
                     fill="none"
                     stroke={EDGE}
-                    strokeWidth={1.4}
+                    strokeWidth={1.6}
                     opacity={0.85}
                   />
                   {e.arrow && e.end && (
@@ -220,7 +235,9 @@ export default function StrategyGraphView({ graph, selectedId, open, onSelect, s
               const selectable = i.nodeId != null;
               const selected = selectable && i.nodeId === selectedId;
               const isPill = i.kind === "pill";
-              const rx = isPill ? i.h / 2 : i.kind === "leaf" ? 14 : 22;
+              const isLeaf = i.kind === "leaf";
+              const isRoot = i.nodeId === "strategy";
+              const rx = isPill ? i.h / 2 : isLeaf ? 10 : 12;
               const label = i.lines.join(" ");
               return (
                 <g
@@ -233,6 +250,8 @@ export default function StrategyGraphView({ graph, selectedId, open, onSelect, s
                   // Position is a CSS transform so existing nodes glide when the layout changes.
                   style={{ transform: `translate(${i.x}px, ${i.y}px)`, transition: "transform 450ms cubic-bezier(0.22, 1, 0.36, 1), opacity 250ms" }}
                   data-item-key={key}
+                  // 이번 배치에서 새로 그려진 항목 표시 — 하단 고정 카드가 뜰 때 페이지가 이 항목들이 보이게 스크롤한다.
+                  data-fresh={isNewItem(key) ? "true" : undefined}
                   {...(selectable
                     ? {
                         role: "button",
@@ -254,15 +273,15 @@ export default function StrategyGraphView({ graph, selectedId, open, onSelect, s
                     width={i.w}
                     height={i.h}
                     rx={rx}
-                    fill={isPill ? PILL_FILL : NODE_FILL}
-                    stroke={selected ? SELECT : isPill ? PILL_STROKE : NODE_STROKE}
+                    fill={isRoot ? ROOT_FILL : isPill ? PILL_FILL : isLeaf ? LEAF_FILL : NODE_FILL}
+                    stroke={selected ? SELECT : isRoot ? "none" : isPill ? PILL_STROKE : NODE_STROKE}
                     strokeWidth={selected ? 2.5 : 1.2}
                     strokeDasharray={i.unresolved ? "5 4" : undefined}
                   />
                   <foreignObject x={6} y={2} width={i.w - 12} height={i.h - 4}>
                     <div
                       className="flex h-full flex-col items-center justify-center text-center leading-tight"
-                      style={{ color: NODE_TEXT, fontSize: isPill ? 13 : 14, fontWeight: 700 }}
+                      style={{ color: isRoot ? ROOT_TEXT : isLeaf ? LEAF_TEXT : NODE_TEXT, fontSize: isPill ? 13 : 14, fontWeight: isRoot ? 800 : 700 }}
                     >
                       {i.lines.map((l, n) => (
                         <span key={n} style={{ lineHeight: "20px" }}>{l}</span>

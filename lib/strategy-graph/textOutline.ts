@@ -1,4 +1,5 @@
 import type { DetailRow, GraphNode, NodeStatus, StrategyGraph } from "./types";
+import { visibleRows } from "./layout";
 
 // Text view model. It walks the SAME graph the canvas renders (strategy-instance edges only), so
 // the two views cannot disagree. Indicator concepts appear as a line under the condition that
@@ -49,7 +50,7 @@ export function buildOutline(graph: StrategyGraph): OutlineSection[] {
           label: n.label,
           status: n.status,
           depth,
-          rows: n.details.rows,
+          rows: visibleRows(n),
           note: n.details.statusNote,
           indicator: indNode ? { name: indNode.label, path: indNode.details.classPath } : null,
         });

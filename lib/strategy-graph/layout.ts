@@ -1,5 +1,5 @@
 import { t } from "@/lib/i18n";
-import type { NodeKind, NodeStatus, SectionKey, StrategyGraph } from "./types";
+import type { DetailRow, GraphNode, NodeKind, NodeStatus, SectionKey, StrategyGraph } from "./types";
 
 // Trade-flow layout of the strategy graph, read left to right: the strategy -> where it picks
 // stocks -> when it buys -> how it holds -> when it sells. The graph model is unchanged; this only
@@ -139,10 +139,13 @@ export function layoutTree(graph: StrategyGraph, open: OpenState): TreeLayout {
   /** Parameters and the used indicator of an opened item, as small leaves hanging below it. */
   const detailDrafts = (id: string): Draft[] => {
     const n = nodeById.get(id)!;
-    const out = n.details.rows.map((r) => makeItem(uniq(`leaf:${id}:${r.label}`), "leaf", null, id, null, [`${r.label}: ${r.value}`], null, false));
+    const out = visibleRows(n).map((r) => makeItem(uniq(`leaf:${id}:${r.label}`), "leaf", null, id, null, [`${r.label}: ${r.value}`], null, false));
     const ind = usesIndicator.get(id);
     const indNode = ind ? nodeById.get(ind) : undefined;
-    if (ind && indNode) out.push(makeItem(uniq(`leaf:${ind}@${id}`), "leaf", ind, id, "indicator", [`${t("사용 지표")}: ${indNode.label}`], null, false));
+    if (ind && indNode) {
+      out.push(makeItem(uniq(`leaf:${ind}@${id}`), "leaf", ind, id, "indicator", [`${t("사용 지표")}: ${indNode.label}`], null, false));
+      indNode.details.rows.forEach((r) => out.push(makeItem(uniq(`leaf:${ind}:${r.label}@${id}`), "leaf", null, id, null, [`${r.label}: ${r.value}`], null, false)));
+    }
     return out;
   };
 
@@ -249,11 +252,20 @@ export function layoutTree(graph: StrategyGraph, open: OpenState): TreeLayout {
   return { items, order, edges, width, height };
 }
 
+/**
+ * Rows that tell something the node label does not already say (e.g. "업종: 반도체" under
+ * "업종: 반도체"). Conditions keep every row: their label is a summary and the rows spell it out.
+ */
+export function visibleRows(n: GraphNode): DetailRow[] {
+  if (n.kind === "condition") return n.details.rows;
+  return n.details.rows.filter((r) => !n.label.includes(r.value));
+}
+
 /** Instance nodes that can show parameter leaves / an indicator. */
 export function expandableIds(graph: StrategyGraph): string[] {
   const withIndicator = new Set(graph.edges.filter((e) => e.kind === "uses_indicator").map((e) => e.source));
   return graph.nodes
-    .filter((n) => ["condition", "setting", "risk"].includes(n.kind) && (n.details.rows.length > 0 || withIndicator.has(n.id)))
+    .filter((n) => ["condition", "setting", "risk"].includes(n.kind) && (visibleRows(n).length > 0 || withIndicator.has(n.id)))
     .map((n) => n.id);
 }
 

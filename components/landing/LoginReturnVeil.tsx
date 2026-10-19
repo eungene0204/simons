@@ -1,0 +1,22 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+// Google 로그인에서 돌아온 직후(주소에 토큰·코드가 실려 있는 동안)에는 서버가 아직 로그인 상태를 몰라
+// 소개 페이지를 그린다. 상단 내비게이션이 세션을 교환하고 전략연구소로 보낼 때까지 "로그인 중" 화면으로 가린다.
+export function isLoginReturn(hash: string, search: string): boolean {
+  return /(^|[#&])access_token=/.test(hash) || new URLSearchParams(search).has("code");
+}
+
+export function LoginReturnVeil() {
+  const [returning, setReturning] = useState(false);
+  useEffect(() => {
+    setReturning(isLoginReturn(window.location.hash, window.location.search));
+  }, []);
+  if (!returning) return null;
+  return (
+    <div role="status" data-testid="login-return-veil" className="fixed inset-0 z-[70] flex items-center justify-center bg-[var(--background)] text-sm font-bold text-gray-300">
+      로그인 중입니다…
+    </div>
+  );
+}

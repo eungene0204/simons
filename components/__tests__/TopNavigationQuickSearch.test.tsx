@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import TopNavigation from "@/components/layout/TopNavigation";
+import { requestLoginModal } from "@/lib/auth/loginEvents";
 import { EmailLoginOptionProvider } from "@/components/providers/EmailLoginOptionProvider";
 import { mergePopularStocks } from "@/components/layout/QuickSearchModal";
 
@@ -321,7 +322,7 @@ describe("TopNavigation quick search", () => {
 
     fireEvent.click(within(drawer).getByRole("link", { name: /전략연구소/i }));
 
-    expect(navigateHomeMock).toHaveBeenCalledWith("/");
+    expect(navigateHomeMock).toHaveBeenCalledWith("/analytics");
     expect(screen.queryByRole("dialog", { name: "모바일 메뉴" })).not.toBeInTheDocument();
     expect(document.body.style.overflow).toBe("");
   });
@@ -375,6 +376,56 @@ describe("TopNavigation quick search", () => {
         },
       });
     });
+  });
+
+  describe("Google 로그인 복귀 직후(앱 쿠키 없이 Supabase 세션만 있는 상태)", () => {
+    const mockSessionExchange = () => {
+      getSessionMock.mockResolvedValue({ data: { session: { access_token: "supabase-token" } } });
+      fetchMock.mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/user") return Promise.resolve({ ok: true, json: async () => ({ user: null }) });
+        if (url === "/api/login") {
+          return Promise.resolve({ ok: true, json: async () => ({ user: { name: "테스터", email: "t@example.com" } }) });
+        }
+        return Promise.resolve({ ok: true, json: async () => ({}) });
+      });
+    };
+
+    it("소개 페이지(/)에서 로그인했으면 소개 페이지로 되돌아가지 않고 전략연구소로 보낸다", async () => {
+      mockSessionExchange();
+      renderWithQueryClient(<TopNavigation />);
+
+      await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/analytics"));
+    });
+
+    it("다른 화면에서 세션을 교환한 경우에는 이동시키지 않는다", async () => {
+      mockSessionExchange();
+      window.history.pushState({}, "", "/pricing");
+      try {
+        renderWithQueryClient(<TopNavigation />);
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/login", expect.anything()));
+        expect(replaceMock).not.toHaveBeenCalledWith("/analytics");
+      } finally {
+        window.history.pushState({}, "", "/");
+      }
+    });
+  });
+
+  it("소개 페이지의 로그인 모달 요청 이벤트를 받으면 Google 로그인 모달을 열고 처리했다고 알린다", async () => {
+    renderWithQueryClient(<TopNavigation />);
+    await screen.findByRole("button", { name: "로그인" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    let handled = false;
+    act(() => {
+      handled = requestLoginModal();
+    });
+
+    expect(handled).toBe(true);
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(signInWithOAuthMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Google로 시작하기" }));
+    await waitFor(() => expect(signInWithOAuthMock).toHaveBeenCalledWith(expect.objectContaining({ provider: "google" })));
   });
 
   it("비로그인 상태에서 모의투자, 백테스트 기록, 대시보드 메뉴를 누르면 로그인 모달을 보여준다", async () => {
@@ -455,11 +506,11 @@ describe("TopNavigation quick search", () => {
 
     fireEvent.click(await screen.findByRole("link", { name: /전략연구소/i }));
 
-    expect(navigateHomeMock).toHaveBeenCalledWith("/");
+    expect(navigateHomeMock).toHaveBeenCalledWith("/analytics");
     expect(pushMock).not.toHaveBeenCalled();
   });
 
-  it("전략연구소 메뉴를 누르면 진행 중인 대화를 종료하고 랜딩으로 이동한다", async () => {
+  it("전략연구소 메뉴를 누르면 진행 중인 대화를 종료하고 전략연구소로 이동한다", async () => {
     pathnameMock.current = "/analytics/new";
     const messages = [{ role: "user", content: "PBR 1 이하" }];
     sessionStorage.setItem(
@@ -474,7 +525,7 @@ describe("TopNavigation quick search", () => {
 
     expect(sessionStorage.getItem("simons.strategyChatState")).toBeNull();
     expect(sessionStorage.getItem("simons.pendingStrategyPrompt")).toBeNull();
-    expect(navigateHomeMock).toHaveBeenCalledWith("/");
+    expect(navigateHomeMock).toHaveBeenCalledWith("/analytics");
     expect(pushMock).not.toHaveBeenCalled();
   });
 

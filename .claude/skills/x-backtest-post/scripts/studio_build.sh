@@ -10,5 +10,8 @@ uv run --project "$HERE/../../../.." python "$HERE/make_plan.py" . "$META"
 cp "$HERE/card.mjs" ./card.mjs
 node ./card.mjs title.json title.png >/dev/null
 node ./card.mjs end.json end.png >/dev/null
-uv run --project "$HERE/../../../.." python "$HERE/render_studio.py" plan.json "$OUT"
+SILENT="${OUT%.mp4}_silent.mp4"
+uv run --project "$HERE/../../../.." python "$HERE/render_studio.py" plan.json "$SILENT"
+# BGM은 항상 입힌다(2026-10-19 사용자 지시) — 소리 없는 영상은 최종본이 아니다. 차분한 곡은 4번째 인자 calm
+uv run --project "$HERE/../../../.." --with numpy python "$HERE/studio_bgm.py" plan.json "$SILENT" "$OUT" "${BGM:-bright}"
 bash "$HERE/review_video.sh" "$OUT"

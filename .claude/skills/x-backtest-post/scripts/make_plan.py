@@ -1,4 +1,5 @@
 """studio_record.mjs의 기록(marks.jsonl·result.json)으로 표준 편집 계획(plan.json)과 카드 명세를 만든다.
+그래프 중심 연출(2026-10-19): marks의 `graph` 기록(처음 그래프 / 칩 답변으로 붙은 노드 / 확정 직전 완성 그래프)으로 그래프 장면을 만든다.
 
 2026-10-10 속설 검증 #1 영상에서 손으로 맞춘 연출 규칙을 그대로 코드로 옮겼다 — 같은 규칙이면 같은 수준이 나온다.
 사람이 정하는 것은 meta.json(제목 문구·사건 구간 자막)뿐이다.
@@ -26,16 +27,22 @@ RUN_TARGET_SEC = 2.3             # 백테스트 실행 빨리 감기 길이
 CARD_SEC = 6.0                   # 해석 카드 보여 주기
 FULL_CARD_SEC = 3.5              # 다 채워진 조건 카드 보여 주기(확정 버튼으로 다가가기 직전까지)
 CHIP_SPEED = 1.3
+GRAPH_BUILD_SEC = 8.0            # 처음 그려지는 그래프 — 노드가 하나씩 나타나는 연출(앱 상한 약 7초)을 통째로 보여 준다
+GRAPH_BEAT_SEC = 2.8             # 칩 답변 뒤 그래프에 노드가 붙는 순간으로 당겨 보여 주기
+GRAPH_PAN_W = 640                # 처음 그래프를 훑을 때 담는 폭(CSS px) — 노드 글자가 읽히는 약 2.2배
+GRAPH_FIT_W = 760                # 그래프를 당길 때 담는 폭(CSS px) — 화면 맞춤 그래프가 한눈에 읽히는 정도
 CHIP_TAIL_MS = 500               # 누른 직후 여기서 끊는다 — 다음 질문이 뜨며 화면이 밀려 물결이 다른 칩 위에 남는다
 LINE_CHARS = 62                  # 입력창 한 줄에 들어가는 글자 수(1440 화면, 894px 입력창)
 ZOOM_W = 560                     # 입력·카드를 당길 때 담는 폭(CSS px) — 약 2배
 
 CAPTIONS = {
     "type": "① 전략을 한 문장으로 적습니다",
-    "wait": "② 널스탁이 문장을 전략 조건으로 해석합니다",
-    "card": "③ 널스탁이 해석한 전략을 항목별로 정리해 줍니다",  # 실제 화면은 카드가 아니라 채팅의 정리 목록이다(10-13 사용자 지적)
+    "wait": "② 널스탁이 문장을 읽고 전략 구조로 해석합니다",
+    "card": "③ 해석한 전략이 그래프로 그려집니다",  # 2026-10-19: 해석 결과의 정본 화면은 전략 그래프다 — "항목별로 정리해 줍니다"(텍스트 목록) 문구는 쓰지 않는다
+    "card_text": "③ 해석한 전략이 정리됩니다",  # 그래프를 못 찾았을 때만(구 녹화·텍스트 보기)
+    "graph_add": "그래프에 추가",
     "chip": "④ 문장에 없던 설정은 버튼으로 답합니다",
-    "confirm": "⑤ 조건이 다 채워지면 확정합니다",
+    "confirm": "⑤ 완성된 전략 그래프를 확인하고 확정합니다",
     "run": "⑥ 과거 데이터로 백테스트를 돌립니다",
     "result": "⑦ 결과",
 }
@@ -57,6 +64,56 @@ def find(marks, action=None, phase=None, label=None, after=0):
                 and (label is None or m.get("label") == label):
             return m
     return None
+
+
+def graph_marks(marks, phase):
+    return [m for m in marks if m["action"] == "graph" and m.get("phase") == phase]
+
+
+def graph_box(b: dict, width: float = GRAPH_FIT_W) -> list[float]:
+    """그래프(또는 새 노드) 상자 → 카메라 상자. 너무 작으면 노드 둘레를 넉넉히 담는다."""
+    w = max(b["width"] + 120, width * 0.55)
+    h = max(b["height"] + 90, w * 9 / 16 * 0.6)
+    return [b["x"] + b["width"] / 2 - w / 2, b["y"] + b["height"] / 2 - h / 2, w, h]
+
+
+def graph_caption(texts: list[str]) -> str:
+    seen: list[str] = []
+    for t in texts:
+        if t not in seen:
+            seen.append(t)
+    return f"{CAPTIONS['graph_add']} — " + " · ".join(seen[:4])
+
+
+def summary_parts(text: str) -> dict:
+    """확정 직전 요약(텍스트로 읽은 그래프 내용) → 칸별 값. 앱 출력의 표기 정규화일 뿐 사용자 원문은 읽지 않는다."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+
+    def after(key: str, last: bool = False):
+        idx = [i for i, l in enumerate(lines) if l == key]
+        return lines[(idx[-1] if last else idx[0]) + 1] if idx and (idx[-1] if last else idx[0]) + 1 < len(lines) else ""
+
+    def rest(prefix: str):
+        return next((l[len(prefix):].strip() for l in lines if l.startswith(prefix)), "")
+
+    return {"universe": after("투자 대상"), "buy": after("매수 규칙"), "sell": after("매도 규칙"),
+            "capital": rest("초기 자본 "), "period": rest("백테스트 기간 "), "rebalance": after("리밸런싱", last=True)}
+
+
+def with_defaults(meta: dict, result: dict) -> dict:
+    """meta.json을 비워 두어도 같은 모양이 나오게 채운다(2026-10-19 — 사람이 정하는 것은 post_name뿐)."""
+    p = summary_parts(result["summary"])
+    out = dict(meta)
+    out.setdefault("eyebrow", "전략 만들기")
+    out.setdefault("title", f"“{result['prompt']}”")
+    steps = [p["universe"], f"{p['buy']} 매수" if p["buy"] else "", f"{p['sell']} 매도" if p["sell"] else "", p["period"] and f"최근 {p['period']}"]
+    out.setdefault("subtitle", " · ".join(x for x in [*steps, p["capital"]] if x))
+    out.setdefault("end_title", " · ".join(x for x in (p["universe"], (f"{p['buy']} 매수, {p['sell']} 매도" if p["buy"] and p["sell"] else "")) if x) or out["title"])
+    dates = next((re.sub(r"\s*\(.*", "", l.split("기간:")[1]).strip() for l in result["log"] if l.startswith("기간:")), "")
+    m = result["metrics"]
+    out.setdefault("end_subtitle", " · ".join(x for x in (dates, f"최근 {p['period']}" if p["period"] else "", f"같은 기간 {m['benchmark_name']} {m['benchmark']}") if x))
+    out.setdefault("end_footer", "널스탁 · 과거 데이터 기준 백테스트 결과")
+    return out
 
 
 def summary_fields(text: str) -> dict:
@@ -117,15 +174,26 @@ def build(folder: Path, meta: dict) -> dict:
         c_from = card_appear["t"] - 50  # 느리게 늘리는 구간이라 카드가 뜨기 전 빈 화면이 길어지지 않게 시작을 당긴다
         c_to = first_chip["t"] - 200
         c_speed = max(0.1, (c_to - c_from) / 1000 / CARD_SEC)  # 짧은 구간을 CARD_SEC만큼 천천히 보여 준다
-    clips.append({"from": c_from, "to": c_to, "speed": c_speed, "caption": CAPTIONS["card"]})
-    if summary:
-        b = summary["box"]
-        box = [b["x"], b["y"], min(b["width"], 600), min(b["height"], 280)]
+    g0 = (graph_marks(marks, "initial") or [None])[0]
+    if g0:  # 그래프가 노드 하나씩 그려지는 연출을 통째로 보여 준다(녹화가 연출이 끝날 때까지 칩을 누르지 않고 기다렸다)
+        c_from, c_to = g0["t"] + 60, g0["t"] + GRAPH_BUILD_SEC * 1000
+        clips.append({"from": c_from, "to": c_to, "speed": 1, "caption": CAPTIONS["card"]})
+        cv = g0["canvas"]   # 노드가 왼쪽 → 오른쪽 흐름으로 하나씩 그려지므로 카메라도 그래프를 따라 좌→우로 훑는다
+        pw = min(GRAPH_PAN_W, cv["width"])
+        spans = [cv["x"], cv["x"] + (cv["width"] - pw) / 2, cv["x"] + cv["width"] - pw]
+        for k, x in enumerate(spans):
+            shots.append({"t": g0["t"] + 600 + k * (GRAPH_BUILD_SEC * 1000 - 900) / 3, "box": [x, cv["y"] - 20, pw, cv["height"] + 40], "move": 1500 if k else 900})
+        shots.append({"t": c_to, "box": [spans[-1], cv["y"] - 20, pw, cv["height"] + 40]})
     else:
-        b = card_appear["box"]
-        box = [b["x"], b["y"], 600, 190]
-    shots.append({"t": card_appear["t"] + 700, "box": box, "move": 900})
-    shots.append({"t": c_to, "box": box})
+        clips.append({"from": c_from, "to": c_to, "speed": c_speed, "caption": CAPTIONS["card_text"]})
+        if summary:
+            b = summary["box"]
+            box = [b["x"], b["y"], min(b["width"], 600), min(b["height"], 280)]
+        else:
+            b = card_appear["box"]
+            box = [b["x"], b["y"], 600, 190]
+        shots.append({"t": card_appear["t"] + 700, "box": box, "move": 900})
+        shots.append({"t": c_to, "box": box})
 
     # ④ 칩 답변 — 칩마다 다가가는 순간부터 누른 직후까지
     confirm_a = find(marks, "click", "approach", "이 전략으로 확정")
@@ -137,13 +205,25 @@ def build(folder: Path, meta: dict) -> dict:
         shots.append({"t": a["t"] + 500, "box": chip_box(a["box"]), "move": 500})
         shots.append({"t": p["t"] + CHIP_TAIL_MS, "box": chip_box(a["box"])})
         last_press = p
+        # 이 답으로 그래프가 달라졌으면, 노드가 붙는 순간으로 당겨 보여 준다(그래프 중심 연출 — 2026-10-19)
+        ga = next((m for m in graph_marks(marks, "add") if m["label"] == ans and m["t"] >= p["t"]), None)
+        if ga:
+            g_from = max(ga["t"] + 60, p["t"] + CHIP_TAIL_MS)   # 그래프를 패널 위로 스크롤한 직후부터
+            clips.append({"from": g_from, "to": ga["t"] + GRAPH_BEAT_SEC * 1000, "speed": 1, "caption": graph_caption(ga["texts"])})
+            nb = graph_box(ga["box"])
+            shots.append({"t": g_from + 500, "box": graph_box(ga["canvas"], GRAPH_FIT_W * 1.4), "move": 450})   # 먼저 그래프 전체를 담고
+            shots.append({"t": ga["t"] + 900, "box": nb, "move": 700})                                          # 새 노드로 당긴다
+            shots.append({"t": ga["t"] + GRAPH_BEAT_SEC * 1000, "box": nb})
+            last_press = {"t": ga["t"] + (GRAPH_BEAT_SEC * 1000 - CHIP_TAIL_MS)}
 
     # ⑤ 완성된 조건 카드 → 확정 버튼
     full = find(marks, "card", "card", "summary_full")
-    fb = full["box"]
+    gf = (graph_marks(marks, "final") or [None])[0]
+    fb = graph_box(gf["canvas"], GRAPH_FIT_W * 1.2) if gf else None
+    fb = {"x": fb[0], "y": fb[1], "width": fb[2], "height": fb[3]} if fb else full["box"]
     f_from = max((last_press["t"] + CHIP_TAIL_MS) if last_press else 0, confirm_a["t"] - 100 - FULL_CARD_SEC * 1000)
     clips.append({"from": f_from, "to": confirm_a["t"] - 100, "speed": 1, "caption": CAPTIONS["confirm"]})
-    shots.append({"t": f_from + 600, "box": [fb["x"], fb["y"], min(fb["width"], 500), min(fb["height"], 300)], "move": 500})
+    shots.append({"t": f_from + 600, "box": [fb["x"], fb["y"], fb["width"], fb["height"]] if gf else [fb["x"], fb["y"], min(fb["width"], 500), min(fb["height"], 300)], "move": 500})
     shots.append({"t": confirm_a["t"] - 100, "box": shots[-1]["box"]})
     confirm_p = find(marks, "click", "press", "이 전략으로 확정")
     clips.append({"from": confirm_a["t"] - 100, "to": confirm_p["t"] + CHIP_TAIL_MS, "speed": CHIP_SPEED, "caption": CAPTIONS["confirm"]})
@@ -205,15 +285,17 @@ def cards(result: dict, meta: dict) -> tuple[dict, dict]:
             period, f"최대 {s['최대 보유']}" if "최대 보유" in s else "", s.get("리스크 관리", "").split(" · ")[0],
             f"같은 기간 {m['benchmark_name']} {m['benchmark']}") if x)),
         "stats": [["투자 수익률", m["roi"]], ["연평균(CAGR)", m["cagr"]], ["최대 낙폭", m["mdd"]], ["승률", m["win_rate"]]],
-        "footer": "같은 문장으로 직접 돌려 보기 → 본문 링크",
+        "footer": meta.get("end_footer", "같은 문장으로 직접 돌려 보기 → 본문 링크"),
     }
     return title, end
 
 
 if __name__ == "__main__":
     folder, meta = Path(sys.argv[1]), json.loads(Path(sys.argv[2]).read_text())
+    result = json.loads((folder / "result.json").read_text())
+    meta = with_defaults(meta, result)
     plan = build(folder, meta)
-    title, end = cards(json.loads((folder / "result.json").read_text()), meta)
+    title, end = cards(result, meta)
     (folder / "plan.json").write_text(json.dumps(plan, ensure_ascii=False, indent=1))
     (folder / "title.json").write_text(json.dumps(title, ensure_ascii=False, indent=1))
     (folder / "end.json").write_text(json.dumps(end, ensure_ascii=False, indent=1))

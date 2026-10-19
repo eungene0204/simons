@@ -3730,6 +3730,8 @@ export const en: Record<string, string> = {
   "일부 종목·기간은 데이터가 없을 수 있습니다.": "Some stocks or periods may have no data.",
   "지표 개념": "Indicator concept",
   "값의 단위": "Value unit",
+  "기간 허용 범위": "Allowed period range",
+  "{0}~{1}일": "{0}~{1} days",
   "지표 분류": "Indicator class",
   "배": "x",
   "억원": "100M KRW",

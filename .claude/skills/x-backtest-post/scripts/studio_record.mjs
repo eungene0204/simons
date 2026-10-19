@@ -10,7 +10,7 @@
 // 출력: marks.jsonl(카메라 기록), result.json(해석 카드·지표·로그·AI 핵심 요약), trades.txt(매매 기록 탭), <aiShot>
 // 준비된 답이 없는 질문이 나오면 질문을 출력하고 멈춘다 — 답을 정해 spec에 넣고 처음부터 다시 녹화한다.
 import fs from 'fs';
-import { connect, typePrompt, press, glide, visibleText, waitFor, settle, card, hold, mark } from './studio_lib.mjs';
+import { connect, typePrompt, press, glide, visibleText, waitFor, settle, card, hold, mark, watchGraph, graphAdd, graphBox } from './studio_lib.mjs';
 
 const spec = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const { browser, page } = await connect();
@@ -18,6 +18,7 @@ const button = (t) => page.locator('button:visible', { hasText: t }).first();
 const log = (...a) => console.log(new Date().toTimeString().slice(0, 8), ...a);
 
 await page.waitForTimeout(1500);
+await watchGraph(page);
 await typePrompt(page, spec.prompt);
 log('입력 완료');
 await waitFor(page, 'status', /분석 중|생각 중/, 30).catch(() => log('진행 표시를 못 봤다(카메라는 전체 화면으로 둔다)'));
@@ -29,6 +30,9 @@ await waitFor(page, 'card', '현재까지 이해한', 420);
 await settle(page);
 const firstCard = await card(page, 'summary', '현재까지 이해한', '리스크 관리').catch(() => null);
 log('해석 카드:', firstCard ? 'ok' : '위치 못 찾음');
+// 처음 그려지는 그래프(노드가 하나씩 나타나는 연출, 최대 약 7초)가 끝날 때까지 칩을 누르지 않는다 — 편집이 이 구간을 통째로 보여 준다
+const g0 = await graphAdd(page, 'initial', 0, { phase: 'initial', settleMs: 8500, timeoutSec: 15 });
+log('처음 그래프:', g0 ? g0.texts.join(' / ') : '그래프를 못 찾음(편집은 텍스트 카드로 대체)');
 
 const answers = [...spec.answers];
 const answered = [];
@@ -36,7 +40,7 @@ let misses = 0;
 for (let i = 0; i < 12; i++) {
   if (await button('이 전략으로 확정').count()) break;
   const hit = await (async () => { for (const a of answers) if (await button(a).count()) return a; return null; })();
-  if (!hit && misses++ < 4) { await page.waitForTimeout(1500); i--; continue; } // 다음 질문이 그려지기 전에 확인하는 경쟁 — 잠깐 기다려 다시 본다
+  if (!hit && misses++ < 4) { await settle(page, 150); await page.waitForTimeout(1500); i--; continue; } // 다음 질문이 그려지기 전에 확인하는 경쟁 — 진행 표시('생각 중...')가 사라질 때까지(앱 응답이 느리면 10초 넘게) 기다렸다 다시 본다
   if (!hit) {
     const qs = (await page.innerText('body')).split('\n').filter((l) => /까요\?|주세요\.?$/.test(l.trim()));
     const q = qs.at(-1);
@@ -56,18 +60,23 @@ for (let i = 0; i < 12; i++) {
       await page.waitForTimeout(450);
       answered.push(typed.text);
       await settle(page);
+      await graphAdd(page, typed.text, Date.now() - 20000);
       continue;
     }
     throw new Error(`준비된 답이 없는 질문: ${q ?? '(질문 문구 못 찾음)'} — spec.answers에 칩 글자(또는 spec.typed에 직접 입력)를 넣고 다시 녹화한다`);
   }
   misses = 0;
+  const since = Date.now();
   await press(page, button(hit), hit);
   answers.splice(answers.indexOf(hit), 1);
   answered.push(hit);
   await settle(page);
+  const ga = await graphAdd(page, hit, since);  // 이 답으로 그래프에 생긴 노드(없으면 null)
+  log('그래프 변화:', hit, '→', ga ? ga.texts.join(' / ') : '없음');
 }
 log('칩 답변:', answered.join(' / '));
 
+await graphBox(page, 'final');   // 확정 장면은 완성된 그래프로 당긴다
 await card(page, 'summary_full', '현재까지 이해한', '리스크 관리');
 const summaryText = await page.evaluate(() => {
   const leaf = [...document.querySelectorAll('body *')].find((e) => e.children.length === 0 && e.textContent.trim().startsWith('현재까지 이해한'));

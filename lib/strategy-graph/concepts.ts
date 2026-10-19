@@ -26,6 +26,12 @@ export function supportNote(ind: IndicatorMeta): string | null {
   return null;
 }
 
+function periodRangeRows(ind: IndicatorMeta): ReturnType<typeof row>[] {
+  const p = ind.parameters?.period;
+  if (!p || p.minimum === null || p.maximum === null) return [];
+  return [row(t("기간 허용 범위"), t("{0}~{1}일", p.minimum, p.maximum))];
+}
+
 /** Link a strategy-instance node to its (shared) indicator concept and classification chain. */
 export function linkIndicator(b: GraphBuilder, instanceId: string, leafId: string | null): void {
   const meta = b.meta;
@@ -41,7 +47,10 @@ export function linkIndicator(b: GraphBuilder, instanceId: string, leafId: strin
     classPath: classPathOf(meta, ind.classId),
     statusNote: supportNote(ind),
     valueSource: "metadata",
-    rows: unitText(ind.unit) ? [row(t("값의 단위"), unitText(ind.unit) as string)] : [],
+    rows: [
+      ...(unitText(ind.unit) ? [row(t("값의 단위"), unitText(ind.unit) as string)] : []),
+      ...periodRangeRows(ind),
+    ],
   });
   b.edge("uses_indicator", instanceId, indId, t("사용 지표"));
 

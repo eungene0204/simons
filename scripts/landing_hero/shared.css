@@ -1,0 +1,31 @@
+/* 소개 페이지 단계 영상(검증·모의투자)의 공통 스타일. 팔레트는 docs/UI_GUIDELINES.md의 따뜻한 다크, 강조색은 테라코타 하나다.
+   성과 숫자는 담지 않는다 — 값 자리는 막대(.sk)로만 그린다(규제 안전 원칙). hero.html은 자체 스타일을 쓴다. */
+:root { --bg:#141413; --card:#1e1d1a; --line:rgba(244,241,234,.1); --text:#f4f1ea; --muted:#a8a49a; --accent:#e0805c; --accent-ink:#1c0f09; --surface:rgba(255,255,255,.06); }
+* { box-sizing:border-box; margin:0; padding:0; }
+html,body { width:1280px; height:720px; background:var(--bg); overflow:hidden; }
+body { font-family:"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",Arial,sans-serif; color:var(--text); -webkit-font-smoothing:antialiased; }
+#stage { position:relative; width:1280px; height:720px; overflow:hidden; }
+.abs { position:absolute; }
+.hide { opacity:0; visibility:hidden; }
+.brand { left:48px; top:34px; font-size:17px; font-weight:800; letter-spacing:-.01em; display:flex; gap:10px; align-items:center; }
+.brand i { width:10px; height:10px; border-radius:3px; background:var(--accent); display:inline-block; }
+.brand span { color:var(--muted); font-weight:600; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:22px; }
+.title { font-size:24px; font-weight:800; letter-spacing:-.02em; }
+.sub { font-size:15px; color:var(--muted); font-weight:600; line-height:1.55; }
+.lbl { font-size:14px; font-weight:700; color:var(--muted); }
+.chip { display:inline-block; font-size:14px; font-weight:700; padding:8px 14px; border-radius:999px; border:1px solid rgba(244,241,234,.16); color:#d8d4cb; }
+.chip.on { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+.btn { background:var(--accent); color:var(--accent-ink); font-size:15px; font-weight:900; text-align:center; border-radius:12px; display:flex; align-items:center; justify-content:center; position:relative; overflow:hidden; }
+.abs.btn { position:absolute; }
+.btn .fill { position:absolute; left:0; top:0; bottom:0; width:0; background:rgba(255,255,255,.32); }
+.sk { display:block; height:14px; border-radius:7px; background:rgba(244,241,234,.14); }
+.tile { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px 18px; }
+.tile b { display:block; font-size:14px; color:var(--muted); font-weight:700; margin-bottom:14px; }
+.note { font-size:15px; line-height:1.7; color:var(--muted); font-weight:600; }
+#ptr { left:0; top:0; width:26px; height:26px; }
+#ripple { left:0; top:0; width:44px; height:44px; border-radius:50%; border:2px solid var(--accent); }
+#fade { left:0; top:0; width:1280px; height:720px; background:var(--bg); pointer-events:none; }
+.demo-badge { right:48px; top:30px; font-size:13px; font-weight:800; padding:7px 14px; border-radius:999px; background:rgba(244,241,234,.1); color:var(--text); letter-spacing:-.01em; }
+.up { color:#ef6b63; } /* 상승(양수) — 한국 시장 관례, docs/UI_GUIDELINES.md */
+.down { color:#5b8def; } /* 하락(음수) */

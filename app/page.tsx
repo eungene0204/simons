@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import StrategyLabPage from "./analytics/page";
+import { HomeLanding } from "@/components/landing/HomeLanding";
 import { PrivacyPolicyPage } from "@/components/landing/PrivacyPolicyPage";
+import { getSessionUserId } from "@/lib/get-user";
 import { TermsOfServicePage } from "@/components/landing/TermsOfServicePage";
 import { HomeStructuredData } from "@/components/seo/HomeStructuredData";
 import { getRequestLanguage } from "@/lib/i18n/server";
@@ -57,10 +59,22 @@ export function generateMetadata({ searchParams }: HomePageProps): Metadata {
 type HomePageProps = {
   searchParams?: {
     legal?: string | string[];
+    prompt?: string | string[];
   };
 };
 
-export default function HomePage({ searchParams }: HomePageProps) {
+// `/`는 비로그인 방문자에게 소개 페이지를, 이미 도구를 쓰는 쪽에는 전략연구소를 그대로 보여준다.
+// - 로그인 사용자: 로그인 후 이동·로고가 모두 `/`를 가리키므로 종전대로 도구.
+// - `?prompt=` 링크("이 전략 그대로 열기", X 글): 소개 페이지에 막히면 안 된다.
+// - 영어(/us) 트리: 소개 페이지는 한국어 전용이라 종전대로 도구.
+// 도구의 고정 주소는 `/analytics`다(메뉴·소개 페이지의 시작 버튼).
+function opensStrategyLab(searchParams: HomePageProps["searchParams"], signedIn: boolean, language: string) {
+  if (signedIn || language === "en") return true;
+  const prompt = Array.isArray(searchParams?.prompt) ? searchParams.prompt[0] : searchParams?.prompt;
+  return Boolean(prompt?.trim());
+}
+
+export default async function HomePage({ searchParams }: HomePageProps) {
   const legalView = legalViewFrom(searchParams);
   // 요청 언어를 서버 렌더에 고정한다 — 약관·개인정보처리방침은 서버 컴포넌트다.
   const language = getRequestLanguage();
@@ -73,10 +87,12 @@ export default function HomePage({ searchParams }: HomePageProps) {
     return <PrivacyPolicyPage />;
   }
 
+  const signedIn = (await getSessionUserId()) != null;
+
   return (
     <>
       <HomeStructuredData language={language} />
-      <StrategyLabPage />
+      {opensStrategyLab(searchParams, signedIn, language) ? <StrategyLabPage /> : <HomeLanding />}
     </>
   );
 }

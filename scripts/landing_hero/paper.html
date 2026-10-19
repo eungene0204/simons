@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>랜딩 '모의투자' 단계 영상 원본</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+  /* 가상계좌 만들기 → 전략 선택 → 계좌 카드(전략 시뮬레이션 중) → 상세(보유 종목·거래 내역·성과 분석).
+     화면의 용어는 실제 가상계좌 화면을 따른다. 종목명·금액·수익률 같은 값은 담지 않는다 — 막대로만 그린다. */
+  #listTitle { left:90px; top:96px; font-size:28px; font-weight:800; letter-spacing:-.02em; }
+  #btnNew { left:1000px; top:90px; width:190px; height:46px; }
+  #empty { left:90px; top:290px; width:1100px; text-align:center; font-size:30px; font-weight:800; line-height:1.4; letter-spacing:-.02em; }
+  #acct { left:90px; top:170px; width:1100px; height:250px; padding:28px 32px; }
+  .pill { display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:800; padding:6px 12px; border-radius:999px; background:rgba(224,128,92,.14); color:var(--accent); }
+  .pill i { width:8px; height:8px; border-radius:50%; background:var(--accent); display:inline-block; }
+  #tiles3 { position:absolute; left:32px; top:112px; width:1036px; display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  #tiles3 .tile { height:104px; }
+  /* 모달 */
+  #dim { left:0; top:0; width:1280px; height:720px; background:rgba(0,0,0,.58); }
+  #modal { left:370px; top:64px; width:540px; height:560px; padding:30px 34px; }
+  #modal .field { position:absolute; left:34px; right:34px; }
+  .box { height:52px; border-radius:12px; border:1px solid rgba(244,241,234,.16); background:rgba(244,241,234,.03); display:flex; align-items:center; padding:0 16px; font-size:17px; font-weight:600; }
+  .box.focus { border-color:var(--accent); }
+  #nameVal { font-weight:700; }
+  #caret { display:inline-block; width:2px; height:20px; background:var(--accent); vertical-align:-4px; margin-left:2px; }
+  #stratList { left:34px; right:34px; top:396px; border-radius:14px; background:#26241f; border:1px solid rgba(244,241,234,.16); padding:8px; z-index:5; }
+  .opt { height:46px; border-radius:10px; display:flex; align-items:center; padding:0 12px; font-size:16px; font-weight:700; color:#d8d4cb; }
+  .opt.on { background:rgba(224,128,92,.16); color:var(--text); }
+  #btnCreate { left:34px; right:34px; top:466px; height:54px; font-size:17px; }
+  /* 상세 */
+  #detailHead { left:90px; top:96px; }
+  #strat { left:90px; top:176px; width:330px; height:330px; padding:24px 24px; }
+  .tag { display:flex; justify-content:space-between; align-items:center; padding:13px 0; border-top:1px solid var(--line); font-size:15px; font-weight:700; }
+  .tag span:first-child { color:var(--muted); }
+  #panel { left:440px; top:176px; width:750px; height:420px; padding:0; }
+  #tabs { left:24px; top:20px; display:flex; gap:8px; }
+  .tab { font-size:15px; font-weight:700; padding:9px 16px; border-radius:10px; color:var(--muted); }
+  .tab.on { background:rgba(244,241,234,.12); color:var(--text); }
+  #tabBody { left:24px; top:76px; width:702px; height:320px; }
+  .row { position:absolute; left:0; width:702px; height:46px; border-top:1px solid var(--line); display:flex; align-items:center; gap:18px; }
+  .row .sk { height:12px; }
+  .badge { font-size:12px; font-weight:800; padding:5px 10px; border-radius:8px; background:rgba(244,241,234,.1); color:var(--text); white-space:nowrap; }
+  .badge.fill { background:rgba(224,128,92,.18); color:var(--accent); }
+  #perf { left:0; top:0; }
+  #foot { left:90px; top:640px; width:1100px; font-size:15px; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="abs brand"><i></i>널스탁 <span>가상계좌</span></div>
+  <div class="abs demo-badge">가상 예시 수치</div>
+
+  <!-- 목록 -->
+  <div id="list">
+    <div class="abs" id="listTitle">가상계좌</div>
+    <div class="abs btn" id="btnNew">가상계좌 만들기</div>
+    <div class="abs hide" id="empty">가상계좌를 만들고<br />전략을 시뮬레이션 해보세요</div>
+    <div class="abs card hide" id="acct">
+      <div style="display:flex; align-items:center; gap:14px"><div class="title" id="acctName">PER·RSI 반등</div><span class="pill"><i></i>전략 시뮬레이션 중</span></div>
+      <div class="lbl" style="margin-top:8px" id="acctStrat">PER·RSI 반등 조건</div>
+      <div id="tiles3">
+        <div class="tile"><b>총 자산 가치</b><div style="font-size:24px;font-weight:800">10,482,300원</div></div>
+        <div class="tile"><b>현금 잔액</b><div style="font-size:24px;font-weight:800">3,215,600원</div></div>
+        <div class="tile"><b>초기 모의 투자금</b><div style="font-size:24px;font-weight:800">10,000,000원</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 가상계좌 만들기 모달 -->
+  <div class="abs hide" id="dim"></div>
+  <div class="abs card hide" id="modal">
+    <div class="title">가상계좌 만들기</div>
+    <div class="field" style="top:92px"><div class="lbl" style="margin-bottom:8px">계좌 이름</div><div class="box focus" id="nameBox"><span id="nameVal"></span><span id="caret"></span></div></div>
+    <div class="field" style="top:198px"><div class="lbl" style="margin-bottom:8px">계좌당 초기 모의 투자금</div><div class="box" style="font-weight:800">1,000만원</div></div>
+    <div class="field" style="top:304px"><div class="lbl" style="margin-bottom:8px">전략 선택</div><div class="box" id="selBox"><span id="selVal" style="color:#918d84">저장된 전략을 선택하세요</span><span style="margin-left:auto;color:var(--muted)">▾</span></div></div>
+    <div class="abs hide" id="stratList">
+      <div class="opt on" id="opt1">PER·RSI 반등 조건</div>
+      <div class="opt" id="opt2">ROE·부채비율 분기 점검</div>
+      <div class="opt" id="opt3">60일 수익률 상위 조건</div>
+    </div>
+    <div class="abs btn" id="btnCreate">가상계좌 만들기</div>
+  </div>
+
+  <!-- 상세 -->
+  <div class="hide" id="detail">
+    <div class="abs" id="detailHead"><div class="lbl">← 가상계좌</div><div style="display:flex;align-items:center;gap:14px;margin-top:8px"><div class="title" style="font-size:28px">PER·RSI 반등</div><span class="pill"><i></i>전략 시뮬레이션 중</span></div></div>
+    <div class="abs card" id="strat">
+      <div class="lbl" style="margin-bottom:6px">연결된 전략</div>
+      <div class="title" style="font-size:20px;margin-bottom:16px">PER·RSI 반등 조건</div>
+      <div class="tag"><span>유니버스</span><span>KOSPI</span></div>
+      <div class="tag"><span>매수 조건</span><span>PER 10 이하 · RSI 반등</span></div>
+      <div class="tag"><span>최대 보유 종목</span><span>8개</span></div>
+      <div class="tag"><span>익절 / 손절</span><span>+15% / -8%</span></div>
+    </div>
+    <div class="abs card" id="panel">
+      <div class="abs" id="tabs"><span class="tab on" id="tab1">보유 종목</span><span class="tab" id="tab2">거래 내역</span><span class="tab" id="tab3">성과 분석</span></div>
+      <div class="abs" id="tabBody"></div>
+    </div>
+  </div>
+
+  <div class="abs note hide" id="foot">가상계좌의 자산과 거래 내역은 시뮬레이션 결과입니다. 실제 주문은 발생하지 않으며, 전략 검증 목적으로 제공됩니다. 화면과 수치는 설명을 위한 가상 예시이며 실제 결과가 아닙니다.</div>
+</div>
+<script src="shared.js"></script>
+<script>
+const DURATION = 28;
+mountOverlay();
+const NAME = "PER·RSI 반등";
+
+// ── 탭 본문 ────────────────────────────────────────────────────────────
+const body = $("tabBody");
+function mkRow(y, cells) {
+  const r = document.createElement("div");
+  r.className = "row"; r.style.top = y + "px"; r.innerHTML = cells; r.style.opacity = 0;
+  body.appendChild(r); return r;
+}
+const holdRows = [];
+holdRows.push(mkRow(0, `<span class="lbl" style="width:190px">종목</span><span class="lbl" style="width:140px">보유 수량</span><span class="lbl" style="width:140px">평가금액</span><span class="lbl">평가손익</span>`));
+const holds = [
+  ["종목 A", "28주", "1,512,400원", "+46,900원 (+3.2%)", "up"],
+  ["종목 B", "15주", "1,603,800원", "+102,100원 (+6.8%)", "up"],
+  ["종목 C", "17주", "1,388,500원", "-27,400원 (-1.9%)", "down"],
+  ["종목 D", "40주", "1,441,200원", "+33,600원 (+2.4%)", "up"],
+  ["종목 E", "22주", "1,320,800원", "+54,900원 (+4.3%)", "up"],
+];
+holds.forEach(([name, qty, val, pnl, dir], i) => holdRows.push(mkRow(46 + i * 46, `<span style="width:190px;font-weight:700">${name}</span><span style="width:140px;font-weight:600">${qty}</span><span style="width:140px;font-weight:600">${val}</span><span class="${dir}" style="font-weight:700">${pnl}</span>`)));
+const logRows = [];
+const logs = [
+  ["매수 신호", "가상 체결", "종목 E · 22주 · 체결가 60,040원", ""],
+  ["매수 신호", "가상 체결", "종목 D · 40주 · 체결가 35,180원", ""],
+  ["매도 조건 도달", "가상 체결", "종목 F · 31주 · 체결가 47,900원", "+9.7%"],
+  ["매수 신호", "가상 체결", "종목 C · 17주 · 체결가 83,100원", ""],
+  ["매도 조건 도달", "가상 체결", "종목 G · 12주 · 체결가 91,250원", "-5.4%"],
+];
+logs.forEach(([a, b, desc, pnl], i) => logRows.push(mkRow(i * 52, `<span class="badge">${a}</span><span class="badge fill">${b}</span><span style="font-weight:600">${desc}</span><span class="${pnl.startsWith("+") ? "up" : "down"}" style="margin-left:auto;font-weight:800">${pnl}</span>`)));
+logRows.forEach((r) => (r.style.height = "52px"));
+// 성과 분석: 곡선 모양만(축·수치 없음)
+const perf = svgEl("svg", { width: 702, height: 320, viewBox: "0 0 702 320", id: "perf" });
+perf.style.position = "absolute"; perf.style.opacity = 0;
+body.appendChild(perf);
+const rnd = seeded(5);
+let v = 0.4; const pts = [];
+for (let i = 0; i < 90; i++) { v += (rnd() - 0.46) * 0.05; pts.push(v); }
+const lo = Math.min(...pts), hi = Math.max(...pts);
+const d = pts.map((y, i) => `${i ? "L" : "M"}${(10 + (680 * i) / 89).toFixed(1)},${(230 - ((y - lo) / (hi - lo)) * 190).toFixed(1)}`).join(" ");
+for (let i = 0; i < 4; i++) svgEl("line", { x1: 10, x2: 690, y1: 40 + i * 62, y2: 40 + i * 62, stroke: "rgba(244,241,234,.07)" }, perf);
+const curve = svgEl("path", { d, fill: "none", stroke: "#e0805c", "stroke-width": 3, "stroke-linejoin": "round", pathLength: 1 }, perf);
+curve.style.strokeDasharray = "1";
+[["수익률", "+4.8%", "#ef6b63"], ["최대 낙폭", "-6.3%", "#5b8def"], ["거래 횟수", "14회", "#f4f1ea"]].forEach(([label, value, color], i) => {
+  const g = svgEl("g", {}, perf);
+  svgEl("rect", { x: 10 + i * 232, y: 252, width: 216, height: 64, rx: 12, fill: "rgba(244,241,234,.03)", stroke: "rgba(244,241,234,.09)" }, g);
+  const tx = svgEl("text", { x: 24 + i * 232, y: 274, fill: "#a8a49a", "font-size": 13, "font-weight": 700 }, g); tx.textContent = label;
+  const vx = svgEl("text", { x: 24 + i * 232, y: 304, fill: color, "font-size": 24, "font-weight": 800 }, g); vx.textContent = value;
+});
+
+// ── 시간표(초) ─────────────────────────────────────────────────────────
+// 0.4 목록(빈 상태) → 1.6 '가상계좌 만들기' 누름 → 2.0 모달 → 2.8~4.6 이름 입력 → 5.2 전략 선택 열기 → 6.4 전략 고름
+// → 7.8 만들기 누름 → 8.6 모달 닫힘·계좌 카드 → 11.8 카드 누름 → 12.4~ 상세: 보유 종목 → 17.8 거래 내역 → 22.2 성과 분석 → 27 정지
+const PT = [
+  [0.6, [860, 520]], [1.5, "btnNew"], [2.0, "btnNew"], [2.6, [700, 300]],
+  [5.0, "selBox"], [5.3, "selBox"], [6.4, "opt1"], [6.7, "opt1"], [7.7, "btnCreate"], [8.0, "btnCreate"], [8.6, [900, 480]],
+  [11.2, "acct"], [11.6, "acct"],
+  [17.2, "tab2"], [17.5, "tab2"], [21.6, "tab3"], [21.9, "tab3"], [23.0, [900, 540]],
+];
+const CLICKS = [1.5, 5.0, 6.4, 7.7, 11.2, 17.2, 21.6];
+
+window.renderAt = function (t) {
+  const modalIn = ease(prog(t, 1.9, 2.5)) * (1 - ease(prog(t, 8.2, 8.7)));
+  // 목록
+  const listOut = 1 - ease(prog(t, 12.0, 12.6));
+  show($("list"), listOut);
+  $("btnNew").style.transform = `scale(${pressScale(t, 1.5)})`;
+  show($("empty"), prog(t, 0.2, 0.8) * (1 - ease(prog(t, 8.5, 9.0))));
+  const acctIn = ease(prog(t, 8.8, 9.5));
+  show($("acct"), acctIn, `translateY(${(1 - acctIn) * 16}px)`);
+  // 모달
+  show($("dim"), modalIn);
+  show($("modal"), modalIn, `translateY(${(1 - modalIn) * 14}px)`);
+  const name = NAME.slice(0, Math.floor(prog(t, 2.8, 4.6) * NAME.length));
+  $("nameVal").textContent = name;
+  $("caret").style.display = t > 2.6 && t < 5.0 && Math.floor(t * 2.2) % 2 === 0 ? "inline-block" : "none";
+  $("nameBox").classList.toggle("focus", t < 5.0);
+  $("selBox").classList.toggle("focus", t >= 5.0 && t < 6.5);
+  const open = t >= 5.2 && t < 6.7;
+  show($("stratList"), open ? easeOut(prog(t, 5.2, 5.6)) : 0);
+  $("selVal").textContent = t >= 6.7 ? "PER·RSI 반등 조건" : "저장된 전략을 선택하세요";
+  $("selVal").style.color = t >= 6.7 ? "#f4f1ea" : "#918d84";
+  $("opt1").classList.toggle("on", t >= 6.3);
+  $("btnCreate").style.transform = `scale(${pressScale(t, 7.7)})`;
+  // 상세
+  const detailIn = ease(prog(t, 12.4, 13.1));
+  show($("detail"), detailIn, `translateY(${(1 - detailIn) * 14}px)`);
+  const tab = t < 17.5 ? 1 : t < 21.9 ? 2 : 3;
+  ["tab1", "tab2", "tab3"].forEach((id, i) => $(id).classList.toggle("on", i + 1 === tab));
+  holdRows.forEach((r, i) => { const a = 13.4 + i * 0.5; r.style.opacity = tab === 1 ? easeOut(prog(t, a, a + 0.4)) : 0; });
+  logRows.forEach((r, i) => { const a = 17.9 + i * 0.7; r.style.opacity = tab === 2 ? easeOut(prog(t, a, a + 0.4)) : 0; });
+  perf.style.opacity = tab === 3 ? prog(t, 22.0, 22.3) : 0;
+  curve.style.strokeDashoffset = 1 - easeOut(prog(t, 22.2, 25.4));
+  // 안내
+  show($("foot"), prog(t, 9.4, 10.2));
+  drivePointer(t, PT, CLICKS, [[8.8, 11.0], [12.0, 17.0], [23.4, 99]]);
+  loopFade(t, DURATION);
+};
+window.DURATION = DURATION;
+window.POSTER_AT = 19.2;
+window.renderAt(0);
+</script>
+</body>
+</html>

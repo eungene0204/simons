@@ -160,6 +160,7 @@ import {
   chipAnswersGateSlot,
 } from "./deterministicConditionFlow";
 import { t } from "@/lib/i18n";
+import { computeDockScrollDelta } from "./dockScroll";
 import StrategyGraphCard from "@/components/strategy/graph/StrategyGraphCard";
 import { createGraphSeen, type GraphSeen } from "@/components/strategy/graph/StrategyGraphView";
 import { fromConfirmed, fromDraft, fromExecuted } from "@/lib/strategy-graph/snapshot";
@@ -2545,6 +2546,53 @@ function StrategyLabContent() {
     !lastAssistantMessage?.coachLoading &&
     Boolean(lastAssistantMessage?.clarification) &&
     (lastAssistantMessage?.clarificationSuggestions?.length ?? 0) > 0;
+
+  // 하단 고정 카드가 초안 그래프를 가리지 않게 — 카드 높이를 재서 아래 여백에 반영하고, 카드가 뜨거나
+  // 바뀔 때 그래프 아랫변이 카드 윗변 위에 오도록 스크롤한다(그래프가 보이는 영역보다 크면 윗변 우선).
+  const [dockHeight, setDockHeight] = useState(0);
+  const dockSignature = isClarificationDocked ? `${messages.length}:${lastAssistantMessage?.clarification ?? ""}` : "";
+  useEffect(() => {
+    if (!isClarificationDocked) {
+      setDockHeight(0);
+      return;
+    }
+    const card = document.querySelector<HTMLElement>('[data-testid="clarification-card"][data-docked="true"]');
+    if (!card) return;
+    const measure = () => setDockHeight(Math.ceil(card.getBoundingClientRect().height));
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, [isClarificationDocked, dockSignature]);
+  useEffect(() => {
+    if (!isClarificationDocked) return;
+    const fitGraphAboveDock = () => {
+      const card = document.querySelector<HTMLElement>('[data-testid="clarification-card"][data-docked="true"]');
+      const graph = document.querySelector<HTMLElement>('[data-testid="draft-strategy-graph"]');
+      if (!card || !graph) return;
+      const cardRect = card.getBoundingClientRect();
+      if (cardRect.height === 0) return;
+      // 처음 그릴 때는 전체가 새 항목이라 그래프 전체가, 조건을 추가한 턴에는 방금 붙은 노드가 기준이다.
+      const fresh = Array.from(graph.querySelectorAll<SVGGElement>('[data-fresh="true"]')).map((el) => el.getBoundingClientRect());
+      const graphRect = fresh.length
+        ? { top: Math.min(...fresh.map((r) => r.top)), bottom: Math.max(...fresh.map((r) => r.bottom)) }
+        : graph.getBoundingClientRect();
+      const navHeight = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--top-menu-bar-height")) || 76;
+      const delta = computeDockScrollDelta({ graphTop: graphRect.top, graphBottom: graphRect.bottom, cardTop: cardRect.top, navHeight });
+      if (Math.abs(delta) < 2) return;
+      const main = document.querySelector("main");
+      if (main && main.scrollHeight > main.clientHeight) main.scrollTo({ top: main.scrollTop + delta, behavior: "smooth" });
+      else window.scrollTo({ top: window.scrollY + delta, behavior: "smooth" });
+    };
+    const frame = window.requestAnimationFrame(fitGraphAboveDock);
+    // 그래프는 컴파일 응답 뒤에 그려지고 카드 높이도 늦게 정해진다 — 몇 초 동안 다시 맞춘다.
+    const timers = [400, 1200, 2500].map((ms) => window.setTimeout(fitGraphAboveDock, ms));
+    return () => {
+      window.cancelAnimationFrame(frame);
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [isClarificationDocked, dockSignature, dockHeight]);
 
   useEffect(() => {
     if (!shouldShowChatInput || stage === "running" || result) return;
@@ -5277,7 +5325,11 @@ function StrategyLabContent() {
           hasChatStarted ? (isClarificationDocked ? "pb-[26rem]" : "pb-56") : "pb-12"
         } ${strategyPreviewBackgroundClass}`}
         data-testid="strategy-lab-background"
-        style={{ minHeight: "calc(100dvh - var(--top-menu-bar-height, 76px))" }}
+        style={{
+          minHeight: "calc(100dvh - var(--top-menu-bar-height, 76px))",
+          // 고정 카드가 클래스 여백(26rem)보다 크면 그 높이만큼 더 비운다 — 그래프를 카드 위까지 올릴 수 있게.
+          ...(isClarificationDocked && dockHeight > 416 ? { paddingBottom: dockHeight + 64 } : {}),
+        }}
       >
         {activeStrategyProgressItems && (
           // 상태 축은 렌더 직전에 붙인다 — buildBuilderTurnPresentation 호출부 8곳에

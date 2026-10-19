@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>랜딩 히어로 영상 원본</title>
+<style>
+  /* 소개 페이지(`/`) 히어로 영상의 원본 — render.mjs가 시간 t를 넣어 프레임을 한 장씩 찍는다.
+     색은 docs/UI_GUIDELINES.md의 따뜻한 다크 팔레트(강조색 테라코타 하나)다.
+     결과 장면은 성과 숫자를 담지 않는다 — 곡선 모양과 지표 칸 구성만 보여 주는 '화면 구성 예시'다(규제 안전 원칙). */
+  :root { --bg:#141413; --card:#1e1d1a; --line:rgba(244,241,234,.1); --text:#f4f1ea; --muted:#a8a49a; --accent:#e0805c; --accent-ink:#1c0f09; --surface:rgba(255,255,255,.06); }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { width:1280px; height:720px; background:var(--bg); overflow:hidden; }
+  body { font-family:"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",Arial,sans-serif; color:var(--text); -webkit-font-smoothing:antialiased; }
+  #stage { position:relative; width:1280px; height:720px; overflow:hidden; }
+  .abs { position:absolute; }
+  .hide { opacity:0; }
+  .brand { left:48px; top:34px; font-size:17px; font-weight:800; letter-spacing:-.01em; display:flex; gap:10px; align-items:center; color:var(--text); }
+  .brand i { width:10px; height:10px; border-radius:3px; background:var(--accent); display:inline-block; }
+  .brand span { color:var(--muted); font-weight:600; }
+
+  /* ① 입력 */
+  #headline { left:0; width:1280px; top:112px; text-align:center; font-size:34px; font-weight:800; letter-spacing:-.02em; }
+  #inputCard { left:140px; top:190px; width:1000px; height:290px; background:var(--card); border:1px solid var(--line); border-radius:22px; padding:34px 40px; }
+  #typed { font-size:27px; line-height:1.72; font-weight:500; letter-spacing:-.01em; word-break:keep-all; }
+  #caret { display:inline-block; width:2px; height:28px; background:var(--accent); vertical-align:-5px; margin-left:2px; }
+  #hint { font-size:25px; color:#918d84; position:absolute; left:40px; top:34px; }
+  #send { right:30px; bottom:26px; width:50px; height:50px; border-radius:50%; background:var(--accent); display:flex; align-items:center; justify-content:center; color:var(--accent-ink); font-weight:900; font-size:24px; }
+
+  /* ② 해석 */
+  #bubble { left:140px; top:84px; width:1000px; padding:16px 22px; background:var(--surface); border-radius:16px; font-size:17px; line-height:1.6; color:#e8e4dc; word-break:keep-all; }
+  #status { left:140px; top:190px; font-size:17px; font-weight:700; color:var(--accent); }
+
+  /* ③ 그래프 */
+  #graphWrap { left:0; top:0; width:1280px; height:720px; }
+  svg { position:absolute; left:0; top:0; }
+  .node rect { fill:var(--card); stroke:rgba(244,241,234,.16); stroke-width:1.2; }
+  .node.root rect { fill:var(--accent); stroke:none; }
+  .node text.k { font-size:12px; font-weight:700; fill:var(--muted); letter-spacing:.02em; }
+  .node text.v { font-size:17px; font-weight:700; fill:var(--text); }
+  .node.root text.v { fill:var(--accent-ink); font-size:18px; font-weight:800; }
+  .edge { fill:none; stroke:rgba(244,241,234,.22); stroke-width:1.6; }
+
+  /* ④ 질문 카드 */
+  #qCard { left:850px; top:150px; width:370px; background:var(--card); border:1px solid var(--line); border-radius:20px; padding:22px 22px 20px; }
+  #qCard h3 { font-size:13px; font-weight:800; color:var(--accent); letter-spacing:.04em; margin-bottom:14px; }
+  .q { margin-bottom:16px; }
+  .q b { display:block; font-size:15px; font-weight:700; margin-bottom:9px; }
+  .chips { display:flex; gap:8px; }
+  .chip { font-size:14px; font-weight:700; padding:8px 13px; border-radius:999px; border:1px solid rgba(244,241,234,.16); color:#d8d4cb; }
+  .chip.on { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+  #startBtn { margin-top:6px; background:var(--accent); color:var(--accent-ink); font-size:16px; font-weight:900; text-align:center; padding:14px 0; border-radius:12px; position:relative; overflow:hidden; }
+  #prog { position:absolute; left:0; top:0; bottom:0; width:0; background:rgba(255,255,255,.32); }
+
+  /* ⑤ 결과 */
+  #result { left:0; top:0; width:1280px; height:720px; }
+  #rTitle { left:90px; top:96px; font-size:26px; font-weight:800; letter-spacing:-.02em; }
+  #rBadge { left:262px; top:101px; font-size:13px; font-weight:800; padding:5px 11px; border-radius:999px; background:var(--surface); color:var(--muted); }
+  #chartCard { left:90px; top:152px; width:690px; height:400px; background:var(--card); border:1px solid var(--line); border-radius:20px; }
+  #tiles { left:810px; top:152px; width:380px; display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .tile { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px 16px 18px; height:124px; }
+  .tile b { display:block; font-size:14px; color:var(--muted); font-weight:700; margin-bottom:18px; }
+  .tile i { display:block; height:16px; border-radius:8px; background:rgba(244,241,234,.14); margin-bottom:10px; }
+  #rFoot { left:90px; top:590px; width:1100px; font-size:16px; line-height:1.7; color:var(--muted); font-weight:600; }
+
+  #ptr { left:0; top:0; width:26px; height:26px; }
+  #ripple { left:0; top:0; width:44px; height:44px; border-radius:50%; border:2px solid var(--accent); }
+  #fade { left:0; top:0; width:1280px; height:720px; background:var(--bg); pointer-events:none; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="abs brand"><i></i>널스탁 <span>전략연구소</span></div>
+
+  <div id="sceneInput">
+    <div class="abs" id="headline">어떤 투자 전략을 검증해 볼까요?</div>
+    <div class="abs" id="inputCard">
+      <div id="hint">투자 전략을 자유롭게 입력해 보세요</div>
+      <div id="typed"></div>
+      <div class="abs" id="send">↑</div>
+    </div>
+  </div>
+
+  <div class="abs hide" id="bubble"></div>
+  <div class="abs hide" id="status"></div>
+
+  <div class="abs hide" id="graphWrap"><svg id="svg" width="1280" height="720" viewBox="0 0 1280 720"></svg></div>
+
+  <div class="abs hide" id="qCard">
+    <h3>빠진 정보를 질문합니다</h3>
+    <div class="q" data-q="0"><b>리밸런싱</b><div class="chips"><span class="chip">안 함</span><span class="chip">월간</span><span class="chip">분기</span></div></div>
+    <div class="q" data-q="1"><b>백테스트 기간</b><div class="chips"><span class="chip">최근 3년</span><span class="chip">최근 5년</span><span class="chip">최근 10년</span></div></div>
+    <div class="q" data-q="2"><b>초기 자본</b><div class="chips"><span class="chip">500만원</span><span class="chip">1,000만원</span><span class="chip">5,000만원</span></div></div>
+    <div id="startBtn">백테스트 시작하기<div id="prog"></div></div>
+  </div>
+
+  <div class="abs hide" id="result">
+    <div class="abs" id="rTitle">백테스트 결과</div>
+    <div class="abs" id="rBadge">예시 화면</div>
+    <div class="abs" id="chartCard"><svg id="chart" width="690" height="400" viewBox="0 0 690 400"></svg></div>
+    <div class="abs" id="tiles"></div>
+    <div class="abs" id="rFoot">화면 구성 예시입니다. 실제 결과는 입력한 전략과 기간에 따라 달라지며, 과거 데이터 기반 시뮬레이션 결과는 미래 수익을 보장하지 않습니다.</div>
+  </div>
+
+  <div class="abs hide" id="ripple"></div>
+  <svg class="abs hide" id="ptr" viewBox="0 0 26 26"><path d="M4 2 L4 20 L9 15.5 L12.5 23 L15.8 21.5 L12.3 14.2 L19 14 Z" fill="#fff" stroke="#141413" stroke-width="1.6" stroke-linejoin="round"/></svg>
+  <div class="abs" id="fade"></div>
+</div>
+
+<script>
+const PROMPT = "KOSPI에서 PER 10 이하인 종목 중 RSI가 30 아래로 내려갔다가 다시 올라오는 종목을 매수 조건으로 설정해 주세요. 최대 보유 종목은 8개, 익절 예시값은 +15%, 손절 예시값은 -8%로 설정해 주세요.";
+const DURATION = 28;
+const $ = (id) => document.getElementById(id);
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+const ease = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const easeOut = (x) => 1 - Math.pow(1 - x, 3);
+const NS = "http://www.w3.org/2000/svg";
+
+// ── 그래프 정의 ─────────────────────────────────────────────
+// 좌표는 그래프 로컬(오른쪽 위 기준)이고 [열 x, 행 y]. 노드는 나타나는 시각(at)을 가진다.
+const ROW = 46, GX = 0, GY = 0;
+const rowY = (i) => 28 + ROW * i;
+const NODES = [
+  { id: "root", k: "", v: "전략", x: 0, y: (rowY(0) + rowY(8)) / 2, w: 96, at: 9.9, root: true },
+  { id: "uni", k: "유니버스", v: "KOSPI", x: 140, y: rowY(0), w: 170, at: 10.3, p: "root" },
+  { id: "buy", k: "매수 조건", v: "매수", x: 140, y: (rowY(1) + rowY(2)) / 2, w: 170, at: 10.8, p: "root" },
+  { id: "per", k: "재무", v: "PER 10 이하", x: 370, y: rowY(1), w: 285, at: 11.3, p: "buy" },
+  { id: "rsi", k: "기술", v: "RSI 30 아래로 내려갔다가 반등", x: 370, y: rowY(2), w: 285, at: 11.8, p: "buy" },
+  { id: "pf", k: "포트폴리오", v: "보유 종목", x: 140, y: (rowY(3) + rowY(4)) / 2, w: 170, at: 12.4, p: "root" },
+  { id: "max", k: "최대 보유", v: "8종목", x: 370, y: rowY(3), w: 285, at: 12.8, p: "pf" },
+  { id: "reb", k: "리밸런싱", v: "안 함", x: 370, y: rowY(4), w: 285, at: 15.9, p: "pf" },
+  { id: "exit", k: "청산 조건", v: "매도", x: 140, y: (rowY(5) + rowY(6)) / 2, w: 170, at: 13.4, p: "root" },
+  { id: "tp", k: "익절", v: "+15%", x: 370, y: rowY(5), w: 285, at: 13.8, p: "exit" },
+  { id: "sl", k: "손절", v: "-8%", x: 370, y: rowY(6), w: 285, at: 14.2, p: "exit" },
+  { id: "bt", k: "백테스트", v: "설정", x: 140, y: (rowY(7) + rowY(8)) / 2, w: 170, at: 16.9, p: "root" },
+  { id: "per2", k: "기간", v: "최근 5년", x: 370, y: rowY(7), w: 285, at: 17.0, p: "bt" },
+  { id: "cap", k: "초기 자본", v: "1,000만원", x: 370, y: rowY(8), w: 285, at: 17.9, p: "bt" },
+];
+const NH = 40;
+const svg = $("svg");
+const gG = document.createElementNS(NS, "g");
+svg.appendChild(gG);
+const edgeEls = {}, nodeEls = {};
+for (const n of NODES) {
+  if (n.p) {
+    const p = NODES.find((m) => m.id === n.p);
+    const x1 = p.x + p.w, y1 = p.y, x2 = n.x, y2 = n.y, mx = (x1 + x2) / 2;
+    const e = document.createElementNS(NS, "path");
+    e.setAttribute("d", `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+    e.setAttribute("class", "edge");
+    e.setAttribute("pathLength", "1");
+    e.style.strokeDasharray = "1";
+    gG.appendChild(e);
+    edgeEls[n.id] = e;
+  }
+}
+for (const n of NODES) {
+  const g = document.createElementNS(NS, "g");
+  g.setAttribute("class", "node" + (n.root ? " root" : ""));
+  const r = document.createElementNS(NS, "rect");
+  r.setAttribute("x", n.x); r.setAttribute("y", n.y - NH / 2); r.setAttribute("width", n.w); r.setAttribute("height", NH); r.setAttribute("rx", 12);
+  g.appendChild(r);
+  if (n.k) {
+    const k = document.createElementNS(NS, "text"); k.setAttribute("class", "k"); k.setAttribute("x", n.x + 14); k.setAttribute("y", n.y - 2); k.textContent = n.k; g.appendChild(k);
+    const v = document.createElementNS(NS, "text"); v.setAttribute("class", "v"); v.setAttribute("x", n.x + 14); v.setAttribute("y", n.y + 14); v.textContent = n.v; g.appendChild(v);
+    // 한 줄형 노드: 라벨을 위에, 값을 아래에 두는 대신 높이를 키우지 않고 작은 라벨+값 2단으로 그린다.
+  } else {
+    const v = document.createElementNS(NS, "text"); v.setAttribute("class", "v"); v.setAttribute("x", n.x + n.w / 2); v.setAttribute("y", n.y + 6); v.setAttribute("text-anchor", "middle"); v.textContent = n.v; g.appendChild(v);
+  }
+  gG.appendChild(g);
+  nodeEls[n.id] = g;
+}
+
+// ── 결과 곡선(모양만, 축·수치 없음) ─────────────────────────
+function seeded(seed) { let s = seed; return () => ((s = (s * 1664525 + 1013904223) % 4294967296) / 4294967296); }
+const rnd = seeded(7);
+const N = 120, curve = [], bench = [];
+let a = 0.5, b = 0.5;
+for (let i = 0; i < N; i++) { a += (rnd() - 0.46) * 0.06; b += (rnd() - 0.47) * 0.045; curve.push(a); bench.push(b); }
+const norm = (arr) => { const lo = Math.min(...arr), hi = Math.max(...arr); return arr.map((v) => (v - lo) / (hi - lo)); };
+const cN = norm(curve), bN = norm(bench);
+const chart = $("chart");
+const pathOf = (arr) => arr.map((v, i) => `${i ? "L" : "M"}${(30 + (630 * i) / (N - 1)).toFixed(1)},${(360 - v * 300).toFixed(1)}`).join(" ");
+for (let i = 0; i < 5; i++) { const l = document.createElementNS(NS, "line"); l.setAttribute("x1", 30); l.setAttribute("x2", 660); l.setAttribute("y1", 60 + i * 75); l.setAttribute("y2", 60 + i * 75); l.setAttribute("stroke", "rgba(244,241,234,.07)"); chart.appendChild(l); }
+const bPath = document.createElementNS(NS, "path"); bPath.setAttribute("d", pathOf(bN)); bPath.setAttribute("fill", "none"); bPath.setAttribute("stroke", "rgba(244,241,234,.32)"); bPath.setAttribute("stroke-width", 2); bPath.setAttribute("stroke-dasharray", "6 6"); chart.appendChild(bPath);
+const cPath = document.createElementNS(NS, "path"); cPath.setAttribute("d", pathOf(cN)); cPath.setAttribute("fill", "none"); cPath.setAttribute("stroke", "#e0805c"); cPath.setAttribute("stroke-width", 3); cPath.setAttribute("stroke-linejoin", "round"); cPath.setAttribute("pathLength", "1"); chart.appendChild(cPath);
+const tiles = $("tiles");
+["CAGR", "최대 낙폭", "샤프 비율", "손익비", "거래 횟수", "승률"].forEach((label) => {
+  const d = document.createElement("div"); d.className = "tile"; d.innerHTML = `<b>${label}</b><i style="width:${58 + Math.round(rnd() * 28)}%"></i><i style="width:${30 + Math.round(rnd() * 20)}%;height:10px"></i>`; tiles.appendChild(d);
+});
+const tileEls = [...tiles.children];
+
+// ── 포인터 경로 ─────────────────────────────────────────────
+const PT = [
+  [5.6, 900, 560], [7.0, 1082, 425], [7.8, 1082, 425],
+  [14.8, 1000, 470], [15.9, 902, 249], [16.2, 902, 249], [16.9, 1000, 328], [17.2, 1000, 328],
+  [17.9, 1006, 407], [18.4, 1006, 407], [19.4, 1035, 470], [20.0, 1035, 470], [20.8, 1100, 560],
+];
+function pointerAt(t) {
+  if (t > 7.8 && t < 14.8) return null;
+  if (t < PT[0][0] || t > PT[PT.length - 1][0]) return null;
+  for (let i = 0; i < PT.length - 1; i++) {
+    const [t0, x0, y0] = PT[i], [t1, x1, y1] = PT[i + 1];
+    if (t >= t0 && t <= t1) { const k = ease(prog(t, t0, t1)); return [x0 + (x1 - x0) * k, y0 + (y1 - y0) * k]; }
+  }
+  return null;
+}
+const CLICKS = [7.0, 15.9, 16.9, 17.9, 19.4]; // 눌림 시각 — 물결을 낸다
+
+// ── 한 프레임 ───────────────────────────────────────────────
+function show(el, o, extra = "") { el.style.opacity = o; el.style.transform = extra; el.style.visibility = o <= 0.001 ? "hidden" : "visible"; }
+
+window.renderAt = function (t) {
+  // ① 입력
+  const typeP = prog(t, 1.2, 7.0);
+  const n = Math.floor(typeP * PROMPT.length);
+  $("typed").innerHTML = PROMPT.slice(0, n).replace(/</g, "&lt;") + (t < 7.1 && (Math.floor(t * 2) % 2 === 0 || typeP < 1) ? '<span id="caret"></span>' : "");
+  $("hint").style.opacity = n === 0 ? 1 : 0;
+  const outP = ease(prog(t, 7.4, 8.2));
+  show($("sceneInput"), 1 - outP, `translateY(${-14 * outP}px) scale(${1 - 0.02 * outP})`);
+  $("send").style.transform = `scale(${1 - 0.18 * Math.max(0, 1 - Math.abs(t - 7.05) * 6)})`;
+
+  // ② 해석
+  const bubP = ease(prog(t, 8.0, 8.7));
+  $("bubble").textContent = PROMPT;
+  show($("bubble"), bubP * (1 - ease(prog(t, 21.0, 21.6))), `translateY(${(1 - bubP) * 16}px)`);
+  const dots = ".".repeat(1 + (Math.floor(t * 3) % 3));
+  $("status").textContent = "문장을 전략 구조로 해석하는 중" + dots;
+  show($("status"), prog(t, 8.5, 8.9) * (1 - prog(t, 9.8, 10.1)));
+
+  // ③ 그래프 — 질문 카드가 뜨면 왼쪽으로 비켜난다(카메라 이동처럼)
+  const slide = ease(prog(t, 14.7, 15.4));
+  const gx = 263 - 203 * slide, gy = 170;
+  gG.setAttribute("transform", `translate(${gx},${gy}) scale(1.15)`);
+  show($("graphWrap"), prog(t, 9.8, 10.1) * (1 - ease(prog(t, 21.0, 21.6))));
+  for (const nd of NODES) {
+    const k = easeOut(prog(t, nd.at, nd.at + 0.45));
+    const el = nodeEls[nd.id];
+    el.style.opacity = k;
+    el.setAttribute("transform", `translate(${(1 - k) * -14},0)`);
+    if (edgeEls[nd.id]) { edgeEls[nd.id].style.strokeDashoffset = 1 - easeOut(prog(t, nd.at - 0.05, nd.at + 0.4)); edgeEls[nd.id].style.opacity = k > 0 ? 1 : 0; }
+  }
+
+  // ④ 질문 카드
+  const qP = easeOut(prog(t, 14.9, 15.5)) * (1 - ease(prog(t, 21.0, 21.6)));
+  show($("qCard"), qP, `translateX(${(1 - easeOut(prog(t, 14.9, 15.5))) * 40}px)`);
+  const chips = $("qCard").querySelectorAll(".q");
+  const sel = [[0, 15.9, 0], [1, 16.9, 1], [2, 17.9, 1]];
+  sel.forEach(([qi, at, ci]) => chips[qi].querySelectorAll(".chip").forEach((c, i) => c.classList.toggle("on", t >= at && i === ci)));
+  const press = t > 19.4 && t < 21.0;
+  const pp = prog(t, 19.7, 20.9);
+  $("prog").style.width = (press ? pp * 100 : 0) + "%";
+  $("startBtn").style.transform = `scale(${1 - 0.04 * Math.max(0, 1 - Math.abs(t - 19.4) * 8)})`;
+  $("startBtn").firstChild.textContent = pp > 0 && t > 19.6 ? "과거 데이터로 계산하는 중" : "백테스트 시작하기";
+
+  // ⑤ 결과
+  const rP = ease(prog(t, 21.2, 21.9));
+  show($("result"), rP * (1 - ease(prog(t, 27.4, 27.9))), `translateY(${(1 - rP) * 14}px)`);
+  cPath.style.strokeDasharray = "1"; cPath.style.strokeDashoffset = 1 - easeOut(prog(t, 22.0, 25.2));
+  bPath.style.opacity = prog(t, 22.0, 22.8);
+  tileEls.forEach((el, i) => { const k = easeOut(prog(t, 22.3 + i * 0.28, 22.9 + i * 0.28)); el.style.opacity = k; el.style.transform = `translateY(${(1 - k) * 12}px)`; });
+  $("rFoot").style.opacity = prog(t, 24.0, 24.8);
+
+  // 포인터·물결
+  const pt = pointerAt(t);
+  const ptr = $("ptr");
+  if (pt) { show(ptr, 1); ptr.style.left = pt[0] + "px"; ptr.style.top = pt[1] + "px"; } else show(ptr, 0);
+  const rp = $("ripple");
+  let shown = false;
+  for (const c of CLICKS) {
+    const d = t - c;
+    if (d >= 0 && d < 0.5 && pt) { const k = d / 0.5; show(rp, 1 - k); rp.style.left = pt[0] - 18 + "px"; rp.style.top = pt[1] - 14 + "px"; rp.style.transform = `scale(${0.4 + k})`; shown = true; }
+  }
+  if (!shown) show(rp, 0);
+
+  // 루프 이음새 — 처음과 끝을 배경색으로 이어 부드럽게 반복
+  $("fade").style.opacity = Math.max(1 - prog(t, 0, 0.6), prog(t, DURATION - 0.6, DURATION));
+};
+window.DURATION = DURATION;
+window.renderAt(0);
+</script>
+</body>
+</html>

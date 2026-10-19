@@ -35,6 +35,7 @@ from PIL import Image, ImageDraw, ImageFont
 OUT_W, OUT_H, FPS = 1920, 1080, 30
 CSS_W, CSS_H, SCALE = 1440, 810, 2      # 녹화 화면(CSS px)과 프레임 배율
 PAD = 1.30                               # 담을 영역 둘레 여백
+NAV_H = 78                               # 상단 메뉴 바 높이(CSS px)
 MIN_VIEW_W = 520                         # 가장 크게 당겼을 때 화면 폭(CSS px) — 약 2.8배
 FADE_FRAMES = 8                          # 클립 사이 디졸브
 FONT = "/System/Library/Fonts/AppleSDGothicNeo.ttc"
@@ -61,6 +62,8 @@ def clamp_view(cx: float, cy: float, vw: float) -> tuple[float, float, float, fl
     vh = vw * CSS_H / CSS_W
     left = max(min(cx - vw / 2, CSS_W - vw), 0)
     top = max(min(cy - vh / 2, CSS_H - vh), 0)
+    if vw < CSS_W * 0.7 and top < NAV_H:  # 당긴 장면 위쪽에 상단 메뉴 바가 걸쳐 보이면 산만하다 — 메뉴 바 아래로 내린다(그래프 장면)
+        top = min(NAV_H, CSS_H - vh)
     return left, top, vw, vh
 
 
@@ -113,6 +116,10 @@ def pill(img: Image.Image, text: str, *, anchor: str, alpha: float, size: int = 
         return
     f = font(size)
     l, t, r, b = f.getbbox(text)
+    while r - l + int(size * 0.8) * 2 > OUT_W - 120 and size > 24:  # 자막이 화면보다 길면(그래프에 노드가 여럿 붙는 장면) 글자를 줄여 한 줄에 담는다
+        size -= 2
+        f = font(size)
+        l, t, r, b = f.getbbox(text)
     pad_x, pad_y = int(size * 0.8), int(size * 0.45)
     w, h = r - l + pad_x * 2, b - t + pad_y * 2
     x, y = ((OUT_W - w) // 2, OUT_H - h - 64) if anchor == "bottom" else (OUT_W - w - 48, 48)

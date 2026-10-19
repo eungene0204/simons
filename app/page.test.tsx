@@ -6,18 +6,31 @@ vi.mock("./analytics/page", () => ({
   default: () => <div>전략연구소 메인 화면</div>,
 }));
 
+const sessionUserId = vi.hoisted(() => ({ current: null as number | null }));
+vi.mock("@/lib/get-user", () => ({
+  getSessionUserId: async () => sessionUserId.current,
+}));
+
+const requestLanguage = vi.hoisted(() => ({ current: "ko" as "ko" | "en" }));
+vi.mock("@/lib/i18n/server", () => ({
+  getRequestLanguage: () => requestLanguage.current,
+}));
+
 afterEach(() => {
   vi.unstubAllEnvs();
+  sessionUserId.current = null;
+  requestLanguage.current = "ko";
 });
 
 describe("HomePage", () => {
-  it("renders the strategy lab main page without the business footer at the root path", () => {
+  it("renders the strategy lab main page without the business footer at the root path", async () => {
+    sessionUserId.current = 7;
     vi.stubEnv("COMPANY_NAME", "널스페이스");
     vi.stubEnv("BUSINESS_REPRESENTATIVE_NAME", "이응준");
     vi.stubEnv("BUSINESS_REGISTRATION_NUMBER", "898-50-00737");
     vi.stubEnv("BUSINESS_EMAIL", "support@nullstock.im");
 
-    const { container } = render(<HomePage />);
+    const { container } = render(await HomePage({}));
 
     expect(screen.getByText("전략연구소 메인 화면")).toBeInTheDocument();
     // 홈에만 구조화 데이터(JSON-LD)를 싣는다 — 검색엔진이 사이트·앱 정보를 읽는 정본.
@@ -33,8 +46,36 @@ describe("HomePage", () => {
     expect(screen.queryByText("support@nullstock.im")).not.toBeInTheDocument();
   });
 
-  it("renders 널스탁 terms when the legal query is terms", () => {
-    const { container } = render(<HomePage searchParams={{ legal: "terms" }} />);
+  it("shows the intro landing to anonymous visitors instead of the strategy lab", async () => {
+    render(await HomePage({}));
+
+    expect(screen.getByTestId("home-landing")).toBeInTheDocument();
+    expect(screen.queryByText("전략연구소 메인 화면")).not.toBeInTheDocument();
+    expect(document.querySelector('a[href="/analytics"]')).toHaveTextContent("무료로 시작하기");
+  });
+
+  it("keeps the strategy lab for ?prompt= deep links even when anonymous", async () => {
+    render(await HomePage({ searchParams: { prompt: "RSI 30 아래 매수" } }));
+
+    expect(screen.getByText("전략연구소 메인 화면")).toBeInTheDocument();
+    expect(screen.queryByTestId("home-landing")).not.toBeInTheDocument();
+  });
+
+  it("does not treat a blank ?prompt= as a deep link", async () => {
+    render(await HomePage({ searchParams: { prompt: "  " } }));
+
+    expect(screen.getByTestId("home-landing")).toBeInTheDocument();
+  });
+
+  it("keeps the strategy lab on the English (/us) tree, where the intro page does not exist", async () => {
+    requestLanguage.current = "en";
+    render(await HomePage({}));
+
+    expect(screen.getByText("전략연구소 메인 화면")).toBeInTheDocument();
+  });
+
+  it("renders 널스탁 terms when the legal query is terms", async () => {
+    const { container } = render(await HomePage({ searchParams: { legal: "terms" } }));
 
     expect(screen.getByRole("heading", { name: "서비스 이용약관" })).toBeInTheDocument();
     expect(container.querySelector('script[type="application/ld+json"]')).toBeNull();
@@ -51,8 +92,8 @@ describe("HomePage", () => {
     expect(container.querySelector("main")).toHaveClass("bg-[var(--background)]", "text-white");
   });
 
-  it("renders 널스탁 privacy policy when the legal query is privacy", () => {
-    const { container } = render(<HomePage searchParams={{ legal: "privacy" }} />);
+  it("renders 널스탁 privacy policy when the legal query is privacy", async () => {
+    const { container } = render(await HomePage({ searchParams: { legal: "privacy" } }));
 
     expect(screen.getByRole("heading", { name: "개인정보처리방침" })).toBeInTheDocument();
     expect(screen.getByText(/개인정보 보호법 제30조에 따라/)).toBeInTheDocument();
