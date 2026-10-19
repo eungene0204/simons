@@ -45,9 +45,11 @@ interface Props {
   selectedId: string | null;
   open: OpenState;
   onSelect: (id: string | null) => void;
+  /** Draw everything at once: nothing counts as new, so no item or edge animates in. */
+  instant?: boolean;
 }
 
-export default function StrategyGraphView({ graph, selectedId, open, onSelect, seen }: Props) {
+export default function StrategyGraphView({ graph, selectedId, open, onSelect, seen, instant }: Props) {
   const ownSeen = useRef<GraphSeen>(createGraphSeen());
   const drawn = seen ?? ownSeen.current;
   const layout = useMemo(() => layoutTree(graph, open), [graph, open]);
@@ -98,11 +100,14 @@ export default function StrategyGraphView({ graph, selectedId, open, onSelect, s
   // Fixed per layout: a re-render for another reason (e.g. the fit-to-width scale right after
   // mounting) must not turn everything "already drawn" before the animation has played.
   const fresh = useMemo(
-    () => ({
-      items: new Set(layout.order.filter((k) => !drawn.items.has(k))),
-      edges: new Set(layout.edges.map((e) => e.key).filter((k) => !drawn.edges.has(k))),
-    }),
-    [layout, drawn],
+    () =>
+      instant
+        ? { items: new Set<string>(), edges: new Set<string>() }
+        : {
+            items: new Set(layout.order.filter((k) => !drawn.items.has(k))),
+            edges: new Set(layout.edges.map((e) => e.key).filter((k) => !drawn.edges.has(k))),
+          },
+    [layout, drawn, instant],
   );
   const isNewItem = (key: string) => fresh.items.has(key);
   const isNewEdge = (key: string) => fresh.edges.has(key);

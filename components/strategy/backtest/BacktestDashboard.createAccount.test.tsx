@@ -117,7 +117,8 @@ describe("백테스트 결과 → 계좌 만들기", () => {
 
     const ensure = calls.find((c) => c.url === "/api/strategy/ensure");
     expect(ensure?.body).toMatchObject({
-      name: "저PBR 전략",
+      // 저장 전략 이름은 "계좌이름-전략" (계좌 이름 칸은 전략 이름으로 미리 채워져 있다)
+      name: "저PBR 전략-전략",
       description: "KOSPI 저PBR 종목을 사는 전략",
       dsl: BACKTEST_DSL,
     });

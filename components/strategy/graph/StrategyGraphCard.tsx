@@ -21,6 +21,8 @@ interface CardProps {
   seen?: GraphSeen;
   /** Shown right under the title row, above the graph (e.g. the confirmed-summary chips). */
   summary?: ReactNode;
+  /** Draw the whole graph at once, without the step-by-step build-up animation. */
+  instant?: boolean;
 }
 
 type View = "graph" | "text";
@@ -60,7 +62,7 @@ function revealGraph(root: HTMLElement, selectedId: string) {
   parent.scrollBy({ top: delta, behavior: reduce ? "auto" : "smooth" });
 }
 
-function Workspace({ graph, seen, view }: { graph: StrategyGraph; seen?: GraphSeen; view: View }) {
+function Workspace({ graph, seen, instant, view }: { graph: StrategyGraph; seen?: GraphSeen; instant?: boolean; view: View }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => defaultExpanded(graph));
@@ -111,6 +113,7 @@ function Workspace({ graph, seen, view }: { graph: StrategyGraph; seen?: GraphSe
               open={open}
               onSelect={select}
               seen={seen}
+              instant={instant}
             />
           </div>
         </div>
@@ -139,7 +142,7 @@ const segment = (on: boolean) =>
  * reads mutable strategy state, never calls the confirm/compile API, and never calls an LLM.
  * Retrying only re-requests the public metadata and/or rebuilds the graph from the same input.
  */
-export default function StrategyGraphCard({ input, title, noSnapshotMessage, testId = "strategy-graph-card", seen, summary }: CardProps) {
+export default function StrategyGraphCard({ input, title, noSnapshotMessage, testId = "strategy-graph-card", seen, summary, instant }: CardProps) {
   const metaState = useGraphMeta();
   const [view, setView] = useState<View>("graph");
   // Widen only the graph: the card keeps its left edge (everything else stays where it is) and
@@ -211,7 +214,7 @@ export default function StrategyGraphCard({ input, title, noSnapshotMessage, tes
               <button type="button" onClick={metaState.retry} className={retryButton}>{t("다시 시도")}</button>
             </div>
           )}
-          <Workspace graph={graph} seen={seen} view={view} />
+          <Workspace graph={graph} seen={seen} instant={instant} view={view} />
         </div>
       ) : null}
 

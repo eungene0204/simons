@@ -852,11 +852,13 @@ export default function BacktestDashboard({
     _strategyName: string | undefined,
     tradingMode?: "auto" | "manual"
   ) => {
+    // 저장되는 전략 이름은 "계좌이름-전략" 형식이다(같은 DSL로 이미 저장된 전략은 기존 이름 유지).
+    const savedStrategyName = `${accountName.trim()}-${t("전략")}`;
     const ensured = await fetch("/api/strategy/ensure", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        name: accountStrategyName,
+        name: savedStrategyName,
         description: promptText?.trim() || "",
         dsl: normalizedBacktestDsl,
         // 이 경로로 저장된 전략도 저장 목록에 뜨므로 실행한 결과를 함께 남긴다
@@ -876,7 +878,7 @@ export default function BacktestDashboard({
       accountName,
       amount,
       ensuredData.id,
-      ensuredData.name || accountStrategyName,
+      ensuredData.name || savedStrategyName,
       tradingMode
     );
     if (!account?.id) {
@@ -1821,6 +1823,7 @@ export default function BacktestDashboard({
               title={t("실행된 전략")}
               noSnapshotMessage={t("이 실행의 전략 스냅샷이 저장되어 있지 않습니다.")}
               testId="backtest-strategy-graph-card"
+              instant
             />
           </div>
         )}

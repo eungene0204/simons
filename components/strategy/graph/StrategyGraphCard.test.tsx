@@ -271,3 +271,17 @@ describe("StrategyGraphCard", () => {
     expect(document.querySelectorAll(".sg-enter").length).toBe(before);
   });
 });
+
+describe("StrategyGraphCard instant draw (backtest result page)", () => {
+  it("draws a first-time graph at once, with no build-up animation classes", async () => {
+    render(<StrategyGraphCard input={confirmedInput("krComplex")} title="실행된 전략" instant />);
+    await screen.findByTestId("strategy-graph-canvas");
+    expect(document.querySelectorAll(".sg-enter, .sg-draw")).toHaveLength(0);
+  });
+
+  it("keeps the step-by-step build-up on the default path (chat cards)", async () => {
+    render(<StrategyGraphCard input={confirmedInput("krComplex")} title="확정된 전략" />);
+    await screen.findByTestId("strategy-graph-canvas");
+    expect(document.querySelectorAll(".sg-enter").length).toBeGreaterThan(0);
+  });
+});
