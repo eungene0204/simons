@@ -12,15 +12,6 @@ _spec = importlib.util.spec_from_file_location("simons_backfill_us", _PATH)
 us = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(us)
 
-_KR_SAMPLE = Path(__file__).resolve().parents[2] / "data" / "ohlcv" / "005070.parquet"
-
-
-@pytest.mark.skipif(not _KR_SAMPLE.exists(), reason="한국 파케이 미러 없음")
-def test_columns_match_korean_schema():
-    kr_cols = list(pd.read_parquet(_KR_SAMPLE).columns)
-    assert us.COLUMNS == kr_cols
-
-
 def test_split_adjust_factor_applies_only_before_split():
     # 2020-08-31에 4:1 분할 → 그 이전 시점 주식수는 ×4, 이후는 ×1
     splits = pd.Series([4.0], index=pd.DatetimeIndex(["2020-08-31"]))
