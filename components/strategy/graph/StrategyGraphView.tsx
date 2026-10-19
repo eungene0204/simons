@@ -22,6 +22,11 @@ const MIN_SCALE = 0.3;
 const DEFAULT_SCALE = 0.7;
 const MAX_SCALE = 2;
 const PAD = 16;
+// First draw of a whole graph: one item per step (capped to a total), after the edge leading to it.
+const BUILD_UP_MIN_ITEMS = 4;
+const BUILD_UP_STEP_MS = 380;
+const BUILD_UP_TOTAL_MS = 7000;
+const BUILD_UP_EDGE_LEAD_MS = 320;
 
 /** Keys of what has already been drawn; only what is not in here animates in. */
 export interface GraphSeen {
@@ -89,6 +94,16 @@ export default function StrategyGraphView({ graph, selectedId, open, onSelect, s
   // everything that was already drawn just stays put or glides to its new place.
   const isNewItem = (key: string) => !drawn.items.has(key);
   const isNewEdge = (key: string) => !drawn.edges.has(key);
+  // A graph drawn for the first time (many new items) builds up one item at a time in flow order,
+  // each item appearing right after the edge that leads to it. Small additions keep the quick stagger.
+  const freshOrder = layout.order.filter(isNewItem);
+  const buildUp = freshOrder.length >= BUILD_UP_MIN_ITEMS;
+  const buildStep = Math.min(BUILD_UP_STEP_MS, BUILD_UP_TOTAL_MS / Math.max(1, freshOrder.length));
+  const rankOf = (key: string) => Math.max(0, freshOrder.indexOf(key));
+  const edgeDelayMs = (key: string, depth: number) =>
+    buildUp ? 150 + rankOf(key) * buildStep : 180 + Math.min(depth, 8) * 70;
+  const itemDelayMs = (key: string, depth: number) =>
+    buildUp ? 150 + rankOf(key) * buildStep + BUILD_UP_EDGE_LEAD_MS : 120 + Math.min(depth, 8) * 70;
   useEffect(() => {
     layout.order.forEach((k) => drawn.items.add(k));
     layout.edges.forEach((e) => drawn.edges.add(e.key));
@@ -160,7 +175,8 @@ export default function StrategyGraphView({ graph, selectedId, open, onSelect, s
               // Keyed by the edge, not its route: an existing edge morphs to its new route (CSS `d`
               // transition where supported), only a brand-new edge draws itself.
               const fresh = isNewEdge(e.key);
-              const delay = `${fresh ? 180 + Math.min(to.depth, 8) * 70 : 0}ms`;
+              const edgeDelay = edgeDelayMs(e.to, to.depth);
+              const delay = `${fresh ? edgeDelay : 0}ms`;
               return (
                 <g key={e.key} opacity={dim ? 0.2 : 1} style={{ transition: "opacity 250ms" }}>
                   <path
@@ -177,7 +193,7 @@ export default function StrategyGraphView({ graph, selectedId, open, onSelect, s
                     <g className="sg-edge" style={{ transform: `translate(${e.end.x}px, ${e.end.y}px)` }}>
                       <polyline
                         className={fresh ? "sg-fade" : undefined}
-                        style={{ animationDelay: `${fresh ? 180 + Math.min(to.depth, 8) * 70 + 420 : 0}ms` }}
+                        style={{ animationDelay: `${fresh ? edgeDelay + 420 : 0}ms` }}
                         points={e.end.dir === "down" ? "-5 -7 0 0 5 -7" : "-7 -5 0 0 -7 5"}
                         fill="none"
                         stroke={EDGE}
@@ -222,7 +238,7 @@ export default function StrategyGraphView({ graph, selectedId, open, onSelect, s
                       }
                     : { "aria-hidden": true, className: "sg-item" })}
                 >
-                  <g className={isNewItem(key) ? "sg-enter" : undefined} style={{ animationDelay: `${120 + Math.min(i.depth, 8) * 70}ms` }}>
+                  <g className={isNewItem(key) ? "sg-enter" : undefined} style={{ animationDelay: `${itemDelayMs(key, i.depth)}ms` }}>
                   <rect
                     x={0}
                     y={0}

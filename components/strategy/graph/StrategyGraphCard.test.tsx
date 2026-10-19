@@ -177,4 +177,16 @@ describe("StrategyGraphCard", () => {
     expect(drawn).toBeGreaterThan(0);
     expect(drawn).toBeLessThan(all);
   });
+
+  it("builds a first-drawn graph up one item at a time, each edge leading its item", async () => {
+    renderCard(confirmedInput("krComplex"));
+    await screen.findByTestId("strategy-graph-canvas");
+    const delays = Array.from(document.querySelectorAll<SVGGElement>(".sg-enter")).map((g) => parseFloat(g.style.animationDelay));
+    expect(delays.length).toBeGreaterThanOrEqual(4);
+    expect(delays).toEqual([...delays].sort((a, b) => a - b));
+    expect(new Set(delays).size).toBe(delays.length);
+    const edgeDelays = Array.from(document.querySelectorAll<SVGPathElement>("path.sg-draw")).map((p) => parseFloat(p.style.animationDelay));
+    expect(Math.min(...edgeDelays)).toBeLessThan(Math.min(...delays) + 1);
+    expect(Math.max(...delays)).toBeGreaterThan(1500);
+  });
 });
