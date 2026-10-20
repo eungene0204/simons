@@ -148,17 +148,17 @@ export default function MyStrategiesView() {
                       <div key={strategy.id} className="relative group">
                         <a
                           href={regionHref(`/analytics/${strategy.id}`)}
-                          className="block rounded-2xl border border-white/[0.05] bg-[#121212] px-4 py-4 pr-14 transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
+                          className="flex h-36 flex-col rounded-2xl border border-white/[0.05] bg-[#121212] px-4 py-4 pr-14 transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
                         >
                           <div className="flex items-start justify-between gap-3 pr-14">
                             <div className="min-w-0">
                               <p className="truncate text-sm font-black text-white/85 group-hover:text-white">{strategy.name}</p>
                             </div>
                           </div>
-                          <p className="mt-3 line-clamp-2 text-xs font-bold leading-relaxed text-gray-400">
+                          <p className="mt-3 line-clamp-2 min-h-[2.5rem] text-xs font-bold leading-relaxed text-gray-400">
                             {strategy.description || t("저장된 전략 상세 결과로 이동합니다.")}
                           </p>
-                          <div className="mt-3 flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-gray-600">
+                          <div className="mt-auto flex items-center justify-between pt-3 text-[10px] font-black uppercase tracking-widest text-gray-600">
                             <span>{t("{0}개 계좌 연결", strategy.accountCount)}</span>
                             <span>{new Date(strategy.createdAt).toLocaleDateString(getLocale())}</span>
                           </div>

@@ -31,9 +31,9 @@ function ReturnBadge({ value }: { value: number }) {
 function StrategyCard({ strategy }: { strategy: SharedStrategyCard }) {
   const regionHref = useRegionHref();
   return (
-    <article className="flex flex-col border-r border-b border-white/[0.08] p-5" data-testid="shared-strategy-card">
+    <article className="flex h-80 flex-col border-r border-b border-white/[0.08] p-5" data-testid="shared-strategy-card">
       <h2 className="truncate text-sm font-black text-white">{strategy.name}</h2>
-      <p className="mt-3 line-clamp-3 text-xs font-bold leading-relaxed text-gray-400">
+      <p className="mt-3 line-clamp-3 min-h-[3.75rem] text-xs font-bold leading-relaxed text-gray-400">
         {strategy.description || t("전략 설명이 없습니다.")}
       </p>
 
@@ -49,7 +49,7 @@ function StrategyCard({ strategy }: { strategy: SharedStrategyCard }) {
       </div>
 
       {strategy.accounts.length > 0 && (
-        <ul className="mt-3 divide-y divide-white/[0.06] border-t border-white/[0.06]">
+        <ul className="mt-3 min-h-0 flex-1 divide-y divide-white/[0.06] overflow-y-auto border-t border-white/[0.06]">
           {strategy.accounts.map((account) => (
             <li key={account.id}>
               <Link
@@ -69,7 +69,7 @@ function StrategyCard({ strategy }: { strategy: SharedStrategyCard }) {
         </ul>
       )}
 
-      <p className="mt-auto pt-4 text-[11px] font-bold text-gray-500">
+      <p className="mt-auto flex-shrink-0 pt-4 text-[11px] font-bold text-gray-500">
         {t("최근 갱신 {0}", new Date(strategy.updatedAt).toLocaleDateString(getLocale()))}
       </p>
     </article>
