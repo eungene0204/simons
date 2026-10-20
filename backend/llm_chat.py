@@ -83,6 +83,18 @@ class OpenRouterUpstreamUnavailable(RuntimeError):
         self.body = body
 
 
+class OpenRouterModelUnavailable(RuntimeError):
+    """이 모델의 상류가 사라졌다(404) — 같은 요청을 다음 폴백 모델로 다시 보낸다.
+
+    2026-10-20 사고: 무료 Nemotron의 유일한 상류(Nvidia)가 404("Function … Not found")를 돌려줘
+    일시 오류 목록(502 등)에 안 걸린 채 요청이 통째로 실패했다."""
+
+    def __init__(self, model: str, body: bytes = b""):
+        super().__init__(f"openrouter 모델 {model} 사용 불가(404): {body[:200]!r}")
+        self.model = model
+        self.body = body
+
+
 # 리셋 시각을 응답에서 못 읽으면 이만큼 뒤에 OpenRouter를 다시 시도한다.
 _QUOTA_RETRY_AFTER_S = 3600.0
 
@@ -144,18 +156,14 @@ def open_chat(payload: dict[str, Any], timeout: int, *, retry: bool = True):
             raise
 
     if is_openrouter():
-        _log_lane(payload)
         try:
-            if payload.get("stream"):
-                return _open_stream_with_transient_retry(_open, payload)
-            return _open_buffered_with_transient_retry(_open, payload)
+            return _open_with_model_fallback(payload, _open)
         except OpenRouterQuotaExhausted:
             logger.warning("OpenRouter 한도 소진 — 이 요청을 Ollama 레인으로 다시 보낸다")
-        except OpenRouterUpstreamUnavailable as exc:
+        except (OpenRouterUpstreamUnavailable, OpenRouterModelUnavailable) as exc:
             logger.warning(
-                "OpenRouter 상류 일시 오류(code=%s)가 재시도 예산(%d회)을 넘김 — 이 요청만 "
-                "Ollama 레인(%s)으로 다시 보낸다", exc.code, len(_TRANSIENT_RETRY_BACKOFF_S),
-                OLLAMA_BASE_URL,
+                "OpenRouter 모든 모델(%s)이 실패(%s) — 이 요청만 Ollama 레인(%s)으로 다시 보낸다",
+                ", ".join(llm_backend.openrouter_model_chain()), exc, OLLAMA_BASE_URL,
             )
             # 요청 빌더·워밍업·레인 로그가 모두 is_openrouter()를 보므로 이 요청에 한해
             # 레인을 Ollama로 고정한다(응답 핸들을 연 뒤에는 원래 레인으로 돌아간다).
@@ -163,6 +171,33 @@ def open_chat(payload: dict[str, Any], timeout: int, *, retry: bool = True):
             with llm_backend.ollama_lane_for_this_request(), llm_progress.retrying():
                 return _open_ollama(payload, _open)
     return _open_ollama(payload, _open)
+
+
+def _open_with_model_fallback(payload: dict[str, Any], open_fn):
+    """OpenRouter 모델 체인(주 모델 → 폴백)을 순서대로 시도한다.
+
+    모델이 사라졌거나(404) 일시 오류가 재시도 예산을 넘기면 같은 요청을 다음 모델로 보낸다.
+    404 모델은 쿨다운 동안 건너뛴다. 한도 소진(OpenRouterQuotaExhausted)은 계정 단위라 모델을
+    바꿔도 소용없으므로 그대로 올린다. 체인이 끝나면 마지막 예외를 올려 호출부가 Ollama로 넘긴다."""
+    last_error: Exception | None = None
+    for model in llm_backend.candidate_models():
+        with llm_backend.openrouter_model_for_this_request(model):
+            _log_lane(payload)
+            try:
+                if payload.get("stream"):
+                    return _open_stream_with_transient_retry(open_fn, payload)
+                return _open_buffered_with_transient_retry(open_fn, payload)
+            except OpenRouterModelUnavailable as exc:
+                llm_backend.mark_model_unavailable(model)
+                last_error = exc
+                logger.warning("OpenRouter 모델 %s 404 — %.0f초간 건너뛰고 다음 모델로 보낸다",
+                               model, llm_backend.MODEL_GONE_COOLDOWN_S)
+            except OpenRouterUpstreamUnavailable as exc:
+                last_error = exc
+                logger.warning("OpenRouter 모델 %s 상류 일시 오류(code=%s) — 다음 모델로 보낸다", model, exc.code)
+        cancellation.raise_if_cancelled()
+    assert last_error is not None
+    raise last_error
 
 
 def _open_ollama(payload: dict[str, Any], open_fn):
@@ -208,6 +243,18 @@ def transient_error_code(raw: bytes) -> int | None:
     return code if code in _TRANSIENT_ERROR_CODES else None
 
 
+def provider_error_code(raw: bytes) -> int | None:
+    """본문의 error.code가 일시 오류 코드 또는 404(모델 상류 소실)면 그 코드, 아니면 None."""
+    code = transient_error_code(raw)
+    if code is not None:
+        return code
+    try:
+        err = json.loads(raw).get("error")
+        return 404 if isinstance(err, dict) and int(err.get("code")) == 404 else None
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
 def _open_buffered_with_transient_retry(open_fn, payload: dict[str, Any]):
     """비스트리밍: 응답을 열어 본문까지 읽고, 본문이 일시 오류면 짧게 쉬었다가 다시 보낸다.
 
@@ -220,7 +267,7 @@ def _open_buffered_with_transient_retry(open_fn, payload: dict[str, Any]):
             raw = resp.read()
             status = getattr(resp, "status", None)
             headers = getattr(resp, "headers", None)
-        return transient_error_code(raw), raw, _BufferedResponse(raw, status, headers)
+        return provider_error_code(raw), raw, _BufferedResponse(raw, status, headers)
 
     return _open_with_transient_retry(open_fn, payload, probe)
 
@@ -249,12 +296,19 @@ def _open_stream_with_transient_retry(open_fn, payload: dict[str, Any]):
         except Exception:
             resp.close()
             raise
-        code = transient_error_code(first_event) if first_event else None
+        code = provider_error_code(first_event) if first_event else None
         if code is not None:
             resp.close()
         return code, first_event or b"", _ReplayResponse(consumed, resp)
 
     return _open_with_transient_retry(open_fn, payload, probe)
+
+
+def _read_error_body(err: urllib.error.HTTPError) -> bytes:
+    try:
+        return err.read()
+    except Exception:  # noqa: BLE001 — 본문은 로그용이다
+        return b""
 
 
 def _open_with_transient_retry(open_fn, payload: dict[str, Any], probe):
@@ -264,9 +318,16 @@ def _open_with_transient_retry(open_fn, payload: dict[str, Any], probe):
     # (성공·예산 소진 모두 ExitStack이 이전 단계로 되돌린다).
     with contextlib.ExitStack() as stack:
         while True:
-            code, raw, result = probe(open_fn(chat_request(payload)))
+            try:
+                code, raw, result = probe(open_fn(chat_request(payload)))
+            except urllib.error.HTTPError as exc:
+                if exc.code == 404:
+                    raise OpenRouterModelUnavailable(openrouter_model(), _read_error_body(exc)) from exc
+                raise
             if code is None:
                 return result
+            if code == 404:
+                raise OpenRouterModelUnavailable(openrouter_model(), raw)
             if attempt >= len(_TRANSIENT_RETRY_BACKOFF_S):
                 raise OpenRouterUpstreamUnavailable(code, raw)
             delay = _TRANSIENT_RETRY_BACKOFF_S[attempt]

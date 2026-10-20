@@ -36,6 +36,8 @@ def openrouter_env(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "openrouter")
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     monkeypatch.setenv("OPENROUTER_MODEL", "qwen/qwen3-32b")
+    monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", "")  # 모델 폴백은 전용 테스트에서만 켠다
+    llm_backend.reset_model_cooldowns()
 
 
 @pytest.fixture
@@ -716,3 +718,131 @@ def test_open_chat_retry_honors_cancellation(openrouter_env, monkeypatch, no_sle
         with pytest.raises(cancellation.OperationCancelled):
             llm_chat.open_chat(PAYLOAD, timeout=5, retry=False)
     assert len(calls) == 1
+
+
+# ── 모델 단위 폴백(2026-10-20) ────────────────────────────────────────────────
+# 무료 Nemotron의 유일한 상류(Nvidia)가 HTTP 404("Function … Not found for account")를 돌려줘
+# 일시 오류(502 등)에 안 걸린 채 모든 입력이 "해석하지 못했어요"가 됐다.
+
+import urllib.error
+
+
+def _http_404(url):
+    body = b'{"error":{"message":"Provider returned error","code":404}}'
+    return urllib.error.HTTPError(url, 404, "Not Found", {}, io.BytesIO(body))
+
+
+def _model_router(monkeypatch, dead_models):
+    """요청 본문의 model이 dead_models에 있으면 404, 아니면 정상 응답. 시도한 모델을 기록한다."""
+    import urllib.request
+
+    tried = []
+
+    def fake_urlopen(req, timeout):
+        model = json.loads(req.data)["model"]
+        tried.append(model)
+        if model in dead_models:
+            raise _http_404(req.full_url)
+        resp = _Resp(OK_BODY)
+        resp.status = 200
+        resp.headers = {}
+        return resp
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    return tried
+
+
+def test_model_chain_defaults_and_overrides(openrouter_env, monkeypatch):
+    monkeypatch.delenv("OPENROUTER_FALLBACK_MODELS")
+    assert llm_backend.openrouter_model_chain() == ["qwen/qwen3-32b", llm_backend.OPENROUTER_FALLBACK_DEFAULT]
+    monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", "a:free, b:free ,qwen/qwen3-32b")
+    assert llm_backend.openrouter_model_chain() == ["qwen/qwen3-32b", "a:free", "b:free"]
+    monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", "")
+    assert llm_backend.openrouter_model_chain() == ["qwen/qwen3-32b"]
+
+
+def test_open_chat_http_404_falls_to_next_free_model(openrouter_env, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", "fb1:free,fb2:free")
+    tried = _model_router(monkeypatch, {"qwen/qwen3-32b"})
+    with llm_chat.open_chat(PAYLOAD, timeout=5, retry=True) as resp:
+        data = llm_chat.read_chat_response(resp.read())
+    assert data["message"]["content"] == '{"intent":"STRATEGY_ADVICE"}'
+    assert tried == ["qwen/qwen3-32b", "fb1:free"]
+    assert llm_backend.request_forced_to_ollama() is False
+
+
+def test_dead_model_is_skipped_during_cooldown_and_label_follows(openrouter_env, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", "fb1:free")
+    tried = _model_router(monkeypatch, {"qwen/qwen3-32b"})
+    with llm_chat.open_chat(PAYLOAD, timeout=5, retry=False) as resp:
+        resp.read()
+    tried.clear()
+    assert llm_backend.openrouter_model() == "fb1:free"  # 관찰 라벨·요청 빌더가 실제 모델을 가리킨다
+    with llm_chat.open_chat(PAYLOAD, timeout=5, retry=False) as resp:
+        resp.read()
+    assert tried == ["fb1:free"]  # 죽은 주 모델을 다시 두드리지 않는다
+    llm_backend._model_dead_until["qwen/qwen3-32b"] = 0.0  # 쿨다운 만료 → 주 모델 복귀
+    assert llm_backend.openrouter_model() == "qwen/qwen3-32b"
+
+
+def test_in_body_404_also_falls_to_next_model(openrouter_env, monkeypatch):
+    import urllib.request
+
+    monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", "fb1:free")
+    tried = []
+
+    def fake_urlopen(req, timeout):
+        model = json.loads(req.data)["model"]
+        tried.append(model)
+        resp = _Resp(b'{"error":{"code":404,"message":"Provider returned error"}}' if model == "qwen/qwen3-32b" else OK_BODY)
+        resp.status = 200
+        resp.headers = {}
+        return resp
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    with llm_chat.open_chat(PAYLOAD, timeout=5, retry=False) as resp:
+        assert llm_chat.read_chat_response(resp.read())["message"]["content"]
+    assert tried == ["qwen/qwen3-32b", "fb1:free"]
+
+
+def test_transient_budget_exhaustion_tries_next_model_before_ollama(openrouter_env, monkeypatch, no_sleep):
+    import urllib.request
+
+    monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", "fb1:free")
+    tried = []
+
+    def fake_urlopen(req, timeout):
+        model = json.loads(req.data)["model"]
+        tried.append(model)
+        resp = _Resp(UPSTREAM_502 if model == "qwen/qwen3-32b" else OK_BODY)
+        resp.status = 200
+        resp.headers = {}
+        return resp
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    with llm_chat.open_chat(PAYLOAD, timeout=5, retry=False) as resp:
+        resp.read()
+    assert tried == ["qwen/qwen3-32b"] * 4 + ["fb1:free"]
+    assert not any("ollama" in u for u in tried)
+    assert llm_backend.model_is_cooling_down("qwen/qwen3-32b") is False  # 일시 오류는 쿨다운 없음
+
+
+def test_all_models_404_falls_back_to_ollama(openrouter_env, ollama_host, monkeypatch):
+    import urllib.request
+    from engine import nl_parser
+
+    monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", "fb1:free")
+    monkeypatch.setattr(nl_parser, "_ollama_ensure_warm", lambda *a, **k: None)
+    urls = []
+
+    def fake_urlopen(req, timeout):
+        urls.append(req.full_url)
+        if "openrouter.ai" in req.full_url:
+            raise _http_404(req.full_url)
+        return _Resp(json.dumps({"message": {"role": "assistant", "content": "ollama says hi"}, "done": True}).encode())
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    with llm_chat.open_chat(PAYLOAD, timeout=5, retry=False) as resp:
+        assert llm_chat.read_chat_response(resp.read())["message"]["content"] == "ollama says hi"
+    assert len([u for u in urls if "openrouter.ai" in u]) == 2
+    assert urls[-1] == "http://localhost:11434/api/chat"

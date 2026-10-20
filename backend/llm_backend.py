@@ -106,10 +106,72 @@ def resume_openrouter() -> None:
     _openrouter_paused_until = 0.0
 
 
-def openrouter_model() -> str:
-    """OpenRouter 레인의 모델 슬러그(OPENROUTER_MODEL). 전 슬롯이 이 한 모델을 쓴다 —
-    Ollama 슬롯 env(NL_OLLAMA_MODEL 등)는 Ollama 모델명이라 OpenRouter에는 의미가 없다."""
+# 모델 단위 폴백(2026-10-20) — 무료 모델의 유일한 상류(Nvidia)가 404로 죽어 모든 입력이
+# "해석하지 못했어요"가 된 사고. 모델이 없어졌거나(404) 일시 오류가 예산을 넘기면 같은 요청을
+# 다음 무료 모델로 다시 보낸다. 죽은 모델은 잠시 건너뛰어(쿨다운) 요청마다 실패를 반복하지 않는다.
+OPENROUTER_FALLBACK_DEFAULT = "nvidia/nemotron-3-ultra-550b-a55b:free"
+MODEL_GONE_COOLDOWN_S = 300.0
+_model_dead_until: dict[str, float] = {}
+_request_model = threading.local()
+
+
+def openrouter_primary_model() -> str:
+    """설정된 주 모델(OPENROUTER_MODEL). 폴백 중에도 설정값은 변하지 않는다."""
     return os.environ.get("OPENROUTER_MODEL", "").strip() or OPENROUTER_DEFAULT_MODEL
+
+
+def openrouter_model_chain() -> list[str]:
+    """주 모델 + 폴백 모델(OPENROUTER_FALLBACK_MODELS, 쉼표 구분; 미설정=기본 1종, 빈 값=폴백 없음)."""
+    raw = os.environ.get("OPENROUTER_FALLBACK_MODELS")
+    fallbacks = [m.strip() for m in (OPENROUTER_FALLBACK_DEFAULT if raw is None else raw).split(",")]
+    chain = [openrouter_primary_model()]
+    for model in fallbacks:
+        if model and model not in chain:
+            chain.append(model)
+    return chain
+
+
+def model_is_cooling_down(model: str) -> bool:
+    return time.time() < _model_dead_until.get(model, 0.0)
+
+
+def mark_model_unavailable(model: str, seconds: float = MODEL_GONE_COOLDOWN_S) -> None:
+    """이 모델을 seconds 동안 건너뛴다(404처럼 곧 안 풀리는 장애)."""
+    _model_dead_until[model] = time.time() + seconds
+
+
+def reset_model_cooldowns() -> None:
+    """쿨다운 해제(테스트·수동 복구용)."""
+    _model_dead_until.clear()
+
+
+def candidate_models() -> list[str]:
+    """이번 요청이 순서대로 시도할 모델. 쿨다운 중인 모델은 뒤로 미룬다(전부 죽었어도 시도는 한다)."""
+    chain = openrouter_model_chain()
+    return [m for m in chain if not model_is_cooling_down(m)] + [m for m in chain if model_is_cooling_down(m)]
+
+
+@contextmanager
+def openrouter_model_for_this_request(model: str):
+    """이 스레드에서 블록을 벗어날 때까지 openrouter_model()이 model을 돌려준다."""
+    previous = getattr(_request_model, "model", None)
+    _request_model.model = model
+    try:
+        yield
+    finally:
+        _request_model.model = previous
+
+
+def openrouter_model() -> str:
+    """OpenRouter 레인에서 지금 쓸 모델 슬러그. 전 슬롯이 이 한 모델을 쓴다 —
+    Ollama 슬롯 env(NL_OLLAMA_MODEL 등)는 Ollama 모델명이라 OpenRouter에는 의미가 없다.
+
+    우선순위: 요청 단위 지정(폴백 시도 중) > 쿨다운에 걸리지 않은 첫 모델(주 모델 → 폴백).
+    그래서 주 모델이 죽은 동안 관찰 라벨(active_chat_model)도 실제 쓰는 폴백 모델을 가리킨다."""
+    override = getattr(_request_model, "model", None)
+    if override:
+        return override
+    return candidate_models()[0]
 
 
 def active_chat_model(payload_model: str) -> str:
