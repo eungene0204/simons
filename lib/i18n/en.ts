@@ -3915,5 +3915,5 @@ export const en: Record<string, string> = {
   "모의투자 시뮬레이션 결과이며 투자 권유가 아닙니다. 과거 수익률은 미래 수익을 보장하지 않습니다.": "These are paper-trading simulation results, not investment advice. Past returns do not guarantee future results.",
   "공유 전략을 불러오는 중입니다...": "Loading shared strategies...",
   "아직 공개된 전략이 없습니다": "No strategies have been shared yet",
-  "전략연구소의 '내 전략'에서 전략을 공개로 전환하면 여기에 표시됩니다.": "Switch a strategy to public under 'My Strategies' in the Strategy Lab to show it here.",
+  "'내 전략' 메뉴에서 전략을 공개로 전환하면 여기에 표시됩니다.": "Switch a strategy to public in 'My Strategies' to show it here.",
 };

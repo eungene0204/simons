@@ -129,7 +129,7 @@ export default function StrategyShareView() {
             <div className="py-16 text-center">
               <p className="text-sm font-black text-white">{t("아직 공개된 전략이 없습니다")}</p>
               <p className="mt-1 text-xs font-bold text-gray-400">
-                {t("전략연구소의 '내 전략'에서 전략을 공개로 전환하면 여기에 표시됩니다.")}
+                {t("'내 전략' 메뉴에서 전략을 공개로 전환하면 여기에 표시됩니다.")}
               </p>
             </div>
           ) : (

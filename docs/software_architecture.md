@@ -445,6 +445,7 @@ KR/EN 언어 토글을 폐지하고 **URL 경로 기반의 지역 서비스**로
 | `/virtual-account` | 가상 계좌 목록 | `VirtualAccountCard` |
 | `/virtual-account/[id]` | 가상 계좌 상세 (포트폴리오) | `VirtualAccountMainView` |
 | `/shared/virtual-account/[id]` | 공개(`isPublic`) 가상계좌 읽기 전용 열람(비로그인, 같은 상세 화면 · noindex) | 상세 페이지 재사용(경로로 읽기 전용 판정) |
+| `/my-strategies` | 내 전략 — 저장 전략 목록·삭제·공개 전환(상단 메뉴 '백테스트 기록' 오른쪽). 전략연구소 탭에서 이동 | `GET /api/dashboard/strategy-list`, `PATCH/DELETE /api/strategy/[id]` |
 | `/strategy-share` | 전략공유 — 공개(`Strategy.isPublic`) 전략 카드 + 그 전략을 쓰는 공개 계좌 수익률(수익률 순). 대시보드 메뉴 자리 | `GET /api/shared/strategies` → `lib/server/sharedStrategies.ts`(계좌 값은 `mapAccount` 공용) |
 | `/watchlist` | 관심 종목 관리 | `Watchlist` |
 | `/console` | **관리자 콘솔** (운영자 전용, 단일 화면 탭 — Overview/Architecture/Users/Backtests/Accounts/Strategies/Plans/Knowledge/Agents/Q&A/Audit) | `AdminConsole` + `components/admin/*Tab` |
