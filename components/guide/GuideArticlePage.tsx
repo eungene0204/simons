@@ -1,29 +1,42 @@
 import Link from "next/link";
 import {
-  GUIDE_BASE_PATH,
-  GUIDE_DISCLAIMER,
-  GUIDE_TITLE,
+  GUIDE_COLLECTION,
   getGuideArticle,
   guideArticlePath,
+  type ArticleCollection,
   type GuideArticle,
 } from "@/lib/guide/articles";
 import { buildGuideArticleJsonLd } from "@/lib/guide/jsonLd";
 import { serializeJsonLd } from "@/lib/seo/site";
 
-// 백테스트 가이드 글 한 편 — 한국어 전용 공개 페이지(서버 컴포넌트). 약관 페이지와 같은 문서형 레이아웃.
-export function GuideArticlePage({ article }: { article: GuideArticle }) {
+// 가이드·연구노트 글 한 편 — 한국어 전용 공개 페이지(서버 컴포넌트). 약관 페이지와 같은 문서형 레이아웃.
+// 함께 읽을 글은 자기 묶음에서 먼저 찾고, 없으면 가이드에서 찾는다(연구노트 → 가이드 개념 글 연결).
+export function GuideArticlePage({
+  article,
+  collection = GUIDE_COLLECTION,
+}: {
+  article: GuideArticle;
+  collection?: ArticleCollection;
+}) {
   const related = article.related
-    .map((slug) => getGuideArticle(slug))
-    .filter((item): item is GuideArticle => item !== undefined);
+    .map((slug) => {
+      const own = collection.find(slug);
+      if (own) return { slug, title: own.title, href: `${collection.basePath}/${slug}` };
+      const guide = getGuideArticle(slug);
+      return guide ? { slug, title: guide.title, href: guideArticlePath(slug) } : undefined;
+    })
+    .filter((item): item is { slug: string; title: string; href: string } => item !== undefined);
 
   return (
     <main className="min-h-[100dvh] bg-[var(--background)] text-white">
       <script
         type="application/ld+json"
         data-testid="guide-structured-data"
-        dangerouslySetInnerHTML={{ __html: serializeJsonLd(buildGuideArticleJsonLd(article)) }}
+        dangerouslySetInnerHTML={{
+          __html: serializeJsonLd(buildGuideArticleJsonLd(article, undefined, collection)),
+        }}
       />
-      <section className="border-b border-white/[0.08] px-4 py-10 sm:px-6 sm:py-12">
+      <section className="border-b border-white/[0.08] px-4 pb-10 pt-24 sm:px-6 sm:pb-12 sm:pt-28">
         <div className="mx-auto max-w-3xl">
           <nav aria-label="경로" className="text-sm font-bold text-gray-400">
             <Link href="/" className="transition-colors hover:text-white">
@@ -32,8 +45,8 @@ export function GuideArticlePage({ article }: { article: GuideArticle }) {
             <span aria-hidden="true" className="mx-2 text-gray-600">
               /
             </span>
-            <Link href={GUIDE_BASE_PATH} className="transition-colors hover:text-white">
-              {GUIDE_TITLE}
+            <Link href={collection.basePath} className="transition-colors hover:text-white">
+              {collection.title}
             </Link>
           </nav>
           <h1 className="mt-8 font-serif text-3xl font-bold tracking-normal text-white sm:text-4xl">
@@ -82,6 +95,41 @@ export function GuideArticlePage({ article }: { article: GuideArticle }) {
                     {paragraph}
                   </p>
                 ))}
+                {section.table && (
+                  <div className="mt-5 overflow-x-auto">
+                    <table className="w-full min-w-[32rem] border-collapse text-sm">
+                      <caption className="pb-2 text-left text-sm font-black text-white">{section.table.caption}</caption>
+                      <thead>
+                        <tr className="border-y border-white/[0.12] text-gray-400">
+                          {section.table.headers.map((header) => (
+                            <th key={header} scope="col" className="px-3 py-2 text-right font-bold first:text-left">
+                              {header}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {section.table.rows.map((row) => (
+                          <tr key={row.join("|")} className="border-b border-white/[0.06] text-gray-300">
+                            {row.map((cell, index) => (
+                              <td
+                                key={`${section.table?.headers[index]}-${cell}`}
+                                className="px-3 py-2 text-right font-medium tabular-nums first:text-left first:font-bold"
+                              >
+                                {cell}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {section.table.footnote && (
+                      <p className="mt-2 text-xs font-bold leading-relaxed text-[var(--text-label)]">
+                        {section.table.footnote}
+                      </p>
+                    )}
+                  </div>
+                )}
                 {section.bullets && (
                   <ul className="mt-4 list-disc space-y-3 pl-5 text-base font-medium leading-8 text-gray-300 marker:text-gray-600">
                     {section.bullets.map((item) => (
@@ -92,6 +140,22 @@ export function GuideArticlePage({ article }: { article: GuideArticle }) {
               </article>
             ))}
           </div>
+
+          {article.faq && article.faq.length > 0 && (
+            <section aria-labelledby="guide-faq-heading" className="mt-10">
+              <h2 id="guide-faq-heading" className="text-xl font-black tracking-normal text-white">
+                자주 묻는 질문
+              </h2>
+              <dl className="mt-4 divide-y divide-white/[0.06] border-y border-white/[0.06]">
+                {article.faq.map((item) => (
+                  <div key={item.question} className="py-5">
+                    <dt className="text-base font-black text-white">{item.question}</dt>
+                    <dd className="mt-2 text-base font-medium leading-8 text-gray-300">{item.answer}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          )}
 
           <div className="mt-10 flex flex-col gap-4 border border-white/[0.08] p-5 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm font-bold leading-6 text-gray-300">
@@ -112,7 +176,7 @@ export function GuideArticlePage({ article }: { article: GuideArticle }) {
                 {related.map((item) => (
                   <li key={item.slug}>
                     <Link
-                      href={guideArticlePath(item.slug)}
+                      href={item.href}
                       className="block py-3 text-sm font-bold text-gray-300 transition-colors duration-150 hover:bg-white/[0.02] hover:text-white"
                     >
                       {item.title}
@@ -123,7 +187,7 @@ export function GuideArticlePage({ article }: { article: GuideArticle }) {
             </nav>
           )}
 
-          <p className="mt-10 text-xs font-bold leading-relaxed text-[var(--text-label)]">{GUIDE_DISCLAIMER}</p>
+          <p className="mt-10 text-xs font-bold leading-relaxed text-[var(--text-label)]">{collection.disclaimer}</p>
         </div>
       </section>
     </main>

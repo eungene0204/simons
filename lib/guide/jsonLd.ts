@@ -4,17 +4,20 @@
 import { SITE_NAME, siteUrl } from "@/lib/seo/site";
 import {
   GUIDE_BASE_PATH,
+  GUIDE_COLLECTION,
   GUIDE_DESCRIPTION,
   GUIDE_TITLE,
   guideArticlePath,
+  type ArticleCollection,
   type GuideArticle,
 } from "./articles";
 
 export function buildGuideArticleJsonLd(
   article: GuideArticle,
   base: string = siteUrl(),
+  collection: ArticleCollection = GUIDE_COLLECTION,
 ): Record<string, unknown> {
-  const url = `${base}${guideArticlePath(article.slug)}`;
+  const url = `${base}${collection.basePath}/${article.slug}`;
   const organizationId = `${base}/#organization`;
   return {
     "@context": "https://schema.org",
@@ -35,10 +38,25 @@ export function buildGuideArticleJsonLd(
         "@type": "BreadcrumbList",
         itemListElement: [
           { "@type": "ListItem", position: 1, name: SITE_NAME.ko, item: base },
-          { "@type": "ListItem", position: 2, name: GUIDE_TITLE, item: `${base}${GUIDE_BASE_PATH}` },
+          { "@type": "ListItem", position: 2, name: collection.title, item: `${base}${collection.basePath}` },
           { "@type": "ListItem", position: 3, name: article.title, item: url },
         ],
       },
+      // 화면의 FAQ 섹션과 같은 문자열만 싣는다 — 가시 텍스트와 다른 구조화 데이터 금지.
+      ...(article.faq?.length
+        ? [
+            {
+              "@type": "FAQPage",
+              "@id": `${url}#faq`,
+              inLanguage: "ko-KR",
+              mainEntity: article.faq.map((item) => ({
+                "@type": "Question",
+                name: item.question,
+                acceptedAnswer: { "@type": "Answer", text: item.answer },
+              })),
+            },
+          ]
+        : []),
     ],
   };
 }

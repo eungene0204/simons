@@ -23,6 +23,7 @@ function allText(): string {
         ...section.paragraphs,
         ...(section.bullets ?? []),
       ]),
+      ...(article.faq ?? []).flatMap((item) => [item.question, item.answer]),
     ]),
   ].join("\n");
 }
@@ -95,6 +96,29 @@ describe("guide JSON-LD", () => {
       "https://example.test/guide",
       `https://example.test/guide/${article.slug}`,
     ]);
+  });
+
+  it("emits FAQPage with exactly the visible FAQ strings", () => {
+    for (const article of GUIDE_ARTICLES) {
+      expect(article.faq?.length ?? 0).toBeGreaterThanOrEqual(3);
+      const graph = (buildGuideArticleJsonLd(article, "https://example.test") as { "@graph": Array<Record<string, unknown>> })[
+        "@graph"
+      ];
+      const faqPage = graph.find((node) => node["@type"] === "FAQPage") as {
+        mainEntity: Array<{ name: string; acceptedAnswer: { text: string } }>;
+      };
+      expect(faqPage.mainEntity.map((q) => [q.name, q.acceptedAnswer.text])).toEqual(
+        article.faq!.map((item) => [item.question, item.answer]),
+      );
+    }
+  });
+
+  it("omits FAQPage when an article has no FAQ", () => {
+    const { faq: _faq, ...withoutFaq } = GUIDE_ARTICLES[0];
+    const graph = (buildGuideArticleJsonLd(withoutFaq, "https://example.test") as { "@graph": Array<Record<string, unknown>> })[
+      "@graph"
+    ];
+    expect(graph.some((node) => node["@type"] === "FAQPage")).toBe(false);
   });
 
   it("lists every article on the index page graph", () => {

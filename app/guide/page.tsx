@@ -12,7 +12,10 @@ export function generateMetadata(): Metadata {
       description: GUIDE_DESCRIPTION,
       url: GUIDE_BASE_PATH,
     }),
-    alternates: { canonical: GUIDE_BASE_PATH },
+    alternates: {
+      canonical: GUIDE_BASE_PATH,
+      types: { "application/rss+xml": [{ url: "/feed.xml", title: `${GUIDE_TITLE} | 널스탁` }] },
+    },
   };
 }
 

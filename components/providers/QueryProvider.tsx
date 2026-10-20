@@ -9,9 +9,9 @@ import { stripRegionPrefix } from "@/lib/geo/region";
 // 로그인하지 않고 열 수 있는 화면 — 인증 화면 자체가 여기 들어가야 한다.
 // 빠지면 AuthSessionGuard가 비로그인 방문자를 홈으로 되돌려 페이지에 머물 수 없다.
 const PUBLIC_PATHS = new Set(["/", "/login", "/register", "/guest"]);
-// 하위 경로까지 공개인 화면 — 백테스트 가이드(`/guide`, `/guide/<slug>`)는 검색 유입용 공개 글이다.
+// 하위 경로까지 공개인 화면 — 백테스트 가이드(`/guide`, `/guide/<slug>`)·연구노트(`/notes`, `/notes/<slug>`)는 검색 유입용 공개 글이다.
 // 공개 가상계좌 열람(`/shared/virtual-account/<id>`)도 비로그인 읽기 전용 화면이다(소유자가 공개로 전환한 계좌만).
-const PUBLIC_PATH_PREFIXES = ["/guide", "/board", "/shared/virtual-account"];
+const PUBLIC_PATH_PREFIXES = ["/guide", "/notes", "/board", "/shared/virtual-account"];
 
 function isPublicPath(pathname: string | null) {
   if (!pathname) return true;

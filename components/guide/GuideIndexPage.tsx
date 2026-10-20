@@ -18,12 +18,9 @@ export function GuideIndexPage() {
         data-testid="guide-structured-data"
         dangerouslySetInnerHTML={{ __html: serializeJsonLd(buildGuideIndexJsonLd(GUIDE_ARTICLES)) }}
       />
-      <section className="border-b border-white/[0.08] px-4 py-10 sm:px-6 sm:py-12">
+      <section className="border-b border-white/[0.08] px-4 pb-10 pt-24 sm:px-6 sm:pb-12 sm:pt-28">
         <div className="mx-auto max-w-3xl">
-          <Link href="/" className="text-sm font-bold text-gray-400 transition-colors hover:text-white">
-            널스탁으로 돌아가기
-          </Link>
-          <h1 className="mt-8 font-serif text-4xl font-bold tracking-normal text-white sm:text-5xl">
+          <h1 className="font-serif text-4xl font-bold tracking-normal text-white sm:text-5xl">
             {GUIDE_TITLE}
           </h1>
           <p className="mt-5 text-base font-medium leading-8 text-gray-300">{GUIDE_DESCRIPTION}</p>
