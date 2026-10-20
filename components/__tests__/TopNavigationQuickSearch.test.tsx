@@ -241,6 +241,15 @@ describe("TopNavigation quick search", () => {
     expect(dashboardLink.className).not.toContain("bg-white/10");
   });
 
+  it("내 전략은 상단 메뉴의 백테스트 기록 바로 오른쪽에 둔다", async () => {
+    renderWithQueryClient(<TopNavigation />);
+
+    // 내 전략은 전략연구소 탭에서 상단 메뉴로 옮겼다(2026-10-21).
+    const myStrategiesLink = await screen.findByRole("link", { name: /내 전략/i });
+    expect(myStrategiesLink).toHaveAttribute("href", "/my-strategies");
+    expect(screen.getByRole("link", { name: /백테스트 기록/i }).nextElementSibling).toBe(myStrategiesLink);
+  });
+
   it("상단 로고는 원본 이미지 기반의 투명 NS 마크를 표시한다", async () => {
     renderWithQueryClient(<TopNavigation />);
 
@@ -286,7 +295,10 @@ describe("TopNavigation quick search", () => {
 
     // 절대 위치 중앙정렬은 1024~1440px 구간에서 검색창이 마지막 메뉴('요금제')를
     // 덮어 가렸다. 흐름 안 중앙정렬 + 검색창 축소로 겹침·잘림을 없앤다.
-    expect(menu).toHaveClass("flex-1", "justify-center", "min-w-0");
+    // 양옆 묶음(로고 / 검색·프로필)이 같은 몫을 가져 메뉴는 화면 정중앙(2026-10-21).
+    expect(menu).toHaveClass("justify-center", "flex-shrink-0");
+    expect(menu.previousElementSibling).toHaveClass("flex-1", "basis-0");
+    expect(menu.nextElementSibling).toHaveClass("flex-1", "basis-0");
     expect(menu.className).not.toMatch(/absolute/);
     // xl(1280~1535px)에서는 아이콘 + '/' 키 배지만(폭 자동), 2xl부터 힌트 문구까지.
     // 키 배지와 문구의 브레이크포인트가 어긋나면 "를 눌러 검색하세요"만 남는다(2026-09-08).

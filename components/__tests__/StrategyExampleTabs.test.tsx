@@ -26,13 +26,12 @@ describe("StrategyExampleTabs", () => {
     vi.unstubAllGlobals();
   });
 
-  it("백테스트 예시와 내 전략 2개 탭을 보여주고 기본으로 예시 20개를 노출한다", () => {
+  it("기본으로 예시 20개를 노출한다(내 전략은 상단 메뉴로 이동)", () => {
     const onSelectExample = vi.fn();
 
     render(<StrategyExampleTabs onSelectExample={onSelectExample} />);
 
-    expect(screen.getByRole("button", { name: "백테스트 예시" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "내 전략" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "내 전략" })).not.toBeInTheDocument();
     expect(screen.getAllByTestId("strategy-example-card")).toHaveLength(20);
     const usageNotice = screen.getByRole("contentinfo", { name: "전략연구소 이용 안내" });
     const termsLink = within(usageNotice).getByRole("link", { name: "이용약관" });
@@ -83,135 +82,6 @@ describe("StrategyExampleTabs", () => {
     expect(screen.getAllByTestId("strategy-example-card")).toHaveLength(20);
     expect(screen.queryByText("이중 기술 신호 확인 스윙")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "전체 보기" })).toBeInTheDocument();
-  });
-
-  it("선택된 탭 버튼은 중립 면(bg-white/[0.12])으로 표시한다 — 파랑은 하락 의미색이라 장식에 쓰지 않는다", async () => {
-    const onSelectExample = vi.fn();
-    const user = userEvent.setup();
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ strategies: [] }),
-    }));
-
-    render(<StrategyExampleTabs onSelectExample={onSelectExample} />);
-
-    const examplesTab = screen.getByRole("button", { name: "백테스트 예시" });
-    expect(examplesTab.className).toContain("bg-white/[0.12]");
-    expect(examplesTab.className).not.toContain("main-blue");
-    expect(examplesTab.className).toContain("text-white");
-
-    await act(async () => {
-      await user.click(screen.getByRole("button", { name: "내 전략" }));
-    });
-
-    const myStrategiesTab = screen.getByRole("button", { name: "내 전략" });
-    expect(myStrategiesTab.className).toContain("bg-white/[0.12]");
-    expect(myStrategiesTab.className).toContain("text-white");
-  });
-
-  it("내 전략 탭을 누르면 저장된 전략 빈 상태를 보여준다", async () => {
-    const onSelectExample = vi.fn();
-    const user = userEvent.setup();
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ strategies: [] }),
-    }));
-
-    render(<StrategyExampleTabs onSelectExample={onSelectExample} />);
-
-    await act(async () => {
-      await user.click(screen.getByRole("button", { name: "내 전략" }));
-    });
-
-    expect(await screen.findByText("아직 저장된 전략이 없습니다")).toBeInTheDocument();
-  });
-
-  it("내 전략 로딩 중에는 빈 카드 placeholder를 보여주지 않는다", async () => {
-    const onSelectExample = vi.fn();
-    const user = userEvent.setup();
-    vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
-
-    const { container } = render(<StrategyExampleTabs onSelectExample={onSelectExample} />);
-
-    await act(async () => {
-      await user.click(screen.getByRole("button", { name: "내 전략" }));
-    });
-
-    expect(container.querySelector(".animate-pulse")).not.toBeInTheDocument();
-  });
-
-  it("내 전략 로딩 중에는 진행 표시를 보여주고 완료되면 감춘다", async () => {
-    const onSelectExample = vi.fn();
-    const user = userEvent.setup();
-    let resolveFetch: ((value: unknown) => void) | undefined;
-    vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise((resolve) => {
-      resolveFetch = resolve;
-    })));
-
-    render(<StrategyExampleTabs onSelectExample={onSelectExample} />);
-
-    await act(async () => {
-      await user.click(screen.getByRole("button", { name: "내 전략" }));
-    });
-
-    expect(screen.getByTestId("strategy-my-loading")).toBeInTheDocument();
-
-    await act(async () => {
-      resolveFetch?.({ ok: true, json: async () => ({ strategies: [] }) });
-    });
-
-    expect(screen.queryByTestId("strategy-my-loading")).not.toBeInTheDocument();
-    expect(screen.getByText("아직 저장된 전략이 없습니다")).toBeInTheDocument();
-  });
-
-  it("내 전략 카드의 삭제 버튼을 누르면 DB 삭제 API를 호출하고 목록에서 제거한다", async () => {
-    const onSelectExample = vi.fn();
-    const user = userEvent.setup();
-    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
-      if (url === "/api/dashboard/strategy-list") {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            strategies: [
-              {
-                id: "strategy-1",
-                name: "급등주 전략",
-                description: "최근 상승 종목 기반 전략",
-                type: "모멘텀",
-                universe: "KOSPI",
-                aiScore: null,
-                avgReturnPct: 0,
-                accountCount: 0,
-                createdAt: "2026-06-29T00:00:00.000Z",
-              },
-            ],
-          }),
-        });
-      }
-      if (url === "/api/strategy/strategy-1" && init?.method === "DELETE") {
-        return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
-      }
-      return Promise.resolve({ ok: false, json: async () => ({}) });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    render(<StrategyExampleTabs onSelectExample={onSelectExample} />);
-
-    await act(async () => {
-      await user.click(screen.getByRole("button", { name: "내 전략" }));
-    });
-
-    expect(await screen.findByText("급등주 전략")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /급등주 전략/i })).toHaveAttribute("href", "/analytics/strategy-1");
-
-    await act(async () => {
-      await user.click(screen.getByRole("button", { name: "급등주 전략 전략 삭제" }));
-    });
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith("/api/strategy/strategy-1", { method: "DELETE" });
-      expect(screen.queryByText("급등주 전략")).not.toBeInTheDocument();
-    });
   });
 
   it("예시 카드를 누르면 안내가 포함된 편집 모달을 보여주고 시작 시 편집된 프롬프트를 보낸다", async () => {

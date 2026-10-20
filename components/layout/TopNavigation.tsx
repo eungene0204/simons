@@ -20,6 +20,7 @@ import {
   ChartLineUp,
   Flask,
   SlidersHorizontal,
+  BookmarkSimple,
   CaretDown,
   EnvelopeSimple,
   GearSix,
@@ -91,6 +92,12 @@ const menuItems: MenuItem[] = [
     id: "backtest",
     Icon: SlidersHorizontal,
     prefetch: true,
+  },
+  {
+    label: "내 전략",
+    href: "/my-strategies",
+    id: "my-strategies",
+    Icon: BookmarkSimple,
   },
   {
     label: "대시보드",
@@ -626,8 +633,10 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
       </nav>
 
       <nav className="relative hidden items-center gap-1 overflow-x-auto bg-black/40 px-4 py-3 backdrop-blur-xl scrollbar-hide lg:flex 2xl:px-6">
-        {/* Logo */}
-        <div className="mr-4 flex flex-shrink-0 items-center gap-3 xl:mr-6 2xl:mr-8">
+        {/* 로고·메뉴·우측 묶음: 양옆 묶음이 같은 몫(flex-1 basis-0)을 가져 메뉴가 화면 정중앙에 온다.
+            우측(검색·프로필)이 로고보다 넓어도 메뉴가 왼쪽으로 쏠리지 않는다(2026-10-21).
+            min-w-fit이라 좁은 데스크톱에서는 묶음이 먼저 자리를 차지해 겹치지 않는다. */}
+        <div className="mr-4 flex min-w-fit flex-1 basis-0 items-center gap-3 xl:mr-6 2xl:mr-8">
           <Link
             href={regionHref("/")}
             onClick={(event) => {
@@ -643,7 +652,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
 
         {/* Menu Items */}
         <div
-          className="flex min-w-0 flex-1 items-center justify-center gap-0.5 2xl:gap-1"
+          className="flex flex-shrink-0 items-center justify-center gap-0.5 2xl:gap-1"
           data-testid="top-navigation-menu"
         >
           {menuItems.map((item) => {
@@ -679,8 +688,9 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
           })}
         </div>
 
+        <div className="flex min-w-fit flex-1 basis-0 items-center justify-end gap-1">
         {/* Search Bar */}
-        <div className="flex items-center gap-2 ml-auto mr-2 2xl:mr-4">
+        <div className="flex items-center gap-2 mr-2 2xl:mr-4">
           <button
             type="button"
             onClick={handleSearchClick}
@@ -740,6 +750,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             className="h-[44px] w-[76px] flex-shrink-0 rounded-full border border-white/[0.08] bg-black/30 xl:w-[150px] 2xl:w-[160px]"
           />
         )}
+        </div>
       </nav>
 
       {isMobileMenuOpen && (

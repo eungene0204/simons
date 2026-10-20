@@ -1,31 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Sparkle, Spinner, X } from "phosphor-react";
-import { getLocale, t } from "@/lib/i18n";
-import StrategyVersionHistory from "./StrategyVersionHistory";
+import { Sparkle } from "phosphor-react";
+import { t } from "@/lib/i18n";
 import { useRegion, useRegionHref } from "@/lib/geo/useRegion";
 import { US_EXAMPLES } from "./usExamples";
 import { EXAMPLES, type Example, type ExampleCategory, type ExampleLevel } from "./strategyExamples";
 
 export { EXAMPLES };
 export type { Example, ExampleCategory, ExampleLevel };
-
-type StrategyTab = "examples" | "my-strategies";
-
-interface SavedStrategy {
-  id: string;
-  name: string;
-  description: string | null;
-  type: string;
-  universe: string;
-  aiScore: number | null;
-  avgReturnPct: number;
-  accountCount: number;
-  createdAt: string;
-}
 
 const DEFAULT_VISIBLE_COUNT = 20;
 // 시작 말풍선은 첫 줄(xl 5열) 안에서만 고른다 — 20장 중 아무 데나 붙이면 화면 아래에 묻힌다.
@@ -96,15 +81,6 @@ export const CATEGORY_STYLE: Record<ExampleCategory, { label: string; color: str
   복합전략: { label: "복합전략", ...NEUTRAL_BADGE },
   ETF: { label: "ETF", ...NEUTRAL_BADGE },
   테마: { label: "테마", ...NEUTRAL_BADGE },
-};
-
-const TAB_META: Record<StrategyTab, { label: string }> = {
-  examples: {
-    label: "백테스트 예시",
-  },
-  "my-strategies": {
-    label: "내 전략",
-  },
 };
 
 export function StrategyTemplatePreviewModal({
@@ -202,19 +178,9 @@ export function StrategyExampleTabs({
   const region = useRegion();
   // /us는 미국 시장 예시(usExamples.ts), 한국은 기존 예시 — 지역이 예시 집합을 결정한다.
   const baseExamples = region === "us" ? US_EXAMPLES : EXAMPLES;
-  const [activeTab, setActiveTab] = useState<StrategyTab>("examples");
-  const [myStrategies, setMyStrategies] = useState<SavedStrategy[]>([]);
-  const [isLoadingStrategies, setIsLoadingStrategies] = useState(false);
-  const [hasLoadedStrategies, setHasLoadedStrategies] = useState(false);
-  const [strategiesError, setStrategiesError] = useState<string | null>(null);
-  const [deletingStrategyIds, setDeletingStrategyIds] = useState<Set<string>>(() => new Set());
-  // 버전 이력(2026-09-23) — 카드 하나만 펼친다(목록이 길어 여러 개가 열리면 읽기 어렵다).
-  const [openVersionStrategyId, setOpenVersionStrategyId] = useState<string | null>(null);
   const [selectedExample, setSelectedExample] = useState<Example | null>(null);
-  const [exampleContentHeight, setExampleContentHeight] = useState<number | null>(null);
   const [orderedExamples, setOrderedExamples] = useState<Example[]>(baseExamples);
   const [startBubbleIndex, setStartBubbleIndex] = useState<number | null>(null);
-  const examplesContentRef = useRef<HTMLDivElement>(null);
 
   // 마운트 이후에만 섞는다 — 서버 렌더 결과와 순서가 어긋나면 하이드레이션이 깨진다.
   useEffect(() => {
@@ -226,89 +192,12 @@ export function StrategyExampleTabs({
   const visibleExamples = orderedExamples.slice(0, DEFAULT_VISIBLE_COUNT);
 
   useEffect(() => {
-    if (activeTab !== "my-strategies" || hasLoadedStrategies) return;
-
-    let ignore = false;
-    setIsLoadingStrategies(true);
-    setStrategiesError(null);
-
-    fetch("/api/dashboard/strategy-list", { cache: "no-store" })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("Failed to load strategies");
-        }
-        return response.json();
-      })
-      .then((data: { strategies?: SavedStrategy[] }) => {
-        if (ignore) return;
-        setMyStrategies(Array.isArray(data.strategies) ? data.strategies : []);
-        setHasLoadedStrategies(true);
-      })
-      .catch(() => {
-        if (ignore) return;
-        setStrategiesError(t("전략 목록을 불러오지 못했습니다."));
-      })
-      .finally(() => {
-        if (!ignore) {
-          setIsLoadingStrategies(false);
-        }
-      });
-
-    return () => {
-      ignore = true;
-    };
-  }, [activeTab, hasLoadedStrategies]);
-
-  useEffect(() => {
     return () => {
       onPreviewOpenChange?.(false);
     };
   }, [onPreviewOpenChange]);
 
-  useEffect(() => {
-    if (activeTab !== "examples" || !examplesContentRef.current) return;
-
-    const examplesContent = examplesContentRef.current;
-    const updateHeight = () => {
-      const nextHeight = examplesContent.getBoundingClientRect().height;
-      if (nextHeight > 0) {
-        setExampleContentHeight(nextHeight);
-      }
-    };
-
-    updateHeight();
-    if (typeof ResizeObserver === "undefined") return;
-
-    const resizeObserver = new ResizeObserver(updateHeight);
-    resizeObserver.observe(examplesContent);
-    return () => resizeObserver.disconnect();
-  }, [activeTab]);
-
   const hasMoreExamples = DEFAULT_VISIBLE_COUNT < baseExamples.length;
-
-  const handleDeleteStrategy = async (strategyId: string) => {
-    setDeletingStrategyIds((prev) => {
-      const next = new Set(prev);
-      next.add(strategyId);
-      return next;
-    });
-
-    try {
-      const response = await fetch(`/api/strategy/${strategyId}`, { method: "DELETE" });
-      if (!response.ok) {
-        throw new Error("Failed to delete strategy");
-      }
-      setMyStrategies((prev) => prev.filter((strategy) => strategy.id !== strategyId));
-    } catch (error) {
-      console.error("Failed to delete strategy:", error);
-    } finally {
-      setDeletingStrategyIds((prev) => {
-        const next = new Set(prev);
-        next.delete(strategyId);
-        return next;
-      });
-    }
-  };
 
   const isPreviewOpen = Boolean(selectedExample);
   const backgroundBlurClass = isPreviewOpen
@@ -321,41 +210,9 @@ export function StrategyExampleTabs({
         className={`space-y-3 ${backgroundBlurClass}`}
         data-testid="strategy-example-tabs-background"
       >
-        <div className="space-y-2 text-center">
-          <div className="mx-auto inline-flex w-full max-w-2xl rounded-2xl border border-white/[0.06] bg-[#101010] p-1">
-            {(Object.keys(TAB_META) as StrategyTab[]).map((tab) => {
-              const isActive = tab === activeTab;
-              return (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => {
-                    if (tab === "my-strategies" && !hasLoadedStrategies) {
-                      setIsLoadingStrategies(true);
-                    }
-                    setActiveTab(tab);
-                  }}
-                  className={`flex-1 rounded-xl px-3 py-2.5 text-xs font-black ${
-                    isActive
-                      ? "bg-white/[0.12] text-white"
-                      : "text-gray-400 hover:bg-[#171717] hover:text-white"
-                    }`}
-                >
-                  {t(TAB_META[tab].label)}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div
-          data-testid="strategy-tab-content"
-          style={activeTab === "my-strategies" && exampleContentHeight
-            ? { height: `${exampleContentHeight}px` }
-            : undefined}
-        >
-          {activeTab === "examples" ? (
-            <div ref={examplesContentRef} className="space-y-3" data-testid="strategy-examples-content">
+        <div data-testid="strategy-tab-content">
+          {(
+            <div className="space-y-3" data-testid="strategy-examples-content">
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
                 {visibleExamples.map((example, index) => {
                   const style = CATEGORY_STYLE[example.category];
@@ -407,85 +264,6 @@ export function StrategyExampleTabs({
                   >
                     {t("전체 보기")}
                   </Link>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="h-full overflow-y-auto" data-testid="strategy-my-content">
-              {isLoadingStrategies ? (
-                <div
-                  className="flex flex-col items-center justify-center gap-3 py-10"
-                  role="status"
-                  aria-live="polite"
-                  data-testid="strategy-my-loading"
-                >
-                  <Spinner
-                    size={24}
-                    className="animate-spin text-gray-500 motion-reduce:animate-none"
-                    aria-hidden="true"
-                  />
-                  <p className="text-xs font-bold text-gray-500">{t("전략 목록을 불러오는 중입니다...")}</p>
-                </div>
-              ) : strategiesError ? (
-                <div className="py-8 text-center">
-                  <p className="text-sm font-black text-white">{t("전략 목록을 불러올 수 없습니다")}</p>
-                  <p className="mt-1 text-xs font-bold text-gray-500">{strategiesError}</p>
-                </div>
-              ) : myStrategies.length === 0 ? (
-                <div className="py-8 text-center">
-                  <p className="text-sm font-black text-white">{t("아직 저장된 전략이 없습니다")}</p>
-                  <p className="mt-1 text-xs font-bold text-gray-500">{t("전략을 생성하고 저장하면 여기에서 확인할 수 있습니다.")}</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                  {myStrategies.map((strategy) => {
-                    const isDeleting = deletingStrategyIds.has(strategy.id);
-                    return (
-                      <div key={strategy.id} className="relative group">
-                        <a
-                          href={regionHref(`/analytics/${strategy.id}`)}
-                          className="block rounded-2xl border border-white/[0.05] bg-[#121212] px-4 py-4 pr-14 transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-black text-white/85 group-hover:text-white">{strategy.name}</p>
-                            </div>
-                          </div>
-                          <p className="mt-3 line-clamp-2 text-xs font-bold leading-relaxed text-gray-400">
-                            {strategy.description || t("저장된 전략 상세 결과로 이동합니다.")}
-                          </p>
-                          <div className="mt-3 flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-gray-600">
-                            <span>{t("{0}개 계좌 연결", strategy.accountCount)}</span>
-                            <span>{new Date(strategy.createdAt).toLocaleDateString(getLocale())}</span>
-                          </div>
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => void handleDeleteStrategy(strategy.id)}
-                          disabled={isDeleting}
-                          aria-label={t("{0} 전략 삭제", strategy.name)}
-                          className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.06] text-gray-500 transition-colors hover:bg-white/[0.10] hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <X size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setOpenVersionStrategyId((prev) => (prev === strategy.id ? null : strategy.id))
-                          }
-                          aria-expanded={openVersionStrategyId === strategy.id}
-                          className="absolute bottom-3 right-3 rounded-md bg-white/[0.06] px-2 py-1 text-[10px] font-black uppercase tracking-widest text-gray-500 transition-colors hover:bg-white/[0.10] hover:text-gray-200"
-                        >
-                          {t("버전 이력")}
-                        </button>
-                        {openVersionStrategyId === strategy.id ? (
-                          <div className="mt-2 rounded-2xl border border-white/[0.05] bg-[#101010]">
-                            <StrategyVersionHistory strategyId={strategy.id} />
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  })}
                 </div>
               )}
             </div>
