@@ -29,11 +29,11 @@ FULL_CARD_SEC = 3.5              # 다 채워진 조건 카드 보여 주기(확
 CHIP_SPEED = 1.3
 GRAPH_BUILD_SEC = 8.0            # 처음 그려지는 그래프 — 노드가 하나씩 나타나는 연출(앱 상한 약 7초)을 통째로 보여 준다
 GRAPH_BEAT_SEC = 2.8             # 칩 답변 뒤 그래프에 노드가 붙는 순간으로 당겨 보여 주기
-GRAPH_PAN_W = 640                # 처음 그래프를 훑을 때 담는 폭(CSS px) — 노드 글자가 읽히는 약 2.2배
+GRAPH_PAN_W = 900                # 처음 그래프를 훑을 때 담는 폭(CSS px) — 약 1.6배 — 어지럽지 않은 정도
 GRAPH_FIT_W = 760                # 그래프를 당길 때 담는 폭(CSS px) — 화면 맞춤 그래프가 한눈에 읽히는 정도
 CHIP_TAIL_MS = 500               # 누른 직후 여기서 끊는다 — 다음 질문이 뜨며 화면이 밀려 물결이 다른 칩 위에 남는다
 LINE_CHARS = 62                  # 입력창 한 줄에 들어가는 글자 수(1440 화면, 894px 입력창)
-ZOOM_W = 560                     # 입력·카드를 당길 때 담는 폭(CSS px) — 약 2배
+ZOOM_W = 860                     # 입력·카드를 당길 때 담는 폭(CSS px) — 약 1.7배
 
 CAPTIONS = {
     "type": "① 전략을 한 문장으로 적습니다",
@@ -96,7 +96,23 @@ def summary_parts(text: str) -> dict:
     def rest(prefix: str):
         return next((l[len(prefix):].strip() for l in lines if l.startswith(prefix)), "")
 
-    return {"universe": after("투자 대상"), "buy": after("매수 규칙"), "sell": after("매도 규칙"),
+    headers = {"현재까지 이해한 전략", "투자 대상", "매수 규칙", "매도 규칙", "자금 배분", "리밸런싱"}
+
+    def group(key: str) -> list[str]:
+        """그래프 칸 제목 아래 항목 전부(다음 칸 제목 전까지). 제목 바로 다음 한 줄만 읽으면 `업종: 조선`·`최대 10종목 보유` 같은 두 번째 이후 항목이 글에서 빠진다(2026-10-20)."""
+        idx = [i for i, l in enumerate(lines) if l == key]
+        if not idx:
+            return []
+        out = []
+        for l in lines[idx[-1] + 1:]:
+            if l in headers or l.startswith("모든 조건을"):
+                break
+            out.append(l)
+        return out
+
+    universe_items = group("투자 대상")
+    return {"universe": after("투자 대상"), "universe_items": universe_items, "allocation_items": group("자금 배분"),
+            "buy": after("매수 규칙"), "sell": after("매도 규칙"),
             "capital": rest("초기 자본 "), "period": rest("백테스트 기간 "), "rebalance": after("리밸런싱", last=True)}
 
 
@@ -106,9 +122,10 @@ def with_defaults(meta: dict, result: dict) -> dict:
     out = dict(meta)
     out.setdefault("eyebrow", "전략 만들기")
     out.setdefault("title", f"“{result['prompt']}”")
-    steps = [p["universe"], f"{p['buy']} 매수" if p["buy"] else "", f"{p['sell']} 매도" if p["sell"] else "", p["period"] and f"최근 {p['period']}"]
+    max_hold = next((i for i in p["allocation_items"] if re.fullmatch(r"최대 \d+종목 보유", i)), "")
+    steps = [*p["universe_items"], f"{p['buy']} 매수" if p["buy"] else "", f"{p['sell']} 매도" if p["sell"] else "", max_hold, p["period"] and f"최근 {p['period']}"]
     out.setdefault("subtitle", " · ".join(x for x in [*steps, p["capital"]] if x))
-    out.setdefault("end_title", " · ".join(x for x in (p["universe"], (f"{p['buy']} 매수, {p['sell']} 매도" if p["buy"] and p["sell"] else "")) if x) or out["title"])
+    out.setdefault("end_title", " · ".join(x for x in (*p["universe_items"], (f"{p['buy']} 매수, {p['sell']} 매도" if p["buy"] and p["sell"] else "")) if x) or out["title"])
     dates = next((re.sub(r"\s*\(.*", "", l.split("기간:")[1]).strip() for l in result["log"] if l.startswith("기간:")), "")
     m = result["metrics"]
     out.setdefault("end_subtitle", " · ".join(x for x in (dates, f"최근 {p['period']}" if p["period"] else "", f"같은 기간 {m['benchmark_name']} {m['benchmark']}") if x))

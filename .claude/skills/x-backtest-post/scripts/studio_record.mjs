@@ -59,6 +59,7 @@ for (let i = 0; i < 12; i++) {
       await page.keyboard.press('Enter');
       await page.waitForTimeout(450);
       answered.push(typed.text);
+      misses = 0; // 직접 입력 뒤에도 다음 질문을 기다릴 재시도 횟수를 되살린다
       await settle(page);
       await graphAdd(page, typed.text, Date.now() - 20000);
       continue;

@@ -31,11 +31,20 @@ export async function glide(page, x, y, ms = 750) {
 
 export async function press(page, locator, label, action = 'click') {
   await locator.scrollIntoViewIfNeeded();
-  const b = boxOf(await locator.boundingBox());
+  let b = boxOf(await locator.boundingBox());
   if (!b) throw new Error(`위치를 알 수 없다: ${label}`);
   mark(action, { phase: 'approach', label, box: b });
   await glide(page, b.x + b.width / 2, b.y + b.height / 2);
   await page.waitForTimeout(280);
+  // 커서가 다가가는 사이 배치가 바뀌면(그래프 재배치 등) 같은 자리의 다른 버튼을 누른다 — 누르기 직전에 위치를 다시 재서 따라간다
+  let b2 = boxOf(await locator.boundingBox()) ?? b;
+  for (let k = 0; k < 3 && (Math.abs(b2.x - b.x) > 2 || Math.abs(b2.y - b.y) > 2); k++) {
+    b = b2;
+    await glide(page, b.x + b.width / 2, b.y + b.height / 2);
+    await page.waitForTimeout(400);
+    b2 = boxOf(await locator.boundingBox()) ?? b;
+  }
+  b = b2;
   mark(action, { phase: 'press', label, box: b });
   await page.mouse.down(); await page.waitForTimeout(90); await page.mouse.up();
   await page.waitForTimeout(450);

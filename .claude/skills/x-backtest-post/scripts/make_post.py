@@ -33,6 +33,17 @@ def log_find(log: list[str], pattern: str, group: int = 1) -> str:
     return ""
 
 
+def allocation_lines(items: list[str]) -> list[str]:
+    """자금 배분 칸 항목 → 글 줄. 앱이 그래프에 적은 표기(`최대 10종목 보유`·`종목당 비중 10%`·`비중 방식: 동일 비중`)를 그대로 옮긴다."""
+    held = next((m.group(1) for i in items if (m := re.fullmatch(r"최대 (\d+)종목 보유", i))), "")
+    weight = next((m.group(1) for i in items if (m := re.fullmatch(r"종목당 비중 ([\d.]+%)", i))), "")
+    method = next((m.group(1) for i in items if (m := re.fullmatch(r"비중 방식:\s*(.+)", i))), "")
+    if not (held or weight or method):
+        return []
+    detail = ", ".join(x for x in (f"종목당 비중 {weight}" if weight else "", method) if x)
+    return [f"최대 보유 종목: {held}종목" + (f"({detail})" if detail else "")] if held else [f"자금 배분: {detail}"]
+
+
 def settings_lines(parts: dict, answered: list[str], log: list[str]) -> list[str]:
     lines = []
     if parts["buy"]:
@@ -45,6 +56,7 @@ def settings_lines(parts: dict, answered: list[str], log: list[str]) -> list[str
     if nones:
         lines.append(f"{'·'.join(nones)} 기준: 두지 않음")
     lines += [f"{n} 기준: {v}" for n, v in risk if v != "안 함"]
+    lines += allocation_lines(parts["allocation_items"])
     if parts["rebalance"]:
         lines.append("리밸런싱: 하지 않음" if "없음" in parts["rebalance"] else f"리밸런싱: {parts['rebalance']}")
     period = log_find(log, r"기간:\s*(\d{4}-\d{2}-\d{2}) ~ (\d{4}-\d{2}-\d{2})", 0)
@@ -80,7 +92,7 @@ def build(folder: Path) -> str:
     rf = log_find(log, r"무위험수익률\s*([\d.]+%)")
 
     out = [f"{name} 전략을 백테스트 해봤습니다.", "", "널스탁에 이렇게 입력 했습니다", f"“{r['prompt']}”", ""]
-    out.append((f"널스탁은 '{uni.group(1)}'을 관련 상장사 {uni.group(2)}곳으로 해석해 지정 종목에 담았습니다. " if uni else f"투자 대상: {parts['universe']}. ")
+    out.append((f"널스탁은 '{uni.group(1)}'을 관련 상장사 {uni.group(2)}곳으로 해석해 지정 종목에 담았습니다. " if uni else f"투자 대상: {', '.join(parts['universe_items']) or parts['universe']}. ")
                + "문장에 없던 설정은 버튼으로 골랐습니다.")
     out += [f"- {l}" for l in settings_lines(parts, r["answered"], log)]
     out += ["", "결과 (과거 데이터 기준)"]
