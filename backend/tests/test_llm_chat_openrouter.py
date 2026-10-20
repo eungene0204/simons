@@ -120,7 +120,7 @@ def test_openrouter_no_think_is_qwen_only(openrouter_env, monkeypatch):
 
 def test_openrouter_model_defaults_to_free_nemotron(openrouter_env, monkeypatch):
     monkeypatch.delenv("OPENROUTER_MODEL", raising=False)
-    assert llm_backend.openrouter_model() == "nvidia/nemotron-3-super-120b-a12b:free"
+    assert llm_backend.openrouter_model() == "nvidia/nemotron-3.5-super-vl:free"
 
 
 def test_openrouter_no_think_is_idempotent(openrouter_env):

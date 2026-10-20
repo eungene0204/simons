@@ -34,10 +34,10 @@ OLLAMA_BASE_URL = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip
 OPENROUTER_BASE_URL = os.environ.get(
     "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"
 ).rstrip("/")
-# 기본 모델 — 무료 슬러그(2026-09-06 사용자 결정). Qwen3-32B `:free`는 실측 404(무료 중단)였고
-# 무료 19종 중 실제 인터프리터 프롬프트(2만 토큰)로 한국어 JSON을 온전히 낸 것은 이 모델뿐이었다
-# (minimax-m3는 랭킹 누락, gemma/glm은 429). 유료 `qwen/qwen3-32b`는 OPENROUTER_MODEL로 선택 가능.
-OPENROUTER_DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b:free"
+# 기본 모델 — 무료 슬러그. 2026-09-06엔 Nemotron 3 Super 120B였으나 2026-10-20 Nvidia 단독 상류가
+# 404(실행 단위 소실)를 돌려줘 사용자 결정으로 Nemotron 3.5 Super VL로 교체했다(같은 계열 12B 활성
+# MoE, 컨텍스트 100만, structured_outputs 지원). 유료 `qwen/qwen3-32b`는 OPENROUTER_MODEL로 선택 가능.
+OPENROUTER_DEFAULT_MODEL = "nvidia/nemotron-3.5-super-vl:free"
 
 
 def llm_provider() -> Provider:
