@@ -42,6 +42,7 @@ import { getLocale, t } from "@/lib/i18n";
 import { stripRegionPrefix } from "@/lib/geo/region";
 import { useRegion, useRegionHref } from "@/lib/geo/useRegion";
 import { isValidPlanId } from "@/lib/plans";
+import { invalidateMyStrategiesCache, refreshMyStrategiesCache } from "@/lib/my-strategies-cache";
 import { useEmailLoginEnabled } from "@/components/providers/EmailLoginOptionProvider";
 import { US_PRICING } from "@/lib/pricing/us";
 
@@ -485,6 +486,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
     // 다시 보이지 않도록, 또 같은 브라우저의 다음 계정에게 이 계정의 대화 로그가
     // 보이지 않도록 브라우저에 남은 전략연구소 대화 데이터를 모두 지운다.
     clearStrategyChatStorage();
+    invalidateMyStrategiesCache();
     try {
       sessionStorage.removeItem(PENDING_STRATEGY_PROMPT_KEY);
     } catch {
@@ -552,6 +554,12 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
 
     e.preventDefault();
     router.push(regionHref(item.href));
+  };
+
+  // 내 전략 목록은 서버 조회가 느리다 — 메뉴에 마우스를 올리는 순간 미리 받아 둔다(로그인 상태일 때만).
+  const prefetchMyStrategies = () => {
+    if (authState !== "authenticated") return;
+    void refreshMyStrategiesCache().catch(() => {});
   };
 
   const activeMenuItemId = useMemo(() => {
@@ -673,6 +681,8 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
                 href={regionHref(item.href)}
                 prefetch={item.prefetch}
                 onClick={(e) => handleMenuClick(item, e)}
+                onMouseEnter={item.id === "my-strategies" ? prefetchMyStrategies : undefined}
+                onFocus={item.id === "my-strategies" ? prefetchMyStrategies : undefined}
                 className={`relative flex items-center gap-1.5 px-2.5 py-2 rounded-xl transition-all duration-300 whitespace-nowrap group xl:gap-2 xl:px-3 2xl:px-4 ${
                   isActive
                     ? "bg-white/10 text-white"

@@ -1,15 +1,18 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import MyStrategiesView from "./MyStrategiesView";
+import { invalidateMyStrategiesCache, setCachedMyStrategies } from "@/lib/my-strategies-cache";
 
 vi.mock("@/components/layout/DashboardLayout", () => ({
   default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 
 describe("MyStrategiesView", () => {
+  beforeEach(() => invalidateMyStrategiesCache());
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -142,5 +145,42 @@ describe("MyStrategiesView", () => {
       }));
       expect(screen.getByRole("button", { name: "공개" })).toHaveAttribute("aria-pressed", "true");
     });
+  });
+
+  it("캐시가 있으면 로딩 없이 바로 목록을 그리고, 뒤에서 받은 최신 목록으로 교체한다", async () => {
+    const item = (id: string, name: string) => ({
+      id, name, description: null, type: "모멘텀", universe: "KOSPI", aiScore: null,
+      avgReturnPct: 0, accountCount: 0, isPublic: false, createdAt: "2026-06-29T00:00:00.000Z",
+    });
+    setCachedMyStrategies([item("old", "캐시된 전략")]);
+    let resolveFetch: (value: unknown) => void = () => {};
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise((resolve) => { resolveFetch = resolve; })));
+
+    render(<MyStrategiesView />);
+
+    // 서버 응답 전에도 캐시된 카드가 보이고 로딩 표시는 없다.
+    expect(screen.getByText("캐시된 전략")).toBeInTheDocument();
+    expect(screen.queryByTestId("strategy-my-loading")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveFetch({ ok: true, json: async () => ({ strategies: [item("new", "최신 전략")] }) });
+    });
+
+    expect(await screen.findByText("최신 전략")).toBeInTheDocument();
+    expect(screen.queryByText("캐시된 전략")).not.toBeInTheDocument();
+  });
+
+  it("캐시로 그린 뒤 새로고침이 실패해도 목록을 비우지 않는다", async () => {
+    setCachedMyStrategies([{
+      id: "old", name: "캐시된 전략", description: null, type: "모멘텀", universe: "KOSPI", aiScore: null,
+      avgReturnPct: 0, accountCount: 0, isPublic: false, createdAt: "2026-06-29T00:00:00.000Z",
+    }]);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, json: async () => ({}) }));
+
+    render(<MyStrategiesView />);
+
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    expect(screen.getByText("캐시된 전략")).toBeInTheDocument();
+    expect(screen.queryByText("전략 목록을 불러올 수 없습니다")).not.toBeInTheDocument();
   });
 });

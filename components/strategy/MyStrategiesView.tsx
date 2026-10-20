@@ -5,44 +5,44 @@ import { Globe, Lock, Spinner, X } from "phosphor-react";
 import { getLocale, t } from "@/lib/i18n";
 import { useRegionHref } from "@/lib/geo/useRegion";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-
-interface SavedStrategy {
-  id: string;
-  name: string;
-  description: string | null;
-  type: string;
-  universe: string;
-  aiScore: number | null;
-  avgReturnPct: number;
-  accountCount: number;
-  isPublic?: boolean;
-  createdAt: string;
-}
+import {
+  getCachedMyStrategies,
+  refreshMyStrategiesCache,
+  setCachedMyStrategies,
+  type SavedStrategy,
+} from "@/lib/my-strategies-cache";
 
 // 내 전략(2026-10-21) — 전략연구소 탭에서 상단 메뉴 화면으로 옮겼다.
 export default function MyStrategiesView() {
   const regionHref = useRegionHref();
-  const [myStrategies, setMyStrategies] = useState<SavedStrategy[]>([]);
-  const [isLoadingStrategies, setIsLoadingStrategies] = useState(true);
+  // 캐시가 있으면 로딩 없이 바로 그리고, 뒤에서 최신 목록으로 교체한다.
+  const cachedStrategies = getCachedMyStrategies();
+  const [myStrategies, setMyStrategiesState] = useState<SavedStrategy[]>(cachedStrategies ?? []);
+  const [isLoadingStrategies, setIsLoadingStrategies] = useState(!cachedStrategies);
   const [strategiesError, setStrategiesError] = useState<string | null>(null);
   const [deletingStrategyIds, setDeletingStrategyIds] = useState<Set<string>>(() => new Set());
   const [updatingVisibilityIds, setUpdatingVisibilityIds] = useState<Set<string>>(() => new Set());
 
+  // 화면 상태와 캐시를 함께 바꾼다 — 삭제·공개 전환이 캐시에서 되살아나지 않게.
+  const setMyStrategies = (updater: (prev: SavedStrategy[]) => SavedStrategy[]) => {
+    setMyStrategiesState((prev) => {
+      const next = updater(prev);
+      setCachedMyStrategies(next);
+      return next;
+    });
+  };
+
   useEffect(() => {
     let ignore = false;
-    fetch("/api/dashboard/strategy-list", { cache: "no-store" })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("Failed to load strategies");
-        }
-        return response.json();
-      })
-      .then((data: { strategies?: SavedStrategy[] }) => {
+    refreshMyStrategiesCache()
+      .then((strategies) => {
         if (ignore) return;
-        setMyStrategies(Array.isArray(data.strategies) ? data.strategies : []);
+        setMyStrategiesState(strategies);
+        setStrategiesError(null);
       })
       .catch(() => {
-        if (ignore) return;
+        // 캐시로 이미 그린 목록은 그대로 둔다 — 새로고침 실패로 화면을 비우지 않는다.
+        if (ignore || getCachedMyStrategies()) return;
         setStrategiesError(t("전략 목록을 불러오지 못했습니다."));
       })
       .finally(() => {

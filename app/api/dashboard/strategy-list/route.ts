@@ -1,13 +1,13 @@
 import { totalContributed } from "@/lib/virtual-account/contributions";
 import { NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   getOwnershipContext,
   isUnauthorizedAccessError,
   withOwnership,
 } from "@/lib/get-user";
-import { getAccountSettlementValues, moneyToNumber, resolveAccountTotalValue } from "@/lib/server/assetService";
+import { moneyToNumber, resolveAccountTotalValue } from "@/lib/server/assetService";
 
 function calcScore(m: { cagr?: number; maxDrawdown?: number; sharpe?: number; profitFactor?: number | null; winRate?: number }): number {
   const scoreCagr = (v?: number) => { if (v == null) return 50; if (v >= 20) return 100; if (v >= 10) return 70; return Math.max(0, Math.round(v / 10 * 70)); };
@@ -16,6 +16,17 @@ function calcScore(m: { cagr?: number; maxDrawdown?: number; sharpe?: number; pr
   const scorePf   = (v?: number) => { if (v == null) return 50; if (v >= 2.0) return 100; if (v >= 1.5) return 70; if (v >= 1.0) return 40; return Math.max(0, Math.round(v / 2.0 * 100)); };
   const scoreWr   = (v?: number) => { if (v == null) return 50; if (v >= 55) return 100; if (v >= 50) return 70; if (v >= 45) return 40; return Math.max(0, Math.round(v / 55 * 100)); };
   return Math.round(scoreCagr(m.cagr) * 0.30 + scoreMdd(m.maxDrawdown) * 0.25 + scoreSharpe(m.sharpe) * 0.20 + scorePf(m.profitFactor === null ? 999 : m.profitFactor) * 0.15 + scoreWr(m.winRate) * 0.10);
+}
+
+// 키가 없으면 SQL NULL(→ undefined), JSON null이면 문자열 'null'(→ null) — 종전 summary 파싱과 같은 구분.
+type SummaryMetricRow = { strategyId: string } & Record<
+  "score" | "aiScore" | "cagr" | "maxDrawdown" | "sharpe" | "profitFactor" | "winRate",
+  unknown
+>;
+
+function parseMetric(value: unknown): unknown {
+  if (value === null || value === undefined) return undefined;
+  return typeof value === "string" ? JSON.parse(value) : value;
 }
 
 export interface StrategyListItem {
@@ -40,37 +51,42 @@ export interface StrategyListData {
 export async function GET() {
   try {
     const { userId } = await getOwnershipContext();
-    const [strategies, accounts] = await Promise.all([
-      prisma.strategy.findMany({
-        where: withOwnership({ isSaved: true }, userId),
+    // 원격 DB라 왕복 하나가 ~0.6초다 — 서로 기다릴 필요 없는 조회는 한 번에 띄운다(2026-10-21: 직렬 4단 → 병렬 2단).
+    // 소유 필터는 id 목록을 기다려 만들지 않고 관계 조건(Strategy.userId 등)으로 건다.
+    const ownedStrategy = withOwnership({ isSaved: true }, userId);
+    const ownedAccount = withOwnership({ strategyId: { not: null } }, userId);
+    const [strategies, summaryRows, accounts, positions, backtestHistories, ledgerRows] = await Promise.all([
+      prisma.strategy.findMany({ where: ownedStrategy, orderBy: { createdAt: "desc" } }),
+      // 점수 대체 계산에 쓰는 최신 결과의 지표 몇 개만 DB에서 뽑는다 — summary 전체(전략당 수백 KB)와
+      // trades 본문을 내려받지 않는다. 실패해도 목록은 나가야 하므로 점수 대체만 포기한다.
+      prisma.$queryRaw<SummaryMetricRow[]>(Prisma.sql`
+        SELECT DISTINCT ON (r."strategyId") r."strategyId",
+          r."summary"::jsonb->'score' AS "score", r."summary"::jsonb->'aiScore' AS "aiScore",
+          r."summary"::jsonb->'cagr' AS "cagr", r."summary"::jsonb->'maxDrawdown' AS "maxDrawdown",
+          r."summary"::jsonb->'sharpe' AS "sharpe", r."summary"::jsonb->'profitFactor' AS "profitFactor",
+          r."summary"::jsonb->'winRate' AS "winRate"
+        FROM "BacktestResult" r JOIN "Strategy" st ON st."id" = r."strategyId"
+        WHERE st."isSaved" = true ${userId == null ? Prisma.empty : Prisma.sql`AND st."userId" = ${userId}`}
+        ORDER BY r."strategyId", r."createdAt" DESC`).catch(() => [] as SummaryMetricRow[]),
+      prisma.virtualAccount.findMany({ where: ownedAccount }),
+      prisma.virtualPosition.findMany({ where: { VirtualAccount: ownedAccount } }),
+      prisma.backtestHistory.findMany({
+        where: {
+          OR: [
+            { Strategy: ownedStrategy },
+            ...(userId == null ? [] : [{ UserBacktestHistory: { some: { userId } } }]),
+          ],
+        },
         orderBy: { createdAt: "desc" },
-        include: { BacktestResult: { orderBy: { createdAt: "desc" }, take: 1 } },
+        select: { strategyId: true, strategyName: true, metrics: true },
       }),
-      prisma.virtualAccount.findMany({
-        where: withOwnership({ strategyId: { not: null } }, userId),
-        include: { VirtualPosition: true },
+      prisma.assetLedger.findMany({
+        where: { type: "ACCOUNT_LIQUIDATION_RETURN", VirtualAccount: ownedAccount },
+        orderBy: { createdAt: "desc" },
+        select: { accountId: true, amount: true },
       }),
     ]);
-
-    const strategyIds = strategies.map((s) => s.id);
-    const strategyNames = Array.from(new Set(strategies.map((s) => s.name).filter(Boolean)));
-    const backtestHistoryFilters: Prisma.BacktestHistoryWhereInput[] = [];
-    if (strategyIds.length > 0) {
-      backtestHistoryFilters.push({ strategyId: { in: strategyIds } });
-    }
-    if (strategyNames.length > 0) {
-      backtestHistoryFilters.push({
-        strategyName: { in: strategyNames },
-        ...(userId == null ? {} : { UserBacktestHistory: { some: { userId } } }),
-      });
-    }
-    const backtestHistories = backtestHistoryFilters.length > 0
-      ? await prisma.backtestHistory.findMany({
-          where: { OR: backtestHistoryFilters },
-          orderBy: { createdAt: "desc" },
-          select: { strategyId: true, strategyName: true, metrics: true },
-        })
-      : [];
+    const summaryByStrategyId = new Map(summaryRows.map((row) => [row.strategyId, row]));
     const latestHistoryByStrategyId = new Map<string, (typeof backtestHistories)[number]>();
     const latestHistoryByStrategyName = new Map<string, (typeof backtestHistories)[number]>();
     for (const history of backtestHistories) {
@@ -82,7 +98,19 @@ export async function GET() {
       }
     }
 
-    const settlementValues = await getAccountSettlementValues(prisma, accounts.map((a) => a.id));
+    // 정산금은 계좌별 가장 최근 항목(getAccountSettlementValues와 같은 규칙).
+    const settlementValues: Record<string, number> = {};
+    for (const entry of ledgerRows) {
+      if (entry.accountId && !(entry.accountId in settlementValues)) {
+        settlementValues[entry.accountId] = moneyToNumber(entry.amount);
+      }
+    }
+    const positionsByAccount = new Map<string, typeof positions>();
+    for (const position of positions) {
+      const list = positionsByAccount.get(position.accountId) ?? [];
+      list.push(position);
+      positionsByAccount.set(position.accountId, list);
+    }
 
     const result: StrategyListItem[] = strategies.map((s) => {
       // universe: settings에서 파싱
@@ -112,7 +140,14 @@ export async function GET() {
           }
         }
         if (aiScore == null) {
-          const summary = JSON.parse(s.BacktestResult[0]?.summary ?? "{}");
+          const row = summaryByStrategyId.get(s.id);
+          const summary: Record<string, any> = row
+            ? Object.fromEntries(
+                ["score", "aiScore", "cagr", "maxDrawdown", "sharpe", "profitFactor", "winRate"]
+                  .map((key) => [key, parseMetric(row[key as keyof SummaryMetricRow])])
+                  .filter(([, value]) => value !== undefined)
+              )
+            : {};
           if (summary.score != null) aiScore = summary.score;
           else if (summary.aiScore != null) aiScore = summary.aiScore;
           else if (summary.cagr != null || summary.maxDrawdown != null) aiScore = calcScore(summary);
@@ -126,7 +161,7 @@ export async function GET() {
       }
 
       const stats = accs.map((a) => {
-        const posValue = (a.VirtualPosition ?? []).reduce(
+        const posValue = (positionsByAccount.get(a.id) ?? []).reduce(
           (sum, p) => sum + p.quantity * moneyToNumber(p.currentPrice ?? p.avgPrice),
           0
         );
