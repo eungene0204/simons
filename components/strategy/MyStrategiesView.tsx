@@ -145,7 +145,12 @@ export default function MyStrategiesView() {
                     const isDeleting = deletingStrategyIds.has(strategy.id);
                     const isUpdatingVisibility = updatingVisibilityIds.has(strategy.id);
                     return (
-                      <div key={strategy.id} className="relative group">
+                      <div
+                        key={strategy.id}
+                        className={`relative group transition-opacity duration-200 ${isDeleting ? "pointer-events-none opacity-60" : ""}`}
+                        aria-busy={isDeleting}
+                        data-testid={isDeleting ? "strategy-deleting" : undefined}
+                      >
                         <a
                           href={regionHref(`/analytics/${strategy.id}`)}
                           className="flex h-36 flex-col rounded-2xl border border-white/[0.05] bg-[#121212] px-4 py-4 pr-14 transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
@@ -170,8 +175,17 @@ export default function MyStrategiesView() {
                           aria-label={t("{0} 전략 삭제", strategy.name)}
                           className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.06] text-gray-500 transition-colors hover:bg-white/[0.10] hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          <X size={14} />
+                          {isDeleting ? (
+                            <Spinner size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                          ) : (
+                            <X size={14} />
+                          )}
                         </button>
+                        {isDeleting && (
+                          <span role="status" className="absolute bottom-3 right-4 text-[10px] font-black text-gray-300">
+                            {t("삭제 중...")}
+                          </span>
+                        )}
                         <button
                           type="button"
                           onClick={() => void handleToggleStrategyVisibility(strategy)}

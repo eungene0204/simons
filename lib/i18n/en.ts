@@ -3915,4 +3915,5 @@ export const en: Record<string, string> = {
   "아직 공개된 전략이 없습니다": "No strategies have been shared yet",
   "'내 전략' 메뉴에서 전략을 공개로 전환하면 여기에 표시됩니다.": "Switch a strategy to public in 'My Strategies' to show it here.",
   "표시할 전략 조건이 없습니다.": "No strategy conditions to show.",
+  "삭제 중...": "Deleting...",
 };

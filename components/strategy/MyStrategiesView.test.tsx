@@ -183,4 +183,33 @@ describe("MyStrategiesView", () => {
     expect(screen.getByText("캐시된 전략")).toBeInTheDocument();
     expect(screen.queryByText("전략 목록을 불러올 수 없습니다")).not.toBeInTheDocument();
   });
+
+  it("삭제 요청 중에는 카드에 진행 표시(스피너·'삭제 중...')를 보이고 끝나면 카드가 사라진다", async () => {
+    const user = userEvent.setup();
+    let resolveDelete: (value: unknown) => void = () => {};
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/dashboard/strategy-list") {
+        return Promise.resolve({ ok: true, json: async () => ({ strategies: [{
+          id: "strategy-1", name: "급등주 전략", description: null, type: "모멘텀", universe: "KOSPI",
+          aiScore: null, avgReturnPct: 0, accountCount: 0, isPublic: false, createdAt: "2026-06-29T00:00:00.000Z",
+        }] }) });
+      }
+      if (init?.method === "DELETE") return new Promise((resolve) => { resolveDelete = resolve; });
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    }));
+
+    render(<MyStrategiesView />);
+    const deleteButton = await screen.findByRole("button", { name: "급등주 전략 전략 삭제" });
+    await act(async () => {
+      await user.click(deleteButton);
+    });
+
+    expect(screen.getByText("삭제 중...")).toBeInTheDocument();
+    expect(screen.getByTestId("strategy-deleting")).toHaveAttribute("aria-busy", "true");
+
+    await act(async () => {
+      resolveDelete({ ok: true, json: async () => ({ ok: true }) });
+    });
+    await waitFor(() => expect(screen.queryByText("급등주 전략")).not.toBeInTheDocument());
+  });
 });
