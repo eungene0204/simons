@@ -133,7 +133,9 @@ export function layoutTree(graph: StrategyGraph, open: OpenState): TreeLayout {
   const nodeDraft = (id: string): Draft => {
     const n = nodeById.get(id)!;
     const status = STATUS_LABELS[n.status];
-    return makeItem(uniq(`node:${id}`), "node", id, id, n.kind, [n.label], status ? t(status) : null, ["pending", "check_needed", "unsupported", "data_pending"].includes(n.status));
+    const d = makeItem(uniq(`node:${id}`), "node", id, id, n.kind, [n.label], status ? t(status) : null, ["pending", "check_needed", "unsupported", "data_pending"].includes(n.status));
+    // 루트 노드는 한 줄 라벨이라 다른 노드보다 납작하게 그린다.
+    return id === "strategy" ? { ...d, w: d.w - 16, h: d.h - 14 } : d;
   };
 
   /** Parameters and the used indicator of an opened item, as small leaves hanging below it. */
