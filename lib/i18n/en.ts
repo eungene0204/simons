@@ -3908,7 +3908,6 @@ export const en: Record<string, string> = {
   "공개 계좌 수익률": "Public account return",
   "공개된 운용 계좌가 없습니다": "No public accounts run this strategy",
   "(종료)": "(closed)",
-  "최근 갱신 {0}": "Updated {0}",
   "공유 전략을 불러오지 못했습니다.": "Failed to load shared strategies.",
   "사용자가 공개한 전략과, 그 전략을 운용하는 공개 모의투자 계좌의 수익률입니다. 수익률 높은 순으로 정렬됩니다.": "Strategies shared by users, with the returns of the public paper-trading accounts that run them. Sorted by return, highest first.",
   "모의투자 시뮬레이션 결과이며 투자 권유가 아닙니다. 과거 수익률은 미래 수익을 보장하지 않습니다.": "These are paper-trading simulation results, not investment advice. Past returns do not guarantee future results.",

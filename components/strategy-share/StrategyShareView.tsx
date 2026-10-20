@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowDownRight, ArrowUpRight, Spinner } from "phosphor-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import { getLocale, t } from "@/lib/i18n";
+import { t } from "@/lib/i18n";
 import { useRegionHref } from "@/lib/geo/useRegion";
 import { buildStrategySummaryFromDsl, buildStrategySummaryGroups } from "@/lib/strategy-summary";
 import type { StrategyDSL } from "@/types/strategy";
@@ -110,10 +110,6 @@ function StrategyCard({ strategy }: { strategy: SharedStrategyCard }) {
           ))}
         </ul>
       )}
-
-      <p className="mt-3 flex-shrink-0 text-[11px] font-bold text-gray-500">
-        {t("최근 갱신 {0}", new Date(strategy.updatedAt).toLocaleDateString(getLocale()))}
-      </p>
     </article>
   );
 }

@@ -21,7 +21,6 @@ export interface SharedStrategyCard {
   // 공개 계좌 수익률의 평균. 공개 계좌가 없으면 null.
   avgReturnPct: number | null;
   accounts: SharedStrategyAccount[];
-  updatedAt: string;
 }
 
 type StrategyRow = {
@@ -30,7 +29,6 @@ type StrategyRow = {
   name: string;
   description: string | null;
   settings: string;
-  updatedAt: Date;
 };
 
 function publicSettings(raw: string): Record<string, unknown> | null {
@@ -76,7 +74,6 @@ export function buildSharedStrategyCards(
       settings: publicSettings(s.settings),
       avgReturnPct,
       accounts: accounts.sort((a, b) => b.returnPct - a.returnPct),
-      updatedAt: s.updatedAt.toISOString(),
     };
   });
 
