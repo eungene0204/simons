@@ -576,6 +576,13 @@ def normalize_sector(raw: Optional[str]) -> Optional[str]:
     return _SECTOR_SYNONYMS.get(key)
 
 
+# 정본 업종과 **같은 개념의 다른 이름**인 동의어 — 글자가 정본명 밖이어도 범위가 넓어지지
+# 않는다. 이 목록에 없는 동의어('양극재'→이차전지·'리츠'→부동산)는 좁힘 요청이라 근사로 본다.
+# '선박'은 조선 업종의 다른 이름인데, 근사로 분류돼 글자 포함 일치 테마 '선박평형수'로
+# 되묻기가 새는 사고가 있었다(2026-10-20).
+_SAME_CONCEPT_SECTOR_ALIASES: frozenset[str] = frozenset({"선박"})
+
+
 def is_narrow_sector_approximation(raw: Optional[str]) -> bool:
     """동의어 매칭이 사용자가 말한 것보다 넓은 섹터로 뭉뚱그렸는지 판정한다.
 
@@ -597,7 +604,7 @@ def is_narrow_sector_approximation(raw: Optional[str]) -> bool:
     if key in _CANONICAL_BY_KEY:
         return False
     sector = _SECTOR_SYNONYMS.get(key)
-    if not sector:
+    if not sector or key in _SAME_CONCEPT_SECTOR_ALIASES:
         return False
     if "/" in sector:
         return True

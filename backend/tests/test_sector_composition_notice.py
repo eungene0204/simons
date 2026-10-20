@@ -99,3 +99,23 @@ def test_nuclear_notice_warns_about_oil_and_gas():
     notice = sector_composition_notice("원자력", count=len(filter_by_sector(list(_load_sector_map()), "원자력")))
     assert notice is not None
     assert "정유" in notice and "도시가스" in notice
+
+
+def test_same_concept_alias_is_not_flagged_as_narrowing():
+    """'선박'은 조선 업종의 다른 이름이다 — 근사로 걸리면 글자 포함 테마 '선박평형수'로
+    되묻기가 새고 조선 업종 해석을 덮는다(2026-10-20)."""
+    assert normalize_sector("선박") == "조선"
+    assert is_narrow_sector_approximation("선박") is False
+
+
+def test_real_narrowing_synonyms_still_flagged():
+    """같은 개념 별칭 예외가 좁힘 동의어까지 풀지 않는다."""
+    assert is_narrow_sector_approximation("양극재") is True
+    assert is_narrow_sector_approximation("리츠") is True
+
+
+def test_classify_universe_keeps_ship_alias_as_sector():
+    from strategy_conversation.tools.catalog import ClassifyUniverseIn, _classify_universe
+
+    out = _classify_universe(ClassifyUniverseIn(text="선박"))
+    assert (out.universe_type, out.canonical) == ("SECTOR", "조선")
