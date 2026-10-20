@@ -46,7 +46,7 @@ function StrategyCard({ strategy }: { strategy: SharedStrategyCard }) {
   }
   return (
     <article
-      className="flex h-[32rem] flex-col rounded-2xl border border-white/[0.05] bg-[var(--card-bg)] p-5"
+      className="flex h-[32rem] flex-col rounded-2xl bg-[var(--card-bg)] p-5"
       data-testid="shared-strategy-card"
     >
       <h2 className="truncate text-sm font-black text-white">{strategy.name}</h2>
@@ -66,7 +66,7 @@ function StrategyCard({ strategy }: { strategy: SharedStrategyCard }) {
       </div>
 
       <div
-        className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto border-t border-white/[0.06] pt-4"
+        className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto pt-1"
         data-testid="shared-strategy-conditions"
       >
         {groups.length === 0 ? (
@@ -91,7 +91,7 @@ function StrategyCard({ strategy }: { strategy: SharedStrategyCard }) {
       </div>
 
       {strategy.accounts.length > 0 && (
-        <ul className="mt-4 max-h-24 divide-y divide-white/[0.06] overflow-y-auto border-t border-white/[0.06]">
+        <ul className="mt-4 max-h-24 overflow-y-auto">
           {strategy.accounts.map((account) => (
             <li key={account.id}>
               <Link
@@ -146,8 +146,8 @@ export default function StrategyShareView() {
 
   return (
     <DashboardLayout userName="">
-      <div className="w-full min-w-0 border border-white/[0.08]">
-        <div className="divide-y divide-white/[0.08]">
+      <div className="w-full min-w-0">
+        <div>
           <header className="p-5">
             <h1 className="font-serif text-2xl text-white">{t("전략공유")}</h1>
             <p className="mt-2 text-sm font-bold text-gray-400">
