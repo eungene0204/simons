@@ -25,6 +25,7 @@ vi.mock("@/lib/server/assetService", () => ({
 const updatedAt = new Date("2026-10-20T00:00:00Z");
 const strategy = (id: string, userId: number, name: string) => ({
   id, userId, name, description: `${name} 설명`, updatedAt,
+  settings: JSON.stringify({ id, userId, strategy_id: "hash", symbols: ["005930"], universe: { id: "KOSPI" }, risk: { stop_loss_pct: 5 } }),
 });
 const account = (id: string, strategyId: string, userId: number, currentCash: number) => ({
   id, userId, strategyId, name: `계좌 ${id}`, isPublic: true, status: "ACTIVE", currency: "KRW",
@@ -82,6 +83,8 @@ describe("GET /api/shared/strategies", () => {
     expect(card.accounts.map((a: any) => a.id)).toEqual(["mine"]);
     expect(JSON.stringify(body)).not.toContain('"s1"');
     expect(card).not.toHaveProperty("userId");
+    // 조건 표시용 설정은 싣되 전략 ID·소유자 필드는 뺀다.
+    expect(card.settings).toEqual({ universe: { id: "KOSPI" }, risk: { stop_loss_pct: 5 } }); // strategy_id·symbols도 제외
     expect(card.accounts[0]).not.toHaveProperty("userId");
   });
 });

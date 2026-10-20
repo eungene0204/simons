@@ -11,7 +11,7 @@ export async function GET() {
     const strategies = await prisma.strategy.findMany({
       where: { isPublic: true, isSaved: true, deletedAt: null },
       orderBy: { updatedAt: 'desc' },
-      select: { id: true, userId: true, name: true, description: true, updatedAt: true },
+      select: { id: true, userId: true, name: true, description: true, settings: true, updatedAt: true },
     });
     const accounts =
       strategies.length > 0

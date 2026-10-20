@@ -6,6 +6,8 @@ import { ArrowDownRight, ArrowUpRight, Spinner } from "phosphor-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { getLocale, t } from "@/lib/i18n";
 import { useRegionHref } from "@/lib/geo/useRegion";
+import { buildStrategySummaryFromDsl, buildStrategySummaryGroups } from "@/lib/strategy-summary";
+import type { StrategyDSL } from "@/types/strategy";
 import type { SharedStrategyCard } from "@/lib/server/sharedStrategies";
 
 function formatReturn(value: number) {
@@ -30,12 +32,27 @@ function ReturnBadge({ value }: { value: number }) {
 
 function StrategyCard({ strategy }: { strategy: SharedStrategyCard }) {
   const regionHref = useRegionHref();
+  // 전략 조건 — 계좌 상세 화면과 같은 라벨 규칙(유니버스·진입신호·청산신호·리스트·리스크 관리).
+  const groups = buildStrategySummaryGroups(
+    buildStrategySummaryFromDsl(strategy.settings as StrategyDSL | null)
+  );
+  // ETF 테마("반도체")는 유니버스 라벨이 "ETF"로만 나오므로 설정의 테마를 유니버스 칩에 덧붙인다.
+  const etfTheme = typeof strategy.settings?.etf_theme === "string" ? strategy.settings.etf_theme : null;
+  if (etfTheme) {
+    const label = /[a-z]/i.test(etfTheme) ? etfTheme : t("{0} 테마", etfTheme);
+    const universeGroup = groups.find((group) => group.chips.length > 0 && group.label === t("유니버스"));
+    if (universeGroup && !universeGroup.chips.includes(label)) universeGroup.chips = [...universeGroup.chips, label];
+    else if (!universeGroup) groups.unshift({ label: t("유니버스"), chips: [label] });
+  }
   return (
-    <article className="flex h-80 flex-col border-r border-b border-white/[0.08] p-5" data-testid="shared-strategy-card">
+    <article
+      className="flex h-[32rem] flex-col rounded-2xl border border-white/[0.05] bg-[var(--card-bg)] p-5"
+      data-testid="shared-strategy-card"
+    >
       <h2 className="truncate text-sm font-black text-white">{strategy.name}</h2>
-      <p className="mt-3 line-clamp-3 min-h-[3.75rem] text-xs font-bold leading-relaxed text-gray-400">
-        {strategy.description || t("전략 설명이 없습니다.")}
-      </p>
+      {strategy.description && (
+        <p className="mt-2 line-clamp-2 text-xs font-bold leading-relaxed text-gray-400">{strategy.description}</p>
+      )}
 
       <div className="mt-4 flex items-center justify-between gap-3">
         <span className="text-xs font-bold text-[var(--text-label)]">
@@ -48,8 +65,33 @@ function StrategyCard({ strategy }: { strategy: SharedStrategyCard }) {
         )}
       </div>
 
+      <div
+        className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto border-t border-white/[0.06] pt-4"
+        data-testid="shared-strategy-conditions"
+      >
+        {groups.length === 0 ? (
+          <p className="text-xs font-bold text-gray-400">{t("표시할 전략 조건이 없습니다.")}</p>
+        ) : (
+          groups.map((group) => (
+            <div key={group.label}>
+              <p className="text-[11px] font-bold text-[var(--text-label)]">{group.label}</p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {group.chips.map((chip, index) => (
+                  <span
+                    key={`${chip}-${index}`}
+                    className="inline-flex items-center rounded-md bg-white/[0.06] px-2 py-1 text-xs font-bold text-gray-300"
+                  >
+                    {chip}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
       {strategy.accounts.length > 0 && (
-        <ul className="mt-3 min-h-0 flex-1 divide-y divide-white/[0.06] overflow-y-auto border-t border-white/[0.06]">
+        <ul className="mt-4 max-h-24 divide-y divide-white/[0.06] overflow-y-auto border-t border-white/[0.06]">
           {strategy.accounts.map((account) => (
             <li key={account.id}>
               <Link
@@ -69,7 +111,7 @@ function StrategyCard({ strategy }: { strategy: SharedStrategyCard }) {
         </ul>
       )}
 
-      <p className="mt-auto flex-shrink-0 pt-4 text-[11px] font-bold text-gray-500">
+      <p className="mt-3 flex-shrink-0 text-[11px] font-bold text-gray-500">
         {t("최근 갱신 {0}", new Date(strategy.updatedAt).toLocaleDateString(getLocale()))}
       </p>
     </article>
@@ -133,7 +175,7 @@ export default function StrategyShareView() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 p-5 md:grid-cols-2 xl:grid-cols-3">
               {strategies.map((strategy) => (
                 <StrategyCard key={strategy.key} strategy={strategy} />
               ))}

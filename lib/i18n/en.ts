@@ -3904,7 +3904,6 @@ export const en: Record<string, string> = {
   "백테스트 기간 {0}": "Backtest period {0}",
   "전략공유": "Shared Strategies",
   "공개하면 전략공유 화면에 표시됩니다.": "Public strategies appear on the Shared Strategies page.",
-  "전략 설명이 없습니다.": "No description.",
   "공개 계좌 평균 수익률": "Avg. return of public accounts",
   "공개 계좌 수익률": "Public account return",
   "공개된 운용 계좌가 없습니다": "No public accounts run this strategy",
@@ -3916,4 +3915,5 @@ export const en: Record<string, string> = {
   "공유 전략을 불러오는 중입니다...": "Loading shared strategies...",
   "아직 공개된 전략이 없습니다": "No strategies have been shared yet",
   "'내 전략' 메뉴에서 전략을 공개로 전환하면 여기에 표시됩니다.": "Switch a strategy to public in 'My Strategies' to show it here.",
+  "표시할 전략 조건이 없습니다.": "No strategy conditions to show.",
 };

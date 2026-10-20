@@ -21,6 +21,7 @@ describe("StrategyShareView", () => {
       strategies: [
         {
           key: "s0", name: "RSI 반등", description: "RSI 30 이하 매수",
+          settings: { universe: { id: "KOSPI" }, etf_theme: "반도체", risk: { stop_loss_pct: 5, max_positions: 10 } },
           avgReturnPct: 12.345, updatedAt: "2026-10-20T00:00:00Z",
           accounts: [{ id: "a1", name: "계좌1", currency: "KRW", status: "ACTIVE", returnPct: 12.345, createdAt: "2026-10-01T00:00:00Z" }],
         },
@@ -37,6 +38,13 @@ describe("StrategyShareView", () => {
     expect(screen.getAllByText("+12.35%").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: /계좌1/ })).toHaveAttribute("href", "/shared/virtual-account/a1");
     expect(screen.getByText("공개된 운용 계좌가 없습니다")).toBeInTheDocument();
+    // 카드에 전략 조건(유니버스·리스크 관리)이 묶음으로 보이고, 조건 없는 카드는 안내 문구.
+    const [first, second] = screen.getAllByTestId("shared-strategy-conditions");
+    expect(first).toHaveTextContent("유니버스");
+    expect(first).toHaveTextContent("KOSPI");
+    expect(first).toHaveTextContent("반도체 테마");
+    expect(first).toHaveTextContent("리스크 관리");
+    expect(second).toHaveTextContent("표시할 전략 조건이 없습니다.");
     expect(screen.getByText(/과거 수익률은 미래 수익을 보장하지 않습니다/)).toBeInTheDocument();
   });
 

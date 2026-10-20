@@ -16,6 +16,8 @@ export interface SharedStrategyCard {
   key: string;
   name: string;
   description: string | null;
+  // 전략 조건 표시용 DSL(카드가 buildStrategySummaryFromDsl로 라벨을 만든다). 전략 ID·소유자 필드는 뺀다.
+  settings: Record<string, unknown> | null;
   // 공개 계좌 수익률의 평균. 공개 계좌가 없으면 null.
   avgReturnPct: number | null;
   accounts: SharedStrategyAccount[];
@@ -27,8 +29,22 @@ type StrategyRow = {
   userId: number | null;
   name: string;
   description: string | null;
+  settings: string;
   updatedAt: Date;
 };
+
+function publicSettings(raw: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    // 전략 ID(strategy_id)와, 유니버스에서 풀어 낸 종목 코드 목록(symbols — 길고 조건이 아님)은 뺀다.
+    const { id: _id, userId: _userId, strategy_id: _strategyId, symbols: _symbols, ...rest } =
+      parsed as Record<string, unknown>;
+    return rest;
+  } catch {
+    return null;
+  }
+}
 
 export function buildSharedStrategyCards(
   strategies: StrategyRow[],
@@ -57,6 +73,7 @@ export function buildSharedStrategyCards(
       key: `s${index}`,
       name: s.name,
       description: s.description ?? null,
+      settings: publicSettings(s.settings),
       avgReturnPct,
       accounts: accounts.sort((a, b) => b.returnPct - a.returnPct),
       updatedAt: s.updatedAt.toISOString(),
