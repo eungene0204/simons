@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { GUIDE_ARTICLES } from "@/lib/guide/articles";
+import { NOTES, NOTES_COLLECTION } from "@/lib/notes/notes";
 import { GuideArticlePage } from "./GuideArticlePage";
 import { GuideIndexPage } from "./GuideIndexPage";
 
@@ -43,7 +44,8 @@ describe("GuideArticlePage", () => {
       expect(document.getElementById(`section-${index + 1}`)).not.toBeNull();
     });
 
-    expect(screen.getByText(/미래 수익은 보장되지 않습니다/)).toBeInTheDocument();
+    expect(screen.getAllByText(/미래 수익은 보장되지 않습니다/).length).toBeGreaterThan(0);
+    expect(screen.getByRole("heading", { name: "자주 묻는 질문" })).toBeInTheDocument();
   });
 
   it("links related articles and embeds Article JSON-LD", () => {
@@ -61,5 +63,20 @@ describe("GuideArticlePage", () => {
     render(<GuideArticlePage article={article} />);
     expect(screen.getByRole("link", { name: "백테스트 가이드" })).toHaveAttribute("href", "/guide");
     expect(screen.getByRole("link", { name: "전략 백테스트하기" })).toHaveAttribute("href", "/");
+  });
+});
+
+describe("GuideArticlePage with the research-notes collection", () => {
+  const note = NOTES[0];
+
+  it("renders result tables, links back to /notes, and points related reading at the guide", () => {
+    render(<GuideArticlePage article={note} collection={NOTES_COLLECTION} />);
+    const tables = screen.getAllByRole("table");
+    expect(tables.length).toBe(note.sections.filter((section) => section.table).length);
+    expect(within(tables[0]).getAllByRole("row")).toHaveLength(1 + note.sections.find((s) => s.table)!.table!.rows.length);
+    expect(screen.getByRole("link", { name: "연구노트" })).toHaveAttribute("href", "/notes");
+    const hrefs = screen.getAllByRole("link").map((link) => link.getAttribute("href"));
+    expect(hrefs).toContain("/guide/backtest-trading-costs");
+    expect(screen.getByTestId("guide-structured-data").textContent).toContain(`/notes/${note.slug}`);
   });
 });

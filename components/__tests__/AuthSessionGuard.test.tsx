@@ -43,6 +43,8 @@ describe("AuthSessionGuard 공개 경로", () => {
     "/",
     "/guide",
     "/guide/what-is-backtest",
+    "/notes",
+    "/notes/cost-sensitivity-ma-crossover",
     "/board",
     "/board/new",
   ])(
@@ -56,6 +58,11 @@ describe("AuthSessionGuard 공개 경로", () => {
 
   it("공개 접두사는 이름만 닮은 보호 경로까지 열어 주지 않는다", async () => {
     renderAt("/guidebook-private");
+    await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/"));
+  });
+
+  it("연구노트 접두사도 이름만 닮은 보호 경로는 열지 않는다", async () => {
+    renderAt("/notes-private");
     await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/"));
   });
 
