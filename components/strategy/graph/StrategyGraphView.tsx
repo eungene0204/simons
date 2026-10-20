@@ -32,6 +32,8 @@ const BUILD_UP_MIN_ITEMS = 4;
 const BUILD_UP_STEP_MS = 380;
 const BUILD_UP_TOTAL_MS = 7000;
 const BUILD_UP_EDGE_LEAD_MS = 320;
+// A node added to an existing graph rings once it has popped in.
+const ADDED_LEAD_MS = 420;
 /** Keys of what has already been drawn; only what is not in here animates in. */
 export interface GraphSeen {
   items: Set<string>;
@@ -102,14 +104,19 @@ export default function StrategyGraphView({ graph, selectedId, open, onSelect, s
   const fresh = useMemo(
     () =>
       instant
-        ? { items: new Set<string>(), edges: new Set<string>() }
+        ? { items: new Set<string>(), edges: new Set<string>(), addition: false }
         : {
             items: new Set(layout.order.filter((k) => !drawn.items.has(k))),
             edges: new Set(layout.edges.map((e) => e.key).filter((k) => !drawn.edges.has(k))),
+            // Something was on screen before: what is new now was added to an existing graph.
+            addition: drawn.items.size > 0,
           },
     [layout, drawn, instant],
   );
   const isNewItem = (key: string) => fresh.items.has(key);
+  // Only a node/section added to an existing graph is called out; the very first draw is not a
+  // change, and the detail leaves that opening a node reveals are not additions either.
+  const isAddedNode = (key: string, kind: LayoutItem["kind"]) => fresh.addition && kind !== "leaf" && fresh.items.has(key);
   const isNewEdge = (key: string) => fresh.edges.has(key);
   // A graph drawn for the first time (many new items) builds up one item at a time in flow order,
   // each item appearing right after the edge that leads to it. Small additions keep the quick stagger.
@@ -283,6 +290,23 @@ export default function StrategyGraphView({ graph, selectedId, open, onSelect, s
                     strokeWidth={selected ? 2.5 : 1.2}
                     strokeDasharray={i.unresolved ? "5 4" : undefined}
                   />
+                  {isAddedNode(key, i.kind) && (
+                    <rect
+                      data-testid="graph-added-highlight"
+                      className="sg-added"
+                      style={{ animationDelay: `${itemDelayMs(key, i.depth) + ADDED_LEAD_MS}ms` }}
+                      x={-3}
+                      y={-3}
+                      width={i.w + 6}
+                      height={i.h + 6}
+                      rx={rx + 3}
+                      fill="none"
+                      stroke={SELECT}
+                      strokeWidth={3}
+                      pointerEvents="none"
+                      aria-hidden="true"
+                    />
+                  )}
                   <foreignObject x={6} y={2} width={i.w - 12} height={i.h - 4}>
                     <div
                       className="flex h-full flex-col items-center justify-center text-center leading-tight"
@@ -314,9 +338,11 @@ const ANIMATION_CSS = `
 .sg-edge{transition:d 450ms cubic-bezier(0.22,1,0.36,1),transform 450ms cubic-bezier(0.22,1,0.36,1)}
 .sg-fade{animation:sg-fade 300ms ease-out both}
 @keyframes sg-fade{from{opacity:0}to{opacity:1}}
+.sg-added{transform-box:fill-box;transform-origin:center;opacity:0;animation:sg-added 2600ms ease-out both}
+@keyframes sg-added{0%{opacity:0;transform:scale(0.96)}12%{opacity:1;transform:scale(1)}30%{opacity:0.35;transform:scale(1.03)}48%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.08)}}
 .sg-draw{stroke-dasharray:1;animation:sg-draw 650ms ease-out both}
 @keyframes sg-draw{from{stroke-dashoffset:1;opacity:0.15}to{stroke-dashoffset:0;opacity:0.85}}
-@media (prefers-reduced-motion: reduce){.sg-enter,.sg-draw,.sg-fade{animation:none}.sg-item,.sg-edge{transition:none !important}}
+@media (prefers-reduced-motion: reduce){.sg-enter,.sg-draw,.sg-fade{animation:none}.sg-added{animation:none;display:none}.sg-item,.sg-edge{transition:none !important}}
 `;
 
 const toolButton =

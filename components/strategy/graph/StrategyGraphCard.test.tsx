@@ -249,6 +249,26 @@ describe("StrategyGraphCard", () => {
     expect(drawn).toBeLessThan(all);
   });
 
+  it("rings only the nodes added to an existing graph, not the first draw or the leaves of an opened node", async () => {
+    const seen = createGraphSeen();
+    const ringed = () => Array.from(document.querySelectorAll('[data-testid="graph-added-highlight"]')).map((r) => r.closest("[data-item-key]")?.getAttribute("data-item-key"));
+    const first = render(<StrategyGraphCard input={confirmedInput("goldenCrossRsiAnd")} title="초안" seen={seen} />);
+    await screen.findByTestId("strategy-graph-canvas");
+    // First draw: everything is new, but nothing was added to anything.
+    expect(ringed()).toEqual([]);
+    // Opening a node reveals leaves, which are not additions.
+    fireEvent.click(node("condition", "RSI"));
+    expect(ringed()).toEqual([]);
+    first.unmount();
+
+    // A later, bigger strategy of the same conversation: only the new section is ringed.
+    render(<StrategyGraphCard input={confirmedInput("entryOrWithFilters")} title="초안" seen={seen} />);
+    await screen.findByTestId("strategy-graph-canvas");
+    expect(ringed()).toContain("pill:section:filters:종목 선정 필터");
+    expect(ringed()).not.toContain("node:strategy");
+    expect(ringed()).not.toContain("pill:section:entry:매수 규칙");
+  });
+
   it("builds a first-drawn graph up one item at a time, each edge leading its item", async () => {
     renderCard(confirmedInput("krComplex"));
     await screen.findByTestId("strategy-graph-canvas");
