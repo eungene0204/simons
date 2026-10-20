@@ -505,6 +505,14 @@ export function StrategyExampleTabs({
             </Link>
           )}
           {region !== "us" && (
+            <Link
+              href="/notes"
+              className="mb-3 mr-4 inline-flex text-xs font-black text-gray-400 underline-offset-4 transition-colors hover:text-white hover:underline"
+            >
+              {t("연구노트")}
+            </Link>
+          )}
+          {region !== "us" && (
             <Link href="/board" className="mb-3 mr-4 inline-flex text-xs font-black text-gray-400 underline-offset-4 transition-colors hover:text-white hover:underline">
               {t("자유게시판")}
             </Link>

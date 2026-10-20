@@ -37,13 +37,16 @@ describe("StrategyExampleTabs", () => {
     const usageNotice = screen.getByRole("contentinfo", { name: "전략연구소 이용 안내" });
     const termsLink = within(usageNotice).getByRole("link", { name: "이용약관" });
     expect(termsLink).toHaveAttribute("href", "/?legal=terms");
-    // 푸터 링크 줄: 백테스트 가이드 → 이용약관 순으로 안내 문구보다 앞에 온다.
+    // 푸터 링크 줄: 백테스트 가이드 → 연구노트 → 자유게시판 → 이용약관 순으로 안내 문구보다 앞에 온다.
     const guideLink = within(usageNotice).getByRole("link", { name: "백테스트 가이드" });
     expect(guideLink).toHaveAttribute("href", "/guide");
     expect(usageNotice.firstElementChild).toBe(guideLink);
+    const notesLink = within(usageNotice).getByRole("link", { name: "연구노트" });
+    expect(notesLink).toHaveAttribute("href", "/notes");
+    expect(guideLink.nextElementSibling).toBe(notesLink);
     const boardLink = within(usageNotice).getByRole("link", { name: "자유게시판" });
     expect(boardLink).toHaveAttribute("href", "/board");
-    expect(guideLink.nextElementSibling).toBe(boardLink);
+    expect(notesLink.nextElementSibling).toBe(boardLink);
     expect(boardLink.nextElementSibling).toBe(termsLink);
     expect(within(usageNotice).getByText(
       "널스탁에서 제공하는 투자 정보는 고객의 투자 판단을 위한 단순 참고용일 뿐입니다. 백테스트 입력 예시에 쓰인 수치는 단순 예시값이며, 투자 추천이나 미래 성과를 의미하지 않습니다."

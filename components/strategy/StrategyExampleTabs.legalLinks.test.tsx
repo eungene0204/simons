@@ -66,8 +66,9 @@ describe("StrategyExampleTabs legal links", () => {
       within(usageNotice).getByRole("link", { name: "support@nullstock.im" })
     ).toHaveAttribute("href", "mailto:support@nullstock.im");
 
-    // 가이드는 한국어 전용 글이라 글로벌 푸터에는 링크를 두지 않는다.
+    // 가이드·연구노트는 한국어 전용 글이라 글로벌 푸터에는 링크를 두지 않는다.
     expect(within(usageNotice).queryByRole("link", { name: /백테스트 가이드|Backtesting Guide/ })).toBeNull();
+    expect(within(usageNotice).queryByRole("link", { name: /연구노트|Research Notes/ })).toBeNull();
 
     const noticeText = usageNotice.textContent ?? "";
     expect(noticeText).not.toContain("Company:"); // 상호
