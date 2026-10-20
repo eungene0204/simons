@@ -445,6 +445,7 @@ KR/EN 언어 토글을 폐지하고 **URL 경로 기반의 지역 서비스**로
 | `/virtual-account` | 가상 계좌 목록 | `VirtualAccountCard` |
 | `/virtual-account/[id]` | 가상 계좌 상세 (포트폴리오) | `VirtualAccountMainView` |
 | `/shared/virtual-account/[id]` | 공개(`isPublic`) 가상계좌 읽기 전용 열람(비로그인, 같은 상세 화면 · noindex) | 상세 페이지 재사용(경로로 읽기 전용 판정) |
+| `/strategy-share` | 전략공유 — 공개(`Strategy.isPublic`) 전략 카드 + 그 전략을 쓰는 공개 계좌 수익률(수익률 순). 대시보드 메뉴 자리 | `GET /api/shared/strategies` → `lib/server/sharedStrategies.ts`(계좌 값은 `mapAccount` 공용) |
 | `/watchlist` | 관심 종목 관리 | `Watchlist` |
 | `/console` | **관리자 콘솔** (운영자 전용, 단일 화면 탭 — Overview/Architecture/Users/Backtests/Accounts/Strategies/Plans/Knowledge/Agents/Q&A/Audit) | `AdminConsole` + `components/admin/*Tab` |
 [2026-10-07 사용 이력] 월 사용량 갱신은 기존 플랜·주기·카운터를 WHERE 조건으로 포함하는 compare-and-swap이며, 충돌 시 최대 10회 재조회 후 실패를 반환한다. 누적 카운터와 마지막 요청 시각을 같은 write에서 갱신한다. 관리자 조정은 충돌 시 409이며 변경을 덮어쓰지 않는다. `backtestRunTotal`/`lastBacktestAt`은 한도 승인을 받은 요청 기준(백엔드 실패 포함, 2026-09-30부터)으로 성공 완료 건수가 아니다. console의 최근 저장 결과는 `UserBacktestHistory.savedAt` 기준이며 실행 건별 원장이 아니다. 기존 응답 필드명 `recentRuns`는 API 호환을 위해 유지한다.

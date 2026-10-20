@@ -214,6 +214,10 @@ Claude의 `nullstock-promo-cf` 스킬로 실제 문장 입력·초안/확정 그
 - 데이터 한계: 로컬 `data/quarterly-earnings/` 498개 캐시에는 영업이익 값이 없어 실제 종목 판정은 불가능하다. 운영 캐시의 수집 상태는 미확인이다. 값이 없는 종목·기간은 조건에서 제외한다. 기존 분기 손익 백필 작업이 필요하다.
 - 후속 실측(2026-10-06): 전체 원문을 로컬 Next 스트리밍 API에 전송해 직접 비교 지표와 빈 근사 안내를 확인했다. 중복 영업이익 금액 되묻기를 막도록 프롬프트를 보강하고 캐시 버전을 8.7로 올렸다. 옛 성장률 조건을 명시적으로 대체하는 기존 전략 수정도 확인했다. 관련 백엔드 테스트 331건 통과; 전체 수집은 로컬 DNS에서 `data.krx.co.kr` 조회 실패로 중단됐다.
 
+### 개발 작업 — 2026-10-20 전략공유 메뉴 ✅ 완료
+
+- 상단 메뉴의 대시보드를 숨기고(`/dashboard` 페이지·API 유지) 그 자리에 '전략공유'(`/strategy-share`)를 둔다. `Strategy.isPublic`(마이그레이션 `20261020000000`, 운영 DB 적용 완료 2026-10-21), PATCH `/api/strategy/[id]` `isPublic`, 전략연구소 '내 전략' 카드의 공개/비공개 토글. `GET /api/shared/strategies`가 공개 전략과 그 전략을 쓰는 **공개 계좌**(같은 소유자)의 수익률을 수익률 순으로 돌려준다(공개 계좌 없는 전략은 뒤, 소유자·전략 ID 제외). 카드의 계좌 줄은 `/shared/virtual-account/{id}`로 연결.
+
 ### 개발 작업 — 2026-10-15 가상계좌 공개/비공개 ✅ 완료
 
 - `VirtualAccount.isPublic`(마이그레이션 `20261015000000`), PATCH `isPublic`, 상세 헤더 토글(툴팁 안내), 공개 열람 `/shared/virtual-account/[id]` + `GET /api/shared/virtual-account/[id]`(읽기 전용, 전략 상세·소유자 정보 제외). 계좌 응답 매퍼를 `lib/server/virtualAccountDetail.ts`로 공용화. 시뮬레이션 토글 설명 "?" 툴팁 제거.

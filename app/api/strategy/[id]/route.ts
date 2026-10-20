@@ -157,3 +157,29 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ error: "Failed to fetch strategy" }, { status: 500 });
   }
 }
+
+// 공개/비공개 전환(2026-10-20) — 공개 전략은 '전략공유' 화면에 카드로 실린다. 소유자만 바꿀 수 있다.
+export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+  try {
+    const { userId } = await getOwnershipContext()
+    const body = await req.json().catch(() => null)
+    if (typeof body?.isPublic !== "boolean") {
+      return NextResponse.json({ error: "isPublic must be a boolean" }, { status: 400 })
+    }
+
+    const { count } = await prisma.strategy.updateMany({
+      where: withOwnership({ id: params.id, isSaved: true }, userId),
+      data: { isPublic: body.isPublic },
+    })
+    if (count === 0) {
+      return NextResponse.json({ error: "Strategy not found" }, { status: 404 })
+    }
+    return NextResponse.json({ id: params.id, isPublic: body.isPublic })
+  } catch (error) {
+    if (isUnauthorizedAccessError(error)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    console.error("Failed to update strategy visibility:", error);
+    return NextResponse.json({ error: "Failed to update strategy" }, { status: 500 });
+  }
+}

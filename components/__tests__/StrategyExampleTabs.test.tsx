@@ -211,6 +211,49 @@ describe("StrategyExampleTabs", () => {
     });
   });
 
+  it("내 전략 카드의 공개 토글을 누르면 공개 전환 API를 호출하고 공개로 표시한다", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === "/api/dashboard/strategy-list") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            strategies: [
+              {
+                id: "strategy-1", name: "급등주 전략", description: null, type: "모멘텀", universe: "KOSPI",
+                aiScore: null, avgReturnPct: 0, accountCount: 0, isPublic: false, createdAt: "2026-06-29T00:00:00.000Z",
+              },
+            ],
+          }),
+        });
+      }
+      if (url === "/api/strategy/strategy-1" && init?.method === "PATCH") {
+        return Promise.resolve({ ok: true, json: async () => ({ id: "strategy-1", isPublic: true }) });
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<StrategyExampleTabs onSelectExample={vi.fn()} />);
+    await act(async () => {
+      await user.click(screen.getByRole("button", { name: "내 전략" }));
+    });
+
+    const toggle = await screen.findByRole("button", { name: "비공개" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await act(async () => {
+      await user.click(toggle);
+    });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/strategy/strategy-1", expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ isPublic: true }),
+      }));
+      expect(screen.getByRole("button", { name: "공개" })).toHaveAttribute("aria-pressed", "true");
+    });
+  });
+
   it("예시 카드를 누르면 안내가 포함된 편집 모달을 보여주고 시작 시 편집된 프롬프트를 보낸다", async () => {
     const onSelectExample = vi.fn();
     const user = userEvent.setup();

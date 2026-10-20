@@ -29,6 +29,7 @@ export interface StrategyListItem {
   totalProfit: number;
   accountCount: number;
   autoTradingCount: number; // 자동매매 중인 계좌 수
+  isPublic: boolean;        // '전략공유' 화면 공개 여부
   createdAt: string;
 }
 
@@ -121,7 +122,7 @@ export async function GET() {
       // 이 전략을 쓰는 계좌
       const accs = accounts.filter((a) => a.strategyId === s.id);
       if (accs.length === 0) {
-        return { id: s.id, name: s.name, description: s.description ?? null, type, universe, aiScore, avgReturnPct: 0, totalProfit: 0, accountCount: 0, autoTradingCount: 0, createdAt: s.createdAt.toISOString() };
+        return { id: s.id, name: s.name, description: s.description ?? null, type, universe, aiScore, avgReturnPct: 0, totalProfit: 0, accountCount: 0, autoTradingCount: 0, isPublic: s.isPublic, createdAt: s.createdAt.toISOString() };
       }
 
       const stats = accs.map((a) => {
@@ -153,6 +154,7 @@ export async function GET() {
         totalProfit,
         accountCount: accs.length,
         autoTradingCount,
+        isPublic: s.isPublic,
         createdAt: s.createdAt.toISOString(),
       };
     });

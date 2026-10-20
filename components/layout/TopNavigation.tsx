@@ -15,6 +15,7 @@ import { clearStrategyChatStorage } from "@/components/strategy/strategyChatStor
 import { leaveStrategyConversation } from "./leaveStrategyConversation";
 import {
   SquaresFour,
+  ShareNetwork,
   Bank,
   MagnifyingGlass,
   ChartLineUp,
@@ -92,11 +93,18 @@ const menuItems: MenuItem[] = [
     Icon: SlidersHorizontal,
     prefetch: true,
   },
+  // 대시보드 메뉴는 숨김(2026-10-20, 페이지·API 코드는 유지) — 그 자리에 전략공유를 둔다. 다시 켜려면 아래 항목을 복원한다.
+  // {
+  //   label: "대시보드",
+  //   href: "/dashboard",
+  //   id: "dashboard",
+  //   Icon: SquaresFour,
+  // },
   {
-    label: "대시보드",
-    href: "/dashboard",
-    id: "dashboard",
-    Icon: SquaresFour,
+    label: "전략공유",
+    href: "/strategy-share",
+    id: "strategy-share",
+    Icon: ShareNetwork,
   },
   {
     label: "요금제",

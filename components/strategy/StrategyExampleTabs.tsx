@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Sparkle, Spinner, X } from "phosphor-react";
+import { Globe, Lock, Sparkle, Spinner, X } from "phosphor-react";
 import { getLocale, t } from "@/lib/i18n";
 import StrategyVersionHistory from "./StrategyVersionHistory";
 import { useRegion, useRegionHref } from "@/lib/geo/useRegion";
@@ -24,6 +24,7 @@ interface SavedStrategy {
   aiScore: number | null;
   avgReturnPct: number;
   accountCount: number;
+  isPublic?: boolean;
   createdAt: string;
 }
 
@@ -208,6 +209,7 @@ export function StrategyExampleTabs({
   const [hasLoadedStrategies, setHasLoadedStrategies] = useState(false);
   const [strategiesError, setStrategiesError] = useState<string | null>(null);
   const [deletingStrategyIds, setDeletingStrategyIds] = useState<Set<string>>(() => new Set());
+  const [updatingVisibilityIds, setUpdatingVisibilityIds] = useState<Set<string>>(() => new Set());
   // 버전 이력(2026-09-23) — 카드 하나만 펼친다(목록이 길어 여러 개가 열리면 읽기 어렵다).
   const [openVersionStrategyId, setOpenVersionStrategyId] = useState<string | null>(null);
   const [selectedExample, setSelectedExample] = useState<Example | null>(null);
@@ -305,6 +307,33 @@ export function StrategyExampleTabs({
       setDeletingStrategyIds((prev) => {
         const next = new Set(prev);
         next.delete(strategyId);
+        return next;
+      });
+    }
+  };
+
+  // 공개 전환(2026-10-20) — 공개 전략은 '전략공유' 화면에 카드로 실린다.
+  const handleToggleStrategyVisibility = async (strategy: SavedStrategy) => {
+    const nextPublic = !strategy.isPublic;
+    setUpdatingVisibilityIds((prev) => new Set(prev).add(strategy.id));
+    try {
+      const response = await fetch(`/api/strategy/${strategy.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isPublic: nextPublic }),
+      });
+      if (!response.ok) {
+        throw new Error("Failed to update strategy visibility");
+      }
+      setMyStrategies((prev) =>
+        prev.map((item) => (item.id === strategy.id ? { ...item, isPublic: nextPublic } : item))
+      );
+    } catch (error) {
+      console.error("Failed to update strategy visibility:", error);
+    } finally {
+      setUpdatingVisibilityIds((prev) => {
+        const next = new Set(prev);
+        next.delete(strategy.id);
         return next;
       });
     }
@@ -440,13 +469,14 @@ export function StrategyExampleTabs({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                   {myStrategies.map((strategy) => {
                     const isDeleting = deletingStrategyIds.has(strategy.id);
+                    const isUpdatingVisibility = updatingVisibilityIds.has(strategy.id);
                     return (
                       <div key={strategy.id} className="relative group">
                         <a
                           href={regionHref(`/analytics/${strategy.id}`)}
                           className="block rounded-2xl border border-white/[0.05] bg-[#121212] px-4 py-4 pr-14 transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
                         >
-                          <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start justify-between gap-3 pr-14">
                             <div className="min-w-0">
                               <p className="truncate text-sm font-black text-white/85 group-hover:text-white">{strategy.name}</p>
                             </div>
@@ -467,6 +497,21 @@ export function StrategyExampleTabs({
                           className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.06] text-gray-500 transition-colors hover:bg-white/[0.10] hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <X size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleToggleStrategyVisibility(strategy)}
+                          disabled={isUpdatingVisibility}
+                          aria-pressed={strategy.isPublic === true}
+                          title={t("공개하면 전략공유 화면에 표시됩니다.")}
+                          className={`absolute right-11 top-3 inline-flex h-6 items-center gap-1 rounded-md border px-2 text-[10px] font-black transition-colors duration-200 ${
+                            strategy.isPublic
+                              ? "border-sky-400/25 bg-sky-500/10 text-sky-300"
+                              : "border-white/[0.08] bg-white/[0.03] text-gray-500 hover:border-white/[0.16] hover:text-gray-300"
+                          } disabled:cursor-not-allowed disabled:opacity-60`}
+                        >
+                          {strategy.isPublic ? <Globe size={10} weight="bold" /> : <Lock size={10} weight="bold" />}
+                          {strategy.isPublic ? t("공개") : t("비공개")}
                         </button>
                         <button
                           type="button"

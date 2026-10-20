@@ -195,6 +195,8 @@ model Strategy {
   settings       String
   strategyType   String           @default("기타")
   isSaved        Boolean          @default(false)
+  // 공개 여부(2026-10-20) — true면 '전략공유' 화면에 카드로 실린다. 수익률은 이 전략을 쓰는 공개 계좌만 집계한다.
+  isPublic       Boolean          @default(false)
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   deletedAt      DateTime?
