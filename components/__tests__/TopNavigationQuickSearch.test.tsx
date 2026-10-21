@@ -248,6 +248,15 @@ describe("TopNavigation quick search", () => {
     expect(screen.getByRole("link", { name: /백테스트 기록/i }).nextElementSibling).toBe(myStrategiesLink);
   });
 
+  it("내 전략은 상단 메뉴의 백테스트 기록 바로 오른쪽에 둔다", async () => {
+    renderWithQueryClient(<TopNavigation />);
+
+    // 내 전략은 전략연구소 탭에서 상단 메뉴로 옮겼다(2026-10-21).
+    const myStrategiesLink = await screen.findByRole("link", { name: /내 전략/i });
+    expect(myStrategiesLink).toHaveAttribute("href", "/my-strategies");
+    expect(screen.getByRole("link", { name: /백테스트 기록/i }).nextElementSibling).toBe(myStrategiesLink);
+  });
+
   it("상단 로고는 원본 이미지 기반의 투명 NS 마크를 표시한다", async () => {
     renderWithQueryClient(<TopNavigation />);
 
