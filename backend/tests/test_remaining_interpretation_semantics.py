@@ -40,6 +40,58 @@ def test_confirmed_ema_and_role_are_applied_in_one_batch():
     assert len(calls) == 1
 
 
+def test_prompt_example_condition_correction_shape_is_the_parsed_shape():
+    """2026-10-21 사고: 예시에 조건 보정 모양이 없어 LLM이 role+중첩 condition으로 답했고,
+    파서가 읽는 requested_role·factor·parameters가 없어 매도 칸 이동이 무산 → 청산 조건 보류·소실.
+    프롬프트 예시의 조건 보정 항목이 그대로 파서에 받아들여져야 한다."""
+    from strategy_conversation.interpreter.semantic_reconciliation import _SYSTEM
+
+    example = json.loads(_SYSTEM.split("JSON만: ", 1)[1])
+    item = next(i for i in example["items"] if i["id"].startswith("c:") and i["status"] == "corrected")
+    quote = "60일선 아래로 내려가면 매도"
+    intent = StrategyIntent.model_validate({"intent": "CREATE_STRATEGY", "strategy": {
+        "entry_conditions": [{"factor": "technical.ma_crossover", "operator": "crosses_below",
+                              "parameters": {"short_period": 1, "long_period": 60},
+                              "source_text": quote}]}})
+    reconcile_semantic_fields(intent, quote, lambda *a, **k: json.dumps(
+        {"items": [{**item, "id": "c:0", "quote": quote}]}))
+    assert intent.strategy.entry_conditions == []
+    assert intent.strategy.exit_conditions[0].factor == "technical.ma_crossover"
+    assert intent.strategy.exit_conditions[0].parameters == {"short_period": 1, "long_period": 60}
+
+
+def test_number_text_with_unit_suffix_is_read_as_its_count():
+    """트레이스 05527d9d7abb(2026-10-21) 원응답: number_text="60일" — 단위가 붙은 옮겨 적기를
+    float 실패로 버려 청산 조건이 보류됐다. 앞쪽 숫자 표기가 count와 같으면 받아들인다."""
+    quote = "60일선 아래로 내려가면 매도"
+    intent = StrategyIntent.model_validate({"intent": "CREATE_STRATEGY", "strategy": {
+        "entry_conditions": [
+            {"factor": "technical.ma_crossover", "operator": ">", "parameters": {
+                "short_period": 1, "long_period": 60}, "source_text": "종가가 60일선 위 유지되는 동안 보유하고"},
+            {"factor": "technical.ma_crossover", "operator": "crosses_below", "parameters": {
+                "short_period": 1, "long_period": 60}, "source_text": quote}]}})
+    utterance = "코스닥에서 종가가 60일선 위 유지되는 동안 보유하고, 60일선 아래로 내려가면 매도해 주세요. 최근 3년"
+    reply = {"items": [
+        {"id": "c:0", "quote": "종가가 60일선 위 유지되는 동안 보유하고", "status": "unchanged"},
+        {"id": "c:1", "quote": quote, "status": "corrected", "requested_role": "exit",
+         "factor": "technical.ma_crossover", "parameters": {"short_period": None, "long_period": {
+             "number_text": "60일", "count": 60, "unit": "day"}}}]}
+    reconcile_semantic_fields(intent, utterance, lambda *a, **k: json.dumps(reply, ensure_ascii=False))
+    assert [c.operator for c in intent.strategy.entry_conditions] == [">"]
+    assert intent.strategy.exit_conditions[0].operator == "crosses_below"
+    assert intent.strategy.exit_conditions[0].parameters == {"short_period": 1, "long_period": 60}
+
+
+def test_number_text_digits_must_still_match_count():
+    quote = "60일선 아래로 내려가면 매도"
+    intent = _intent(quote, operator="crosses_below")
+    before = intent.model_dump()
+    reconcile_semantic_fields(intent, quote, lambda *a, **k: json.dumps({"items": [{
+        "id": "c:0", "quote": quote, "status": "corrected", "requested_role": "exit",
+        "parameters": {"long_period": {"number_text": "60일", "count": 20, "unit": "day"}}}]}))
+    assert intent.model_dump() == before
+
+
 @pytest.mark.parametrize("reply", ["bad json", '{"items":[]}', '{"items":[{"id":"wrong"}]}'])
 def test_missing_verdict_never_invokes_lexical_ema_or_role_fallback(reply):
     quote = "20일 EMA를 이탈하면 청산"

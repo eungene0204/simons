@@ -1,6 +1,7 @@
 """Replace primary's lexical role/EMA/holding decisions with quoted LLM fields."""
 import json
 import math
+import re
 
 from .decisions import record
 from .holding_period_check import _COUNT_ALIASES
@@ -22,6 +23,8 @@ holding: number_text/count/unit(day/month/year)을 출력하며 단위 환산은
 그 명시 비율을 옮기세요. 지표 청산 신호를 고정 손실률로 바꾸지 마세요.
 quote는 주어진 source_text 전체를 정확히 복사합니다. id를 빠짐없이 정확히 복사합니다.
 JSON만: {"items":[{"id":"c:0","quote":"인용","status":"unchanged"},
+{"id":"c:1","quote":"인용","status":"corrected","requested_role":"exit","factor":"technical.ma_crossover",
+"parameters":{"short_period":null,"long_period":{"number_text":"60","count":60,"unit":"day"}}},
 {"id":"f:0","quote":"인용","status":"corrected","kind":"max_hold",
 "number_text":"한","count":1,"unit":"month"}]}"""
 
@@ -37,11 +40,11 @@ def _quantity(value, quote, *, holding=False):
             or holding and unit == "week"):
         return None
     # Normalize only the extracted numeric field; never classify the utterance.
+    # number_text는 LLM이 옮겨 적은 칸이라 단위가 붙어 올 수 있다("60일") — 앞쪽 숫자 표기만 읽는다.
     aliases = {**_SINO_DIGITS, **_COUNT_ALIASES}
-    try:
-        written = aliases[text] if text in aliases else float(text.replace(",", ""))
-    except ValueError:
-        written = None
+    digits = re.match(r"[\d,]+(?:\.\d+)?", text)
+    written = (aliases[text] if text in aliases
+               else float(digits.group().replace(",", "")) if digits else None)
     if written is None or written != count:
         return None
     return 252 if unit == "week" and count == 52 else int(count) * multipliers[unit]
@@ -146,6 +149,10 @@ def reconcile_semantic_fields(intent, utterance, chat, *, only=None):
                           for name, value in parameters.items()}
             if any(value is not None and normalized[name] is None for name, value in parameters.items()):
                 continue
+            if factor == "technical.ma_crossover" and normalized.get("short_period", 0) is None:
+                # 단순이동평균의 '종가 vs 선 하나'는 컴파일러 정본 표기가 short_period=1이라, 보정이
+                # null로 덮으면 기간 누락 되묻기가 난다(2026-10-21). 값을 새로 정하지 않고 기존 칸을 둔다.
+                del normalized["short_period"]
             from .required_checks import policy
             checks = policy()
             failures = [i for i in checks.items if i["subject"] is condition and i["status"] != "ACCEPT"] if checks else []
