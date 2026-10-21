@@ -2180,6 +2180,7 @@ def run_primary_parse(
             if planner_first is None:
                 planner_first = _plan_first(user_input)
     _recover_kr_etf_product(result.intent, planner_first)
+    _recover_kr_theme_group(result.intent, planner_first, user_input, recall_chat)
 
     from strategy_conversation.interpreter.holding_period_check import (
         recover_create_misfiled_holding_period,
@@ -3471,6 +3472,73 @@ def _recover_kr_etf_product(intent: Any, planner_result: Any) -> Optional[str]:
         f"표현 {terms} → etf_theme='{keyword}' (markets {before}→['ETF'])"
     ))
     return keyword
+
+
+def _us_market_unspecified(user_input: str, term: str, chat: Any) -> bool:
+    """사용자가 관련주 대상의 시장을 말하지 않았는가 — 말하지 않았을 때만 국내에서 찾는다.
+
+    2026-10-21 사용자 지시: "'미국' 시장 관련주라고 명확하게 말하지 않으면 항상 국내 주식시장에서
+    관련주를 찾는다." 인터프리터의 markets=["US"]는 회사 국적만 보고도 붙으므로 근거가 못 된다 —
+    명시 여부는 전용 판정(us_market_explicit_check, LLM)이 정한다. 표현이 시장 접두('미국 …'·
+    'US …')를 달고 있으면 판정 없이 명시로 본다(catalog._classify_universe의 미국 표지 규칙).
+    판정 실패는 False — 미국 요청을 조용히 국내 전략으로 바꾸지 않고 지역 가드에 맡긴다."""
+    if term.replace(" ", "").lower().startswith(("미국", "us")):
+        return False
+    if not callable(chat):
+        return False
+    from strategy_conversation.interpreter.us_market_explicit_check import (
+        check_us_market_explicit,
+    )
+
+    return check_us_market_explicit(user_input, term, chat) == "NOT_SPECIFIED"
+
+
+def _recover_kr_theme_group(
+    intent: Any, planner_result: Any, user_input: str = "", chat: Any = None,
+) -> Optional[str]:
+    """KR 생성 턴: '…관련주' 표현이 국내 테마로 풀렸고 사용자가 미국을 말하지 않았으면 미국 시장 토큰을 걷는다.
+
+    2026-10-21 실측: "스페이스x 관련주 전략을 만들어줘"에 인터프리터는 markets=["US"]
+    +sectors=["스페이스x"]를 냈고, 지역 가드 ①이 "한국 주식시장만 지원"으로 거절했다.
+    같은 턴의 planner는 "스페이스x 관련주"를 뽑아 CONCEPT으로 분류했고 국내 테마
+    카탈로그('스페이스X' 14곳)를 찾았다 — 국내에 그 관련주 테마가 있다.
+    _recover_kr_etf_product와 같은 계약이다(프롬프트는 이 층에서 수렴하지 않는다).
+
+    계약: 입력은 planner LLM이 뽑은 표현과 도구 관찰값(국내 테마 상장사 조회), 범주 접미
+    ('관련주') 판정은 표기 대조, 미국 시장 명시 여부는 LLM 판정(_us_market_unspecified)이다.
+    접미 없는 회사명('스페이스X 전략')은 미국 종목 요청이므로 여기 오지 않는다(2026-10-02 사용자
+    결정). 한국 시장이 함께 지정됐거나, 미국 토큰이 없거나, 국내 테마 표현이 하나가 아니면
+    불개입. 미국 종목 지정(symbols)은 건드리지 않는다 — 그쪽은 지역 가드 ②가 본다.
+
+    수정 턴에는 이 복구가 없다 — 수정 턴의 시장 패치는 시장 범위 판정(patch_scope_check.
+    market_patch_scope_verdict, LLM)이 사용자가 그 시장을 명시했을 때만 남기고 나머지는 기존
+    시장으로 되돌린다(같은 지시를 이미 지킨다, 2026-10-21 실측 "스페이스x 관련주로 바꿔줘")."""
+    if ui_language.get_ui_language() == "en":
+        return None
+    strategy = getattr(intent, "strategy", None)
+    if strategy is None:
+        return None
+    from engine.universe_pit import has_group_suffix
+    from strategy_conversation.registry.capability_registry import US_MARKETS
+
+    markets = set(strategy.universe.markets or [])
+    if not markets or markets - set(US_MARKETS):
+        return None
+    terms = {
+        term.strip()
+        for term, obs in (_planner_observations(planner_result)
+                          if planner_result is not None else [])
+        if term.strip() and has_group_suffix(term) and obs.get("found") and obs.get("companies")
+    }
+    if len(terms) != 1:
+        return None
+    term = terms.pop()
+    if not _us_market_unspecified(user_input, term, chat):
+        return None
+    before = list(strategy.universe.markets)
+    strategy.universe.markets = []
+    _log_llm("✓ 국내 관련주 테마 복구", f"표현 '{term}' → 국내 테마 (markets {before}→[])")
+    return term
 
 
 KR_ONLY_MARKET_REFUSAL = (

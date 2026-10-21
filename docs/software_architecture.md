@@ -896,6 +896,15 @@ StrategyIntent (interpreter/models.py, schema_version 1.0)
         표현에서 자산 표지를 뗀 키워드(universe_pit.etf_theme_keyword — 국내 ETF 명부에 걸릴
         때만)로 채우고 markets=["ETF"]로 맞춘다. 인터프리터 etf_theme 우선·표현 둘 이상은 불개입
     ▼
+국내 관련주 테마 복구 (primary._recover_kr_theme_group — KR 생성 턴, 2026-10-21)
+    └── 사용자 지시: '미국' 시장을 명시하지 않은 관련주는 국내에서 찾는다. 인터프리터가 markets를
+        미국 토큰만으로 냈어도, planner-first 표현이 범주 접미('관련주', has_group_suffix)를 달고
+        국내 테마 상장사 조회(found+companies)에 걸리면 미국 시장 명시 판정
+        (interpreter/us_market_explicit_check.py — LLM, 사용자 문장+대상 표현 → US_EXPLICIT/
+        NOT_SPECIFIED)을 한 번 묻고 NOT_SPECIFIED일 때만 markets를 비운다("스페이스x 관련주" →
+        국내 '스페이스X' 14곳). 표현이 '미국'/'US'로 시작하면 판정 없이 명시. 판정 실패=복구 없음.
+        수정 턴은 시장 범위 판정(patch_scope_check.market_patch_scope_verdict)이 같은 일을 한다
+    ▼
 지역 격리 가드 (primary._kr_region_us_market_refusal / _us_region_kr_market_refusal — 컴파일 전)
     ├── KR 레인(ko): 미국 시장 대상이면 전략을 만들지 않고 거절 되묻기("죄송합니다. 현재 저는
     │   한국 주식시장만 지원하고 있습니다" + 국내 전환 제안). 근거 셋 = ① markets ∩ US_MARKETS

@@ -31,6 +31,7 @@ from strategy_conversation.primary import (
     KR_ONLY_MARKET_REFUSAL,
     _kr_region_us_market_refusal,
     _recover_kr_etf_product,
+    _recover_kr_theme_group,
 )
 
 
@@ -247,6 +248,88 @@ def test_planner_kr_observations_are_kept():
         ("반도체", {"universe_type": "SECTOR", "canonical": "반도체"}),
     )
     assert _kr_region_us_market_refusal(_intent(), chat, planner_result=planner) is None
+
+
+# ── '미국' 명시 없는 관련주 → 국내 테마(2026-10-21) ─────────────────────────
+
+_SPACEX_THEME = ("스페이스x 관련주", {"found": True, "term": "스페이스X",
+                                    "companies": [{"symbol": "295310"}]})
+_USER = "스페이스x 관련주 전략을 만들어줘"
+_NOT_SPECIFIED = _chat('{"verdict": "NOT_SPECIFIED"}')
+
+
+def test_recovers_kr_theme_group_from_planner_term():
+    """실측: 인터프리터 markets=["US"]+sectors=["스페이스x"] → "한국 주식시장만 지원" 거절.
+    planner는 '스페이스x 관련주'로 국내 테마 상장사를 찾았다 — 미국 토큰을 걷는다."""
+    intent = _intent(markets=["US"], sectors=["스페이스x"])
+    planner = _Planner(_SPACEX_THEME)
+    assert _recover_kr_theme_group(intent, planner, _USER, _NOT_SPECIFIED) == "스페이스x 관련주"
+    assert intent.strategy.universe.markets == []
+    assert intent.strategy.universe.sectors == ["스페이스x"]
+    assert _kr_region_us_market_refusal(intent, planner_result=planner) is None
+
+
+@pytest.mark.parametrize("chat", [
+    _chat('{"verdict": "US_EXPLICIT"}'),   # 사용자가 미국을 말함
+    _chat("not json"),                     # 판정 실패 — 조용히 바꾸지 않는다
+    None,                                  # 판정 핸들 없음
+])
+def test_theme_group_recovery_needs_unspecified_market_verdict(chat):
+    intent = _intent(markets=["US"])
+    assert _recover_kr_theme_group(intent, _Planner(_SPACEX_THEME), _USER, chat) is None
+    assert intent.strategy.universe.markets == ["US"]
+
+
+def test_theme_group_recovery_needs_group_suffix():
+    """접미 없는 회사명('스페이스X')은 미국 종목 요청이다(2026-10-02 결정) — 거절 유지."""
+    intent = _intent(markets=["US"])
+    planner = _Planner(("스페이스X", {"found": True, "companies": [{"symbol": "295310"}]}))
+    assert _recover_kr_theme_group(intent, planner, _USER, _NOT_SPECIFIED) is None
+    assert intent.strategy.universe.markets == ["US"]
+
+
+def test_theme_group_recovery_needs_domestic_companies():
+    intent = _intent(markets=["US"])
+    planner = _Planner(("가나다 관련주", {"found": False, "companies": []}))
+    assert _recover_kr_theme_group(intent, planner, _USER, _NOT_SPECIFIED) is None
+    assert _kr_region_us_market_refusal(intent, planner_result=planner) == KR_ONLY_MARKET_REFUSAL
+
+
+@pytest.mark.parametrize("term", ["미국 AI 관련주", "US AI 관련주"])
+def test_theme_group_recovery_keeps_explicit_us_prefix(term):
+    """회귀(2026-10-21 검토): '미국 AI 관련주'는 미국을 명시한 요청이다 — 판정을 부르지 않고
+    거절을 유지한다(판정이 틀려 NOT_SPECIFIED를 내도 바꾸지 않는다)."""
+    def chat(*_a, **_kw):
+        raise AssertionError("시장 접두가 있는 표현은 판정을 부르지 않는다")
+
+    intent = _intent(markets=["US"])
+    planner = _Planner((term, {"found": True, "companies": [{"symbol": "295310"}]}))
+    assert _recover_kr_theme_group(intent, planner, f"{term} 전략", chat) is None
+    assert intent.strategy.universe.markets == ["US"]
+    assert _kr_region_us_market_refusal(intent, planner_result=planner) == KR_ONLY_MARKET_REFUSAL
+
+
+def test_theme_group_recovery_leaves_kr_market_and_en_lane_alone():
+    intent = _intent(markets=["KOSPI"])
+    assert _recover_kr_theme_group(intent, _Planner(_SPACEX_THEME), _USER, _NOT_SPECIFIED) is None
+    intent = _intent(markets=["US"])
+    with ui_language.bind("en"):
+        assert _recover_kr_theme_group(
+            intent, _Planner(_SPACEX_THEME), _USER, _NOT_SPECIFIED) is None
+    assert intent.strategy.universe.markets == ["US"]
+
+
+# ── us_market_explicit_check 자체 계약 ───────────────────────────────────────
+
+def test_us_market_explicit_check_enum_and_failure():
+    from strategy_conversation.interpreter.us_market_explicit_check import (
+        check_us_market_explicit,
+    )
+
+    assert check_us_market_explicit(_USER, "스페이스x 관련주", _NOT_SPECIFIED) == "NOT_SPECIFIED"
+    assert check_us_market_explicit(_USER, "x", _chat('{"verdict": "US_EXPLICIT"}')) == "US_EXPLICIT"
+    assert check_us_market_explicit(_USER, "x", _chat('{"verdict": "KR"}')) is None
+    assert check_us_market_explicit(_USER, "x", _chat("oops")) is None
 
 
 # ── market_region_check 자체 계약 ────────────────────────────────────────────

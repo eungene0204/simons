@@ -40,3 +40,5 @@ def record_verdicts(stage, adapter, args, kwargs, output):
         _emit(stage, args[1], "ACCEPT" if output and output != "unclear" else "UNRESOLVED", output)
     elif adapter == "holding":
         _emit(stage, args[1], "ACCEPT" if output is not None else "UNRESOLVED", output)
+    elif adapter == "us_market_explicit":
+        _emit(stage, args[1], "ACCEPT" if output is not None else "UNRESOLVED", output)
