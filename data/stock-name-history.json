@@ -7,8 +7,8 @@
  ],
  "snapshotCount": 320,
  "counts": {
-  "renames": 3323,
-  "formerNames": 1583,
+  "renames": 3324,
+  "formerNames": 1584,
   "rejected": 179
  },
  "formerNames": {
@@ -136,6 +136,7 @@
   "NSF": "007700",
   "OQP": "078590",
   "POSCO": "005490",
+  "S&K폴리텍": "091340",
   "S&T대우": "064960",
   "S&T모터스": "000040",
   "S&T모티브": "064960",
@@ -24857,6 +24858,13 @@
    "to": "동아제약",
    "observedOn": "2026-10-17",
    "source": "DART"
+  },
+  {
+   "symbol": "091340",
+   "from": "S&K폴리텍",
+   "to": "S&K글로벌",
+   "observedOn": "2026-10-20",
+   "source": "DART"
   }
  ],
  "rejected": [
@@ -26134,5 +26142,5 @@
    ]
   }
  ],
- "updatedAt": "2026-10-17T21:25:09.124060+09:00"
+ "updatedAt": "2026-10-20T21:24:41.892781+09:00"
 }
