@@ -1,11 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowDownRight, ArrowUpRight, Spinner } from "phosphor-react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { t } from "@/lib/i18n";
-import { useRegionHref } from "@/lib/geo/useRegion";
 import { buildStrategySummaryFromDsl, buildStrategySummaryGroups } from "@/lib/strategy-summary";
 import type { StrategyDSL } from "@/types/strategy";
 import type { SharedStrategyCard } from "@/lib/server/sharedStrategies";
@@ -31,7 +29,6 @@ function ReturnBadge({ value }: { value: number }) {
 }
 
 function StrategyCard({ strategy }: { strategy: SharedStrategyCard }) {
-  const regionHref = useRegionHref();
   // 전략 조건 — 계좌 상세 화면과 같은 라벨 규칙(유니버스·진입신호·청산신호·리스트·리스크 관리).
   const groups = buildStrategySummaryGroups(
     buildStrategySummaryFromDsl(strategy.settings as StrategyDSL | null)
@@ -90,26 +87,6 @@ function StrategyCard({ strategy }: { strategy: SharedStrategyCard }) {
         )}
       </div>
 
-      {strategy.accounts.length > 0 && (
-        <ul className="mt-4 max-h-24 overflow-y-auto">
-          {strategy.accounts.map((account) => (
-            <li key={account.id}>
-              <Link
-                href={regionHref(`/shared/virtual-account/${account.id}`)}
-                className="flex items-center justify-between gap-3 py-2 text-xs font-bold text-gray-300 transition-colors hover:text-white"
-              >
-                <span className="min-w-0 truncate">
-                  {account.name}
-                  {account.status === "CLOSED" && <span className="ml-1.5 text-gray-500">{t("(종료)")}</span>}
-                </span>
-                <span className={account.returnPct >= 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}>
-                  {formatReturn(account.returnPct)}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
     </article>
   );
 }

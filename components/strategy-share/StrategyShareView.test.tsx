@@ -36,7 +36,8 @@ describe("StrategyShareView", () => {
 
     await waitFor(() => expect(screen.getAllByTestId("shared-strategy-card")).toHaveLength(2));
     expect(screen.getAllByText("+12.35%").length).toBeGreaterThan(0);
-    expect(screen.getByRole("link", { name: /계좌1/ })).toHaveAttribute("href", "/shared/virtual-account/a1");
+    // 카드 하단의 계좌별 행은 표시하지 않는다.
+    expect(screen.queryByRole("link", { name: /계좌1/ })).not.toBeInTheDocument();
     expect(screen.getByText("공개된 운용 계좌가 없습니다")).toBeInTheDocument();
     // 카드에 전략 조건(유니버스·리스크 관리)이 묶음으로 보이고, 조건 없는 카드는 안내 문구.
     const [first, second] = screen.getAllByTestId("shared-strategy-conditions");

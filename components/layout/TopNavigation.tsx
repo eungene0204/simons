@@ -108,12 +108,13 @@ const menuItems: MenuItem[] = [
   //   id: "dashboard",
   //   Icon: SquaresFour,
   // },
-  {
-    label: "전략공유",
-    href: "/strategy-share",
-    id: "strategy-share",
-    Icon: ShareNetwork,
-  },
+  // 전략공유 메뉴는 숨김(2026-10-21, 페이지·API 코드는 유지) — 구현을 마치면 아래 항목을 복원한다.
+  // {
+  //   label: "전략공유",
+  //   href: "/strategy-share",
+  //   id: "strategy-share",
+  //   Icon: ShareNetwork,
+  // },
   {
     label: "요금제",
     href: "/pricing",
