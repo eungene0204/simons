@@ -147,13 +147,13 @@ export default function MyStrategiesView() {
                     return (
                       <div
                         key={strategy.id}
-                        className={`relative group transition-opacity duration-200 ${isDeleting ? "pointer-events-none opacity-60" : ""}`}
+                        className="relative group"
                         aria-busy={isDeleting}
                         data-testid={isDeleting ? "strategy-deleting" : undefined}
                       >
                         <a
                           href={regionHref(`/analytics/${strategy.id}`)}
-                          className="flex h-36 flex-col rounded-2xl border border-white/[0.05] bg-[#121212] px-4 py-4 pr-14 transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717]"
+                          className={`flex h-36 flex-col rounded-2xl border border-white/[0.05] bg-[#121212] px-4 py-4 pr-14 transition-all duration-200 hover:border-white/[0.12] hover:bg-[#171717] ${isDeleting ? "pointer-events-none opacity-60" : ""}`}
                         >
                           <div className="flex items-start justify-between gap-3 pr-14">
                             <div className="min-w-0">
@@ -173,18 +173,15 @@ export default function MyStrategiesView() {
                           onClick={() => void handleDeleteStrategy(strategy.id)}
                           disabled={isDeleting}
                           aria-label={t("{0} 전략 삭제", strategy.name)}
-                          className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.06] text-gray-500 transition-colors hover:bg-white/[0.10] hover:text-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.06] text-gray-500 transition-colors hover:bg-white/[0.10] hover:text-gray-200 disabled:cursor-not-allowed"
                         >
-                          {isDeleting ? (
-                            <Spinner size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                          ) : (
-                            <X size={14} />
-                          )}
+                          <X size={14} />
                         </button>
                         {isDeleting && (
-                          <span role="status" className="absolute bottom-3 right-4 text-[10px] font-black text-gray-300">
-                            {t("삭제 중...")}
-                          </span>
+                          <div role="status" className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2">
+                            <Spinner size={28} className="animate-spin text-white" aria-hidden="true" />
+                            <span className="text-[11px] font-black text-gray-200">{t("삭제 중...")}</span>
+                          </div>
                         )}
                         <button
                           type="button"
