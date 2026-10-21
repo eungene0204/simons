@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { getGuideArticle } from "@/lib/guide/articles";
 import { buildGuideArticleJsonLd } from "@/lib/guide/jsonLd";
-import { NOTES, NOTES_COLLECTION, NOTES_DISCLAIMER, getNote, notePath } from "./notes";
+import { NOTES_DISCLAIMER, SEED_NOTES as NOTES, buildNotesCollection, notePath } from "./notes";
+
+const NOTES_COLLECTION = buildNotesCollection(NOTES);
+const getNote = NOTES_COLLECTION.find;
 
 function allText(): string {
   return [
@@ -58,6 +61,20 @@ describe("research notes", () => {
     for (const figure of ["16.8%", "13.8%", "6.2%", "−5.4%"]) {
       expect(note.summary).toContain(figure);
       expect(cells).toContain(figure);
+    }
+  });
+
+  it("keeps every myth-series summary consistent with its result table", () => {
+    const myths = NOTES.filter((note) => note.slug.startsWith("myth-"));
+    expect(myths).toHaveLength(19);
+    for (const note of myths) {
+      const rows = note.sections.flatMap((s) => s.table?.rows ?? []);
+      const ret = rows.find((row) => row[0] === "투자 수익률")?.[1];
+      const cagr = rows.find((row) => row[0] === "CAGR")?.[1];
+      expect(ret).toBeDefined();
+      expect(note.summary).toContain(ret!);
+      expect(note.summary).toContain(cagr!);
+      expect(note.title).toContain(`#${Number(note.slug.slice(5, 7))}`);
     }
   });
 

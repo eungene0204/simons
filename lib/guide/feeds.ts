@@ -1,7 +1,7 @@
 // 가이드 글 목록에서 llms.txt·RSS를 만든다 — 글 데이터(`articles.ts`)가 유일한 원천이다.
 
 import { SITE_DESCRIPTION, SITE_NAME, siteUrl } from "@/lib/seo/site";
-import { NOTES, NOTES_BASE_PATH, NOTES_DESCRIPTION, NOTES_DISCLAIMER, NOTES_TITLE, notePath } from "@/lib/notes/notes";
+import { NOTES_BASE_PATH, NOTES_DESCRIPTION, NOTES_DISCLAIMER, NOTES_TITLE, notePath } from "@/lib/notes/notes";
 import {
   GUIDE_ARTICLES,
   GUIDE_BASE_PATH,
@@ -15,7 +15,7 @@ import {
 export function buildLlmsTxt(
   articles: GuideArticle[] = GUIDE_ARTICLES,
   base: string = siteUrl(),
-  notes: GuideArticle[] = NOTES,
+  notes: GuideArticle[] = [],
 ): string {
   const lines = [
     `# ${SITE_NAME.ko}`,
@@ -62,7 +62,7 @@ function escapeXml(text: string): string {
 export function buildGuideRss(
   articles: GuideArticle[] = GUIDE_ARTICLES,
   base: string = siteUrl(),
-  notes: GuideArticle[] = NOTES,
+  notes: GuideArticle[] = [],
 ): string {
   const entries = [
     ...articles.map((article) => ({ article, path: guideArticlePath(article.slug) })),

@@ -2,7 +2,9 @@ import { render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { GUIDE_ARTICLES } from "@/lib/guide/articles";
-import { NOTES, NOTES_COLLECTION } from "@/lib/notes/notes";
+import { SEED_NOTES as NOTES, buildNotesCollection } from "@/lib/notes/notes";
+
+const NOTES_COLLECTION = buildNotesCollection(NOTES);
 import { GuideArticlePage } from "./GuideArticlePage";
 import { GuideIndexPage } from "./GuideIndexPage";
 

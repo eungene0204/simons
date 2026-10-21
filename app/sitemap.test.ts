@@ -1,16 +1,23 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GUIDE_ARTICLES } from "@/lib/guide/articles";
-import { NOTES } from "@/lib/notes/notes";
+import { SEED_NOTES as NOTES } from "@/lib/notes/notes";
+import { listNotes } from "@/lib/notes/notesStore";
 import sitemap from "./sitemap";
+
+vi.mock("@/lib/notes/notesStore", () => ({ listNotes: vi.fn() }));
+
+beforeEach(() => {
+  vi.mocked(listNotes).mockResolvedValue(NOTES);
+});
 
 afterEach(() => {
   vi.unstubAllEnvs();
 });
 
 describe("sitemap", () => {
-  it("lists only public entry points and pairs the two regional homes with hreflang", () => {
+  it("lists only public entry points and pairs the two regional homes with hreflang", async () => {
     vi.stubEnv("DOMAIN", "");
-    const entries = sitemap();
+    const entries = await sitemap();
     const urls = entries.map((entry) => entry.url);
 
     expect(urls).toEqual([
@@ -35,8 +42,14 @@ describe("sitemap", () => {
     expect(entries[1].alternates?.languages).toEqual(home.alternates?.languages);
   });
 
-  it("follows the DOMAIN env for absolute URLs", () => {
+  it("omits /notes while the DB has no notes (an empty list is noindex)", async () => {
+    vi.mocked(listNotes).mockResolvedValue([]);
+    const urls = (await sitemap()).map((entry) => entry.url);
+    expect(urls.some((url) => url.includes("/notes"))).toBe(false);
+  });
+
+  it("follows the DOMAIN env for absolute URLs", async () => {
     vi.stubEnv("DOMAIN", "staging.nullstock.im");
-    expect(sitemap()[0].url).toBe("https://staging.nullstock.im");
+    expect((await sitemap())[0].url).toBe("https://staging.nullstock.im");
   });
 });

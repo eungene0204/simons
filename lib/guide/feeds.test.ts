@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GUIDE_ARTICLES } from "./articles";
-import { NOTES, NOTES_DISCLAIMER } from "@/lib/notes/notes";
+import { NOTES_DISCLAIMER, SEED_NOTES as NOTES } from "@/lib/notes/notes";
 import { buildGuideRss, buildLlmsTxt } from "./feeds";
 
 const BASE = "https://example.test";

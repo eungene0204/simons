@@ -1172,3 +1172,26 @@ model DelistingAuditLog {
   @@index([accountId, createdAt])
   @@index([symbol, createdAt])
 }
+
+// ─── Research Notes (연구노트) ─────────────────────────────────────────────────
+// 공개 글 정본. 배포 없이 행을 넣으면 /notes·sitemap·RSS·llms.txt에 반영된다.
+// sections·related·faq는 lib/guide/articles.ts의 GuideSection[]·string[]·GuideFaq[] 모양 그대로다.
+
+model ResearchNote {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  description String
+  summary     String
+  published   String   @db.VarChar(10) // YYYY-MM-DD
+  updated     String   @db.VarChar(10) // YYYY-MM-DD
+  sections    Json
+  related     Json
+  faq         Json?
+  status      String   @default("PUBLISHED") // PUBLISHED | DRAFT
+  sortKey     Int      @default(0) // 같은 날짜 안의 목록 순서(작을수록 먼저)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status, published])
+}

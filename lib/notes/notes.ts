@@ -5,7 +5,8 @@
 // 종목·전략 추천, 우열 판단, 시장 전망, 성과 보장 표현을 쓰지 않는다.
 // 순수 데이터 모듈이다(react·next 의존 없음). 글이 생기면 가이드와 같은 `GuideArticle` 모양을 쓴다.
 
-import type { ArticleCollection, GuideArticle } from "@/lib/guide/articles";
+import type { ArticleCollection, GuideArticle } from "../guide/articles";
+import { MYTH_NOTES } from "./mythNotes";
 
 export const NOTES_BASE_PATH = "/notes";
 
@@ -16,7 +17,7 @@ export const NOTES_DESCRIPTION =
 export const NOTES_DISCLAIMER =
   "연구노트는 과거 데이터에서 관측된 계산 결과를 기준일과 설정값과 함께 기록한 자료입니다. 특정 종목·전략의 매수·매도를 권유하거나 우열을 판단하지 않으며, 모든 결과는 과거 데이터 기반 시뮬레이션이므로 미래 수익은 보장되지 않습니다.";
 
-export const NOTES: GuideArticle[] = [
+const EXPERIMENT_NOTES: GuideArticle[] = [
   {
     slug: "cost-sensitivity-ma-crossover",
     title: "백테스트 비용 민감도 실험: 슬리피지를 0%에서 0.4%까지 바꿔 본 결과",
@@ -554,17 +555,21 @@ export const NOTES: GuideArticle[] = [
   },
 ];
 
-export function getNote(slug: string): GuideArticle | undefined {
-  return NOTES.find((note) => note.slug === slug);
-}
+// 시드 원본 — DB 이관(2026-10-21) 전의 정본이다. `scripts/seed-research-notes.ts`가 slug 기준으로
+// DB에 넣는 용도로만 남겼다. 화면·sitemap·RSS는 DB(`notesStore.ts`)를 읽으므로 새 노트는 여기 추가하지 않는다.
+// 실험 노트 뒤에 속설 검증 시리즈(편 번호순)를 잇는다.
+export const SEED_NOTES: GuideArticle[] = [...EXPERIMENT_NOTES, ...MYTH_NOTES];
 
 export function notePath(slug: string): string {
   return `${NOTES_BASE_PATH}/${slug}`;
 }
 
-export const NOTES_COLLECTION: ArticleCollection = {
-  basePath: NOTES_BASE_PATH,
-  title: NOTES_TITLE,
-  disclaimer: NOTES_DISCLAIMER,
-  find: getNote,
-};
+/** 글 묶음 정보 — 관련 글 조회가 동기 함수라 호출 쪽이 DB에서 읽은 목록을 넘긴다. */
+export function buildNotesCollection(notes: GuideArticle[]): ArticleCollection {
+  return {
+    basePath: NOTES_BASE_PATH,
+    title: NOTES_TITLE,
+    disclaimer: NOTES_DISCLAIMER,
+    find: (slug) => notes.find((note) => note.slug === slug),
+  };
+}

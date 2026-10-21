@@ -1,20 +1,18 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { GuideArticlePage } from "@/components/guide/GuideArticlePage";
-import { NOTES, NOTES_COLLECTION, getNote, notePath } from "@/lib/notes/notes";
+import { buildNotesCollection, notePath } from "@/lib/notes/notes";
+import { findNote, listNotes } from "@/lib/notes/notesStore";
 import { buildOpenGraph } from "@/lib/seo/site";
 
 type NoteRouteProps = { params: { slug: string } };
 
-// 목록에 없는 slug는 렌더하지 않고 404 — 빌드 시점에 글 전체를 정적 생성한다.
-export const dynamicParams = false;
+// 노트는 DB에서 읽는다 — 배포 없이 새 글이 열려야 하므로 요청 시 렌더한다(목록은 notesStore가 캐시).
+// DB에 없는 slug는 notFound()로 404를 돌려준다(빈 200 페이지 금지).
+export const dynamic = "force-dynamic";
 
-export function generateStaticParams() {
-  return NOTES.map((note) => ({ slug: note.slug }));
-}
-
-export function generateMetadata({ params }: NoteRouteProps): Metadata {
-  const note = getNote(params.slug);
+export async function generateMetadata({ params }: NoteRouteProps): Promise<Metadata> {
+  const note = await findNote(params.slug);
   if (!note) return {};
   const path = notePath(note.slug);
   return {
@@ -30,8 +28,9 @@ export function generateMetadata({ params }: NoteRouteProps): Metadata {
   };
 }
 
-export default function NoteRoute({ params }: NoteRouteProps) {
-  const note = getNote(params.slug);
+export default async function NoteRoute({ params }: NoteRouteProps) {
+  const notes = await listNotes();
+  const note = notes.find((item) => item.slug === params.slug);
   if (!note) notFound();
-  return <GuideArticlePage article={note} collection={NOTES_COLLECTION} />;
+  return <GuideArticlePage article={note} collection={buildNotesCollection(notes)} />;
 }
