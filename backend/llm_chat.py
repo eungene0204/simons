@@ -216,6 +216,10 @@ def _open_ollama(payload: dict[str, Any], open_fn):
 # 프로바이더 응답(구조화 JSON)이지 사용자 원문이 아니다.
 _TRANSIENT_ERROR_CODES = frozenset({408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 529})
 _TRANSIENT_RETRY_BACKOFF_S = (0.5, 1.0, 2.0)  # 재시도 3회, 총 대기 3.5초
+# 같은 모델 재시도는 '순간 장애'(빨리 돌아온 오류)에만 한다. 상류가 붙잡고 있다가 낸 오류
+# (2026-10-21 실측: Nemotron 상류 장애 중 504가 시도마다 ~120초 뒤에 옴)를 같은 모델에
+# 3번 더 보내면 분류 한 번이 8분(4×120초)을 태워 화면이 '분석 중'에 멈춘다 — 바로 다음 모델로.
+_TRANSIENT_RETRY_MAX_ATTEMPT_S = 10.0
 
 
 class _BufferedResponse(io.BytesIO):
@@ -318,17 +322,27 @@ def _open_with_transient_retry(open_fn, payload: dict[str, Any], probe):
     # (성공·예산 소진 모두 ExitStack이 이전 단계로 되돌린다).
     with contextlib.ExitStack() as stack:
         while True:
+            started = time.monotonic()
             try:
                 code, raw, result = probe(open_fn(chat_request(payload)))
             except urllib.error.HTTPError as exc:
                 if exc.code == 404:
                     raise OpenRouterModelUnavailable(openrouter_model(), _read_error_body(exc)) from exc
-                raise
+                if exc.code not in _TRANSIENT_ERROR_CODES:
+                    raise
+                # 상태 코드로 온 상류 일시 오류도 본문 error와 같은 재시도·모델 폴백을 탄다.
+                code, raw, result = exc.code, _read_error_body(exc), None
             if code is None:
                 return result
             if code == 404:
                 raise OpenRouterModelUnavailable(openrouter_model(), raw)
             if attempt >= len(_TRANSIENT_RETRY_BACKOFF_S):
+                raise OpenRouterUpstreamUnavailable(code, raw)
+            if time.monotonic() - started > _TRANSIENT_RETRY_MAX_ATTEMPT_S:
+                logger.warning(
+                    "openrouter 상류 오류(code=%s)가 %.0f초 만에 옴 — 순간 장애가 아니라 같은 모델 재시도 생략",
+                    code, time.monotonic() - started,
+                )
                 raise OpenRouterUpstreamUnavailable(code, raw)
             delay = _TRANSIENT_RETRY_BACKOFF_S[attempt]
             attempt += 1

@@ -846,3 +846,66 @@ def test_all_models_404_falls_back_to_ollama(openrouter_env, ollama_host, monkey
         assert llm_chat.read_chat_response(resp.read())["message"]["content"] == "ollama says hi"
     assert len([u for u in urls if "openrouter.ai" in u]) == 2
     assert urls[-1] == "http://localhost:11434/api/chat"
+
+
+def test_slow_upstream_error_skips_same_model_retry(openrouter_env, monkeypatch, no_sleep):
+    """상류가 붙잡고 있다가 낸 오류는 같은 모델에 다시 보내지 않고 바로 다음 모델로 간다.
+
+    2026-10-21 사고: 무료 Nemotron 상류 장애 중 504가 시도마다 ~120초 뒤에 와서, 순간 장애용
+    재시도 3회가 의도 분류 한 번을 8분(4×120초)으로 늘렸다 — 화면은 '분석 중'에 멈춘 채
+    "리밸런싱 안함" 답이 전략 해석까지 가지 못했다."""
+    import urllib.request
+
+    monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", "backup/model")
+    clock = [0.0]
+    monkeypatch.setattr(llm_chat.time, "monotonic", lambda: clock[0])
+    upstream_504 = b'{"error":{"code":504,"message":"Gateway Timeout"}}'
+    models = []
+
+    def fake_urlopen(req, timeout):
+        model = json.loads(req.data)["model"]
+        models.append(model)
+        if model == "qwen/qwen3-32b":
+            clock[0] += 120.0  # 상류가 120초 붙잡고 있다가 504
+            body = upstream_504
+        else:
+            body = OK_BODY
+        resp = _Resp(body)
+        resp.status = 200
+        resp.headers = {}
+        return resp
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    with llm_chat.open_chat(PAYLOAD, timeout=5, retry=False) as resp:
+        data = llm_chat.read_chat_response(resp.read())
+    assert data["message"]["content"] == '{"intent":"STRATEGY_ADVICE"}'
+    assert models == ["qwen/qwen3-32b", "backup/model"]
+    assert no_sleep == []
+
+
+def test_http_status_upstream_502_uses_short_retry_not_cold_start_budget(openrouter_env, monkeypatch, no_sleep):
+    """OpenRouter가 상태 코드로 502를 주면 Modal 콜드스타트 관문(320초 예산)이 아니라
+    짧은 재시도 → 다음 모델로 간다(2026-10-21: 상류 장애 중 의도 분류 한 번이 321초)."""
+    import urllib.error
+    import urllib.request
+
+    monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", "backup/model")
+    models = []
+
+    def fake_urlopen(req, timeout):
+        model = json.loads(req.data)["model"]
+        models.append(model)
+        if model == "qwen/qwen3-32b":
+            raise urllib.error.HTTPError(req.full_url, 502, "Bad Gateway", {}, io.BytesIO(b"upstream"))
+        resp = _Resp(OK_BODY)
+        resp.status = 200
+        resp.headers = {}
+        return resp
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    with llm_chat.open_chat(PAYLOAD, timeout=5) as resp:
+        data = llm_chat.read_chat_response(resp.read())
+    assert data["message"]["content"] == '{"intent":"STRATEGY_ADVICE"}'
+    assert models == ["qwen/qwen3-32b"] * (1 + len(llm_chat._TRANSIENT_RETRY_BACKOFF_S)) + ["backup/model"]
+    # 짧은 백오프만 — 콜드스타트 관문의 3초 간격 재시도(320초 예산)는 타지 않는다
+    assert no_sleep == list(llm_chat._TRANSIENT_RETRY_BACKOFF_S)

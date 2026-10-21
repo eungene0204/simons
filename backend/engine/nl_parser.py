@@ -357,6 +357,11 @@ def _ollama_open_with_retry(req, timeout: int):
                     from llm_chat import check_openrouter_quota
 
                     check_openrouter_quota(e)
+                if is_openrouter():
+                    # OpenRouter 상류 오류는 Modal 콜드스타트가 아니다 — 같은 모델에 320초 예산을
+                    # 태우지 않고 llm_chat의 짧은 재시도·다음 모델·Ollama 폴백에 넘긴다
+                    # (2026-10-21: Nemotron 상류 502 장애 중 의도 분류 한 번이 321초).
+                    raise
             except urllib.error.URLError as e:
                 # 취소가 진행 중 소켓을 닫아서 난 실패는 콜드스타트 재시도 대상이 아니라 취소다.
                 cancellation.raise_if_cancelled()

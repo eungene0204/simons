@@ -120,15 +120,20 @@ export async function fetchBackend(
   for (const baseUrl of getBackendBaseUrls()) {
     // 호출자가 이미 끊었으면(클라이언트 연결 종료) 다음 후보 URL로 넘어가지 않는다.
     if (signal?.aborted) throw signal.reason ?? new Error("request aborted");
+    const requestSignal = combineSignals(signal, timeoutMs ?? 120_000);
     try {
       const response = await undiciFetch(`${baseUrl}${path}`, {
         ...(requestInit as Record<string, unknown>),
-        signal: combineSignals(signal, timeoutMs ?? 120_000),
+        signal: requestSignal,
         dispatcher: getBackendAgent(),
       });
       return response as unknown as Response;
     } catch (error: any) {
       errors.push(`${baseUrl}: ${error?.message ?? "fetch failed"}`);
+      // 예산 초과·호출자 취소는 연결 실패가 아니다 — 백엔드는 이미 요청을 받아 처리 중이라,
+      // 다음 후보 URL(같은 서버)로 다시 보내면 같은 작업이 한 벌 더 돌고 대기가 두 배가 된다
+      // (2026-10-21: 의도 분류 120초 초과가 127.0.0.1로 재전송돼 '분석 중'이 4분 넘게 멈춤).
+      if (requestSignal.aborted) throw new Error(errors.join(" | "));
     }
   }
 

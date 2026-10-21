@@ -299,29 +299,42 @@ def test_openrouter_daily_rate_limit_is_not_retried(monkeypatch):
 
 
 def test_openrouter_per_minute_429_is_still_retried(monkeypatch):
-    """분당 한도 429는 일시적이다 — 종전처럼 재시도해 다음 시도에서 성공하면 결과를 돌려준다."""
+    """분당 한도 429는 일시적이다 — 재시도해 다음 시도에서 성공하면 결과를 돌려준다.
+
+    재시도는 콜드스타트 관문(320초 예산)이 아니라 llm_chat의 짧은 상류 재시도가 맡는다
+    (2026-10-21: OpenRouter 상류 5xx가 콜드스타트 예산을 통째로 태우던 결함 수리)."""
     import io
+    import json
     import urllib.error
     import urllib.request
 
+    import llm_chat
     from engine import nl_parser
 
     monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", "")
     monkeypatch.setattr(nl_parser, "is_local_ollama", lambda: False)
     monkeypatch.setattr(nl_parser, "_ollama_align_runner_num_ctx", lambda: False)
     monkeypatch.setattr(nl_parser.time, "sleep", lambda s: None)
     body = b'{"error":{"message":"Rate limit exceeded: free-models-per-min","code":429}}'
+    ok = json.dumps({"choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}]}).encode()
     calls = []
+
+    class _Resp(io.BytesIO):
+        status = 200
+        headers = {}
 
     def fake_urlopen(req, timeout):
         calls.append(req)
         if len(calls) == 1:
             raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {}, io.BytesIO(body))
-        return io.BytesIO(b"{}")
+        return _Resp(ok)
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
-    req = urllib.request.Request("https://openrouter.ai/api/v1/chat/completions", data=b"{}", method="POST")
-    assert nl_parser._ollama_open_with_retry(req, timeout=120).read() == b"{}"
+    payload = {"model": "x", "messages": [{"role": "user", "content": "hi"}], "stream": False}
+    with llm_chat.open_chat(payload, timeout=120) as resp:
+        assert llm_chat.read_chat_response(resp.read())["message"]["content"] == "ok"
     assert len(calls) == 2
 
 

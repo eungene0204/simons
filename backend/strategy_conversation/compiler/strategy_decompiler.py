@@ -70,7 +70,10 @@ def _decompile_technical(sig: TechnicalSignal) -> StrategyCondition:
         if sig.side == "low":
             factor = "technical.breakout_low"      # 신저가 돌파(v16.41) — 연산자 없는 개념 ID
         else:
-            operator = "crosses_above"
+            # 엔진은 방향을 signal_type으로 정한다(buy=고점 상향 돌파, sell=저점 하향 이탈) —
+            # sell에 crosses_above를 적으면 컴파일러가 거절해 "20일 저점 이탈 시 매도" 칩으로 만든
+            # 전략이 다음 수정 턴마다 '해석하지 못했어요'로 떨어졌다(2026-10-21).
+            operator = "crosses_above" if sig.signal_type == "buy" else "crosses_below"
         if sig.lookback_period is not None:
             parameters["lookback_period"] = float(sig.lookback_period)
     elif sig.indicator in ("ai_model", "ai_drop_model"):

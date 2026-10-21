@@ -112,6 +112,18 @@ def test_decompile_roundtrip_keeps_low_side():
     assert again.side == "low" and again.lookback_period == 252
 
 
+def test_decompile_roundtrip_keeps_sell_breakout_without_side():
+    """'20일 저점 이탈 시 매도' 칩(breakout·sell·side 없음)이 수정 턴의 재컴파일을 통과한다.
+
+    2026-10-21 사고: 역변환이 매도에도 crosses_above를 적어 컴파일러가 거절 — 그 전략에
+    무엇을 답하든('리밸런싱 안함') '요청을 전략 조건으로 해석하지 못했어요'가 나갔다."""
+    sig = TechnicalSignal(indicator="breakout", signal_type="sell", lookback_period=20)
+    cond = _decompile_technical(sig)
+    assert (cond.factor, cond.operator) == ("technical.breakout", "crosses_below")
+    _, again = _compile_condition(cond, "exit")
+    assert again.signal_type == "sell" and again.side is None and again.lookback_period == 20
+
+
 # ── 프롬프트 계약 ──────────────────────────────────────────────────────────────
 
 def test_prompt_lists_breakout_low_and_no_longer_calls_new_low_unsupported():

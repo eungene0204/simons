@@ -68,6 +68,30 @@ describe("fetchBackend signal propagation", () => {
     expect(caller.signal.aborted).toBe(false);
   });
 
+  it("does not resend a timed-out request to the next backend URL", async () => {
+    // 2026-10-21: 분류 120초 초과가 127.0.0.1로 재전송돼 같은 LLM 작업이 두 번 돌고 대기가 두 배가 됐다.
+    vi.useFakeTimers();
+    undiciFetch.mockImplementation((_url: string, init: { signal?: AbortSignal }) =>
+      new Promise((_, reject) => {
+        init.signal?.addEventListener("abort", () => reject(new Error("timeout")), { once: true });
+      }),
+    );
+
+    const pending = fetchBackend("/query/classify", { timeoutMs: 1_000 });
+    const settled = expect(pending).rejects.toThrow(/timeout/);
+    await vi.advanceTimersByTimeAsync(1_500);
+    await settled;
+    expect(undiciFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("still falls through to the next backend URL on a connection error", async () => {
+    undiciFetch
+      .mockRejectedValueOnce(new Error("ECONNREFUSED"))
+      .mockResolvedValueOnce({ ok: true });
+    await expect(fetchBackend("/health", { timeoutMs: 1_000 })).resolves.toEqual({ ok: true });
+    expect(undiciFetch).toHaveBeenCalledTimes(2);
+  });
+
   it("does not open a backend connection when the caller already aborted", async () => {
     const caller = new AbortController();
     caller.abort();
