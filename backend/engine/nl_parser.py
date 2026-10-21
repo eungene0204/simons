@@ -5272,7 +5272,7 @@ def _parse_rule_based_strategy(user_input: str) -> Optional[ParsedStrategy]:
     # (기술적 진입 신호만 있고 청산이 없는 경우는 의도적으로 LLM에 위임한다 —
     #  test_technical_entry_without_exit_still_falls_back 참고.)
     # 단, 지정 종목 백테스트("삼성전자에 골든크로스 전략")는 청산 누락을
-    # apply_single_asset_adjustments가 추천 청산/안내로 보정하므로 LLM에 위임하지 않는다.
+    # 매도 조건 누락은 진행 골격 게이트가 묻는다(apply_single_asset_adjustments는 안내만) — LLM에 위임하지 않는다.
     periodic_rebalance = bool(ranking_metric or fundamental_filters)
     single_asset_entry = bool(entry_signals and _extract_target_symbols(user_input))
     if not has_entry or not (has_exit or has_risk_exit or periodic_rebalance or single_asset_entry):
@@ -6164,18 +6164,14 @@ def _target_change_from_utterance(
     return False, list(previous_targets or [])
 
 
-# 지정 종목 백테스트에서 청산 조건이 전혀 없을 때, 반대 신호 청산을 추천 적용할 수 있는
-# 크로스오버 계열 지표(진입=상향 교차 → 청산=하향 교차가 정준 해석인 것들만).
-_OPPOSITE_EXIT_INDICATORS = {"ma_crossover", "ema", "macd"}
-
-
 def apply_single_asset_adjustments(parsed: ParsedStrategy) -> tuple[ParsedStrategy, list[str]]:
-    """지정 종목 전략의 누락 조건을 추천 기본값으로 보정하고 안내 문구를 돌려준다.
+    """지정 종목 전략의 청산 누락을 안내한다(FR-STR-068). 전략 값은 바꾸지 않는다.
 
-    조용한 임의 실행을 피한다(FR-STR-068): 청산 조건이 전혀 없으면
-    ① 크로스오버 계열 진입 → 반대 신호 청산을 추천 적용 + 안내,
-    ② 그 외 → 자동 주입 없이 '기간 종료까지 보유' 사실과 추가 옵션을 안내(비차단 notices).
-    유니버스 전략에는 손대지 않는다.
+    청산 조건이 전혀 없으면 매도 칸은 비워 둔 채 '기간 종료까지 보유' 사실과 추가 옵션만
+    안내한다(비차단 notices) — 매도 조건은 진행 골격 게이트가 묻는다. 사용자가 말하지 않은
+    청산을 기본값으로 확정하지 않는다: 크로스오버 진입의 반대 신호를 청산으로 채우던 추천
+    적용은 폐지했다(2026-10-21 사고: 'ai 관련주' MACD 진입에 MACD 하향 돌파 청산이 채워진
+    채 "어떤 조건에서 매도할까요?"가 함께 떴다). 유니버스 전략에는 손대지 않는다.
     """
     # getattr 방어 — 레거시 저장 DSL·테스트 스텁 등 target_symbols 없는 객체는 유니버스 취급.
     if not getattr(parsed, "target_symbols", None):
@@ -6192,24 +6188,10 @@ def apply_single_asset_adjustments(parsed: ParsedStrategy) -> tuple[ParsedStrate
     )
     if has_exit or not parsed.entry_signals:
         return parsed, notices
-
-    opposite_exits = [
-        sig.model_copy(update={"signal_type": "sell"})
-        for sig in parsed.entry_signals
-        if sig.indicator in _OPPOSITE_EXIT_INDICATORS and sig.signal_type == "buy"
-    ]
-    if opposite_exits:
-        parsed = parsed.model_copy(update={"exit_signals": opposite_exits})
-        notices.append(
-            "청산 조건이 없어 진입 신호의 반대 신호 청산(예: 골든크로스 진입 → 데드크로스 "
-            "청산)을 추천 기본값으로 적용했습니다. 손절/익절/보유기간 등 다른 청산 방식을 "
-            "원하시면 말씀해 주세요."
-        )
-    else:
-        notices.append(
-            "청산 조건이 지정되지 않아 백테스트 기간 종료까지 보유합니다. 반대 신호 청산, "
-            "손절/익절, 트레일링 스탑, 고정 보유기간 등을 추가로 지정할 수 있습니다."
-        )
+    notices.append(
+        "청산 조건이 지정되지 않아 백테스트 기간 종료까지 보유합니다. 반대 신호 청산, "
+        "손절/익절, 트레일링 스탑, 고정 보유기간 등을 추가로 지정할 수 있습니다."
+    )
     return parsed, notices
 
 

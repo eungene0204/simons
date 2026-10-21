@@ -287,6 +287,45 @@ def test_click_applies_stored_binding_without_reinterpreting_the_label():
     assert result["parsed"].exit_signals[0].long_period == 20
 
 
+def test_bound_chip_already_reflected_in_state_does_not_fall_to_interpreter():
+    """결속값이 이미 State와 같으면 '이미 반영'으로 확정한다 — LLM으로 넘기지 않는다.
+
+    2026-10-19 실측: 매도 조건이 채워진 뒤 '데드크로스(5일/20일) 발생 시 매도' 칩을 누르면
+    무변경으로 판정돼 수정 인터프리터로 빠졌고, 칩 클릭에 '생각 중...'이 떴다.
+    """
+    exit_signal = {
+        "indicator": "ma_crossover", "signal_type": "sell",
+        "short_period": 5, "long_period": 20,
+    }
+    prev = ParsedStrategy.model_validate({
+        **_etf_strategy(), "exit_signals": [exit_signal],
+    }).model_dump()
+    ask = {
+        "topic": "매도조건", "question": "어떤 조건에서 매도할까요?",
+        "chips": ["데드크로스(5일/20일) 발생 시 매도", "RSI 70 이상에서 매도"],
+        "chip_bindings": {"데드크로스(5일/20일) 발생 시 매도": {"exit_signals": [exit_signal]}},
+    }
+    result = run_chip_answer("데드크로스(5일/20일) 발생 시 매도", prev, ask)
+    assert result is not None
+    assert result["interpreter"]["mode"] == "primary_chip_answer"
+    assert result["interpreter"]["llm_latency_ms"] == 0
+    assert result["parsed"].exit_signals[0].indicator == "ma_crossover"
+
+
+def test_bound_chip_equal_to_current_value_confirms_the_slot():
+    """확정 가능한 칸이면 이미 같은 값이어도 사용자가 고른 것이므로 명시로 올린다."""
+    prev = _blank_strategy()
+    ask = {
+        "topic": "최대 보유", "question": "몇 종목?",
+        "chips": ["최대 10종목"],
+        "chip_bindings": {"최대 10종목": {"max_positions": prev.max_positions}},
+    }
+    result = run_chip_answer(
+        "최대 10종목", prev.model_dump(), ask, previous_explicit_fields=["universe"])
+    assert result is not None
+    assert result["explicit_fields"] == ["universe", "max_positions"]
+
+
 # ── 확정 칩(§ 7 CONFIRM) ────────────────────────────────────────────────────────
 # 값이 안 바뀌는 칩에는 두 종류가 섞여 있다: 표현할 수 없는 칩(탈락)과 이미 물질화된
 # 기본값을 그대로 가리키는 칩(확정). 후자를 함께 떨어뜨리면 우리가 물어놓고 화면에
@@ -462,6 +501,26 @@ def test_decline_chip_click_records_decline_without_changing_strategy():
     assert result["parsed"].stop_loss_pct is None
     # 거부는 목록에 남아 다음 턴 게이트가 같은 질문을 다시 내지 않는다.
     assert result["declined_fields"] == ["stop_loss"]
+
+
+def test_no_rebalancing_chip_survives_binding_and_records_decline():
+    """[회귀] 2026-10-21 — planner 리밸런싱 질문에서 '리밸런싱 안 함' 칩이 사라졌다.
+
+    리밸런싱이 비어 있으면 값이 이미 'none'이라 값 결속이 무변경으로 칩을 떨어뜨렸다.
+    """
+    parsed = ParsedStrategy(
+        description="다종목 지정", universe=["KOSPI"], target_symbols=["005930", "000660"])
+    chips = ["매주 리밸런싱", "매월 리밸런싱", "분기마다 리밸런싱", "리밸런싱 안 함"]
+    payload = _pending_ask_payload("리밸런싱 주기는 어떻게 할까요?", chips, "리밸런싱", parsed)
+    assert payload is not None
+    assert payload["chips"] == chips
+    assert payload["chip_declines"] == {"리밸런싱 안 함": "rebalancing"}
+
+    result = run_chip_answer("리밸런싱 안 함", parsed.model_dump(), payload)
+    assert result is not None
+    assert result["interpreter"]["mode"] == "primary_chip_decline"
+    assert result["parsed"].rebalancing_period == "none"
+    assert result["declined_fields"] == ["rebalancing"]
 
 
 def test_decline_accumulates_with_previous_declines():

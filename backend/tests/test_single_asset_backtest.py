@@ -243,11 +243,15 @@ def _samsung_golden_cross() -> ParsedStrategy:
     )
 
 
-def test_adjustments_add_opposite_exit_for_crossover():
+def test_adjustments_do_not_fabricate_opposite_exit_for_crossover():
+    """[회귀] 2026-10-21 — 크로스오버 진입의 반대 신호를 청산으로 몰래 채우지 않는다.
+
+    'ai 관련주' MACD 진입에 MACD 하향 돌파 청산이 '추천 기본값'으로 채워진 채 매도 조건
+    질문이 함께 떴다 — 사용자가 말하지 않은 청산은 비워 두고 게이트가 묻는다.
+    """
     adjusted, notices = apply_single_asset_adjustments(_samsung_golden_cross())
-    assert [(s.indicator, s.signal_type) for s in adjusted.exit_signals] == [("ma_crossover", "sell")]
-    # 추천 적용 사실을 안내한다(조용한 임의 실행 금지).
-    assert notices and "청산" in notices[0]
+    assert adjusted.exit_signals == []
+    assert not any("추천" in n for n in notices)
 
 
 def test_to_backtest_request_single_asset_semantics():

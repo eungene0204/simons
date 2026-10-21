@@ -111,6 +111,10 @@ def build_cases() -> list[dict]:
               explicit=[f for f in ALL_EXPLICIT if f != "rebalancing"]),
         _case("리밸런싱 안 함(사용자 결정)", patch={"rebalancing_period": "none"},
               explicit=[f for f in ALL_EXPLICIT if f != "rebalancing"], declined=True),
+        # 백엔드 칩 레인의 '리밸런싱 안 함'은 declined_fields로 온다(2026-10-21) — 같은 판정이어야 한다.
+        _case("리밸런싱 안 함(백엔드 칩 레인)", patch={"rebalancing_period": "none"},
+              explicit=[f for f in ALL_EXPLICIT if f != "rebalancing"],
+              declined_fields=["rebalancing"]),
         _case("손절 없음", patch={"stop_loss_pct": None}),
         _case("익절 없음", patch={"take_profit_pct": None}),
         # '안 함'(2026-08-10) — 값이 없어도 사용자가 정한 것이라 다시 묻지 않는다.

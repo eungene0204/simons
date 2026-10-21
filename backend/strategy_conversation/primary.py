@@ -2521,7 +2521,7 @@ def run_primary_parse(
         ]
     if parsed.target_symbols:
         # 지정 종목 전략의 청산 누락은 호출부 공유 보정(apply_single_asset_adjustments)이
-        # 반대 신호 청산 추천/기간 종료 보유 안내(비차단 notices)로 처리한다(FR-STR-068) —
+        # 기간 종료 보유 안내(비차단 notices)로 처리하고 매도 조건은 진행 골격 게이트가 묻는다(FR-STR-068) —
         # 정기 리밸런싱을 추천하는 유니버스형 되묻기 질문은 지정 종목에 맞지 않아 제거한다.
         report.clarification_questions = [
             q for q in report.clarification_questions
@@ -4390,27 +4390,40 @@ def run_chip_answer(
         d for d in _diff_fields(prev_dump, parsed.model_dump())
         if d.split(":", 1)[0] not in _CHIP_BINDING_IGNORED_FIELDS
     ]
+    explicit = previous_explicit_fields
     if not diff:
-        # description만 달라진 것은 '반영'이 아니다 — 전략은 그대로인데 확정으로
-        # 보고하면 사용자는 답했는데 아무것도 안 바뀐 화면을 본다(2026-07-29 사고).
-        _log_llm("↩ 칩 결정론 미적용", f"칩 '{text}' 결정적 추출 무변경 — 수정 인터프리터로")
-        return None
-    _log_llm("✓ 칩 답변 확정", f"칩 '{text}' 결정적 반영(LLM 생략): {'; '.join(diff)}")
+        if not (isinstance(binding, dict) and binding):
+            # description만 달라진 것은 '반영'이 아니다 — 전략은 그대로인데 확정으로
+            # 보고하면 사용자는 답했는데 아무것도 안 바뀐 화면을 본다(2026-07-29 사고).
+            _log_llm("↩ 칩 결정론 미적용", f"칩 '{text}' 결정적 추출 무변경 — 수정 인터프리터로")
+            return None
+        # 결속값이 이미 State와 같다 — 칩이 정한 값이 이미 반영돼 있으므로 그대로 확정한다.
+        # 수정 인터프리터로 넘기면 칩 클릭이 '생각 중...'(LLM)으로 빠진다(2026-10-19 실측:
+        # 매도 조건이 채워진 뒤 '데드크로스(5일/20일) 발생 시 매도' 클릭). 저장값 비교뿐이다.
+        confirm_field = strategy_slots.confirmable_field_for_topic(pending_ask.get("topic"))
+        if confirm_field is not None:
+            from strategy_conversation.response.provenance import merge_explicit_fields
+
+            explicit = merge_explicit_fields(previous_explicit_fields, [confirm_field])
+        _log_llm("✓ 칩 답변 확정", f"칩 '{text}' 결속값 = 현재값 — 이미 반영(LLM 생략)")
+    else:
+        _log_llm("✓ 칩 답변 확정", f"칩 '{text}' 결정적 반영(LLM 생략): {'; '.join(diff)}")
 
     # 이월 질문 큐(한 턴에 한 질문)가 있으면 재계획 대신 큐의 다음 질문을 발행한다 —
     # 재계획은 값-대기 조건을 모르는 planner가 다른 슬롯 질문으로 새게 한다.
-    queued = _next_ask_from_queue(pending_ask, parsed, previous_explicit_fields)
+    queued = _next_ask_from_queue(pending_ask, parsed, explicit)
     if queued is not None:
         question, suggestions, priority, next_ask = queued
     else:
         question, suggestions, priority, next_ask = _replan_next_question(
-            user_input, parsed, previous_explicit_fields, previous_declined_fields)
+            user_input, parsed, explicit, previous_declined_fields)
     return finalize_user_response({
         "parsed": parsed,
         "clarification_question": question,
         "clarification_suggestions": suggestions,
         "clarification_priority": priority,
         "pending_ask": next_ask,
+        **({"explicit_fields": explicit} if explicit is not previous_explicit_fields else {}),
         "notices": [],
         "interpreter": {
             "mode": "primary_chip_answer",

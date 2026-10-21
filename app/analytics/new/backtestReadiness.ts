@@ -117,7 +117,11 @@ export function isSlotFilled(
   // 손절·익절, 리밸런싱은 물을 대상이 아니다(백엔드 CONTRIBUTION_NOT_APPLICABLE과 동형).
   if (CONTRIBUTION_NOT_APPLICABLE.includes(field) && (hasContributionPlan(parsed) || hasWithdrawalPlan(parsed)))
     return true;
-  if (field === "rebalancing" && (targetSymbolCount === 1 || options.allowNoRebalancing === true)) {
+  // '리밸런싱 안 함'은 로컬 칩 레인(allowNoRebalancing)과 백엔드 칩 레인(declined_fields) 두 경로로
+  // 온다 — 백엔드 _decided처럼 둘 다 거부로 본다(한쪽만 보면 백엔드가 받은 거부를 다시 묻는다).
+  const rebalancingDeclined =
+    options.allowNoRebalancing === true || (options.declinedFields ?? []).includes("rebalancing");
+  if (field === "rebalancing" && (targetSymbolCount === 1 || rebalancingDeclined)) {
     return true;
   }
   // 리밸런싱 방식(FR-BT-067)은 리밸런싱을 켠 뒤에만 성립하는 질문이다. 시장과는 무관하다
@@ -126,7 +130,7 @@ export function isSlotFilled(
   if (field === "rebalance_method") {
     if (
       targetSymbolCount === 1 ||
-      options.allowNoRebalancing === true ||
+      rebalancingDeclined ||
       !hasRebalancing
     ) {
       return true;

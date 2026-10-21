@@ -158,6 +158,9 @@ DECLINABLE_FIELDS: frozenset[str] = frozenset({REBALANCING, STOP_LOSS, TAKE_PROF
 # _apply_prompt_overrides로는 결속되지 않는다(무변경 = 노출 제외). 확정 칩(chip_confirms)과
 # 같은 이유로 별도 채널을 둔다 — 클릭은 값이 아니라 거부 상태를 남긴다.
 DECLINE_CHIP_FIELDS: dict[str, str] = {
+    # 리밸런싱이 비어 있으면 값은 이미 'none'이라 값 결속으로는 영원히 탈락한다 — 2026-10-21
+    # 사고: planner가 낸 리밸런싱 질문에서 '리밸런싱 안 함' 칩이 사라졌다.
+    "리밸런싱 안 함": REBALANCING,
     "손절 안 함": STOP_LOSS,
     "익절 안 함": TAKE_PROFIT,
 }

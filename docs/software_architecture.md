@@ -799,7 +799,7 @@ strategy_converter.to_backtest_request() (backend/engine/strategy_converter.py)
     │   종목명→코드는 LLM이 아닌 결정적 추출(nl_parser._extract_target_symbols,
     │   stock_analysis/symbol_resolver 정본)이 채우고, 문맥 가드(업종·예시·제외 표현)가
     │   유니버스 전략의 오폭을 막는다. 청산 누락은 apply_single_asset_adjustments가
-    │   반대 신호 청산 추천/안내(notices)로 보정한다.
+    │   '기간 종료까지 보유' 안내(notices)만 한다(반대 신호 청산 자동 적용은 2026-10-21 폐지 — 매도 조건은 게이트가 묻는다).
     ├── 단일 종목 연구 프로파일(FR-STR-068b): engine/stock_profile.py의
     │   StockProfileService가 종목 지정 시 OHLCV·PIT 재무에서 결정론 프로파일
     │   (커버리지·설명 통계·신호 발생 빈도·지원/미지원 피처)을 생성·캐시
