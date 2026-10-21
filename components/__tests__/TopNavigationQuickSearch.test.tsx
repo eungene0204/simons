@@ -235,12 +235,10 @@ describe("TopNavigation quick search", () => {
     renderWithQueryClient(<TopNavigation />);
 
     const analyticsLink = await screen.findByRole("link", { name: /전략연구소/i });
-    const strategyShareLink = screen.getByRole("link", { name: /전략공유/i });
 
     expect(analyticsLink.className).toContain("bg-white/10");
-    expect(strategyShareLink.className).not.toContain("bg-white/10");
-    // 대시보드 메뉴는 숨김(2026-10-20, 페이지는 유지) — 그 자리에 전략공유.
-    expect(strategyShareLink).toHaveAttribute("href", "/strategy-share");
+    // 대시보드(2026-10-20)·전략공유(2026-10-21) 메뉴는 숨김 — 페이지는 유지.
+    expect(screen.queryByRole("link", { name: /전략공유/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /대시보드/i })).not.toBeInTheDocument();
     // 내 전략은 전략연구소 탭에서 상단 메뉴로 옮겼다(2026-10-21) — 백테스트 기록 바로 오른쪽.
     const myStrategiesLink = screen.getByRole("link", { name: /내 전략/i });
@@ -447,7 +445,7 @@ describe("TopNavigation quick search", () => {
     await waitFor(() => expect(signInWithOAuthMock).toHaveBeenCalledWith(expect.objectContaining({ provider: "google" })));
   });
 
-  it("비로그인 상태에서 모의투자, 백테스트 기록, 전략공유 메뉴를 누르면 로그인 모달을 보여준다", async () => {
+  it("비로그인 상태에서 모의투자, 백테스트 기록, 내 전략 메뉴를 누르면 로그인 모달을 보여준다", async () => {
     renderWithQueryClient(<TopNavigation />);
 
     await screen.findByRole("button", {
@@ -471,7 +469,7 @@ describe("TopNavigation quick search", () => {
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "취소" }));
 
-    fireEvent.click(screen.getByRole("link", { name: /전략공유/i }));
+    fireEvent.click(screen.getByRole("link", { name: /내 전략/i }));
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Google로 시작하기" }));

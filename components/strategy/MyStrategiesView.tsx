@@ -179,7 +179,7 @@ export default function MyStrategiesView() {
                         </button>
                         {isDeleting && (
                           <div role="status" className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2">
-                            <Spinner size={28} className="animate-spin text-white" aria-hidden="true" />
+                            <Spinner size={28} className="animate-spin motion-reduce:animate-none text-white" aria-hidden="true" />
                             <span className="text-[11px] font-black text-gray-200">{t("삭제 중...")}</span>
                           </div>
                         )}
