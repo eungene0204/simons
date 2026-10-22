@@ -136,6 +136,11 @@ def reconcile_semantic_fields(intent, utterance, chat, *, only=None):
                 continue
             requested_role = item.get("requested_role", role)
             factor = item.get("factor", condition.factor)
+            if condition.factor == "technical.ema" and factor == "technical.ma_crossover":
+                # 메인 인터프리터가 EMA로 낸 조건을 보정 LLM이 ma_crossover로 되돌리는 방향은 막는다 —
+                # 같은 문장·같은 1차 출력에서 8턴 중 6턴이 EMA 매도를 SMA로 뒤집었다(2026-10-23).
+                # 역할·기간 교정은 그대로 받는다. 반대 방향(ma_crossover→ema)은 기존 계약대로 둔다.
+                factor = condition.factor
             if requested_role not in ("entry", "exit") or factor not in (
                     condition.factor, "technical.ema", "technical.ma_crossover"):
                 continue

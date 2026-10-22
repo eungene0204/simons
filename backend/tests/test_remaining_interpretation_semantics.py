@@ -40,6 +40,41 @@ def test_confirmed_ema_and_role_are_applied_in_one_batch():
     assert len(calls) == 1
 
 
+def _ema_exit_intent(quote, *, role="exit"):
+    return StrategyIntent.model_validate({"intent": "CREATE_STRATEGY", "strategy": {
+        role + "_conditions": [{"factor": "technical.ema", "operator": "crosses_below",
+                                "parameters": {"short_period": 5, "long_period": 20},
+                                "source_text": quote}]}})
+
+
+def _flip_reply(quote, role):
+    return json.dumps({"items": [{"id": "c:0", "quote": quote, "status": "corrected",
+        "requested_role": role, "factor": "technical.ma_crossover", "parameters": {
+            "short_period": {"number_text": "5", "count": 5, "unit": "day"},
+            "long_period": {"number_text": "20", "count": 20, "unit": "day"}}}]})
+
+
+def test_reconciliation_cannot_turn_an_ema_condition_into_ma_crossover():
+    """2026-10-23 사고(속설 #22): 메인 인터프리터가 매도를 technical.ema(5/20, crosses_below)로 맞게 냈는데
+    보정 LLM이 같은 문장에서 8턴 중 6턴 technical.ma_crossover로 '교정'해 EMA 매도가 SMA로 바뀌었다
+    (결과 -40.53% ↔ -5.21%). 1차 출력이 EMA면 보정이 ma_crossover로 되돌리지 못한다."""
+    quote = "5일 EMA가 20일 EMA 아래로 내려오면 매도"
+    intent = _ema_exit_intent(quote)
+    reconcile_semantic_fields(intent, quote, lambda *a, **k: _flip_reply(quote, "exit"))
+    condition = intent.strategy.exit_conditions[0]
+    assert condition.factor == "technical.ema"
+    assert condition.operator == "crosses_below"
+    assert condition.parameters == {"short_period": 5, "long_period": 20}
+
+
+def test_ema_guard_keeps_role_correction_from_the_same_reply():
+    quote = "5일 EMA가 20일 EMA 아래로 내려오면 매도"
+    intent = _ema_exit_intent(quote, role="entry")
+    reconcile_semantic_fields(intent, quote, lambda *a, **k: _flip_reply(quote, "exit"))
+    assert intent.strategy.entry_conditions == []
+    assert intent.strategy.exit_conditions[0].factor == "technical.ema"
+
+
 def test_prompt_example_condition_correction_shape_is_the_parsed_shape():
     """2026-10-21 사고: 예시에 조건 보정 모양이 없어 LLM이 role+중첩 condition으로 답했고,
     파서가 읽는 requested_role·factor·parameters가 없어 매도 칸 이동이 무산 → 청산 조건 보류·소실.
