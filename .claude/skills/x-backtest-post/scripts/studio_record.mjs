@@ -36,11 +36,17 @@ log('처음 그래프:', g0 ? g0.texts.join(' / ') : '그래프를 못 찾음(�
 
 const answers = [...spec.answers];
 const answered = [];
+const retried = new Set();
 let misses = 0;
 for (let i = 0; i < 12; i++) {
   if (await button('이 전략으로 확정').count()) break;
-  const hit = await (async () => { for (const a of answers) if (await button(a).count()) return a; return null; })();
-  if (!hit && misses++ < 4) { await settle(page, 150); await page.waitForTimeout(1500); i--; continue; } // 다음 질문이 그려지기 전에 확인하는 경쟁 — 진행 표시('생각 중...')가 사라질 때까지(앱 응답이 느리면 10초 넘게) 기다렸다 다시 본다
+  const hit = await (async () => {
+    for (const a of answers) if (await button(a).count()) return a;
+    // 누른 칩이 먹지 않아 같은 질문이 그대로 남았으면(카드 전환 중 클릭 소실, 10-21 스페이스X 실측) 그 칩을 한 번 더 누른다
+    for (const a of answered) if (!retried.has(a) && await button(a).count()) { retried.add(a); answers.push(a); return a; }
+    return null;
+  })();
+  if (!hit && (misses++ < 4 || (misses < 40 && await page.getByText('파싱 중').count()))) { await settle(page, 150); await page.waitForTimeout(1500); i--; continue; } // 다음 질문이 그려지기 전에 확인하는 경쟁 — 진행 표시('생각 중...')가 사라질 때까지(앱 응답이 느리면 10초 넘게) 기다렸다 다시 본다
   if (!hit) {
     const qs = (await page.innerText('body')).split('\n').filter((l) => /까요\?|주세요\.?$/.test(l.trim()));
     const q = qs.at(-1);
@@ -48,7 +54,7 @@ for (let i = 0; i < 12; i++) {
     const typed = (spec.typed || []).find((x) => qs.slice(-2).some((l) => l.includes(x.question)) && !answered.includes(x.text));
     if (typed) {
       // 칩에 없는 값(예: 끝 날짜를 정한 기간)은 카드의 입력창에 적어 보낸다 — 카메라는 칩처럼 입력창으로 다가간다
-      const box = page.locator('input[placeholder*="직접 적어"]:visible').last();
+      const box = page.locator('input[placeholder*="직접 적어"]:visible, input[placeholder*="원하는 내용"]:visible').last();
       const b = await box.boundingBox();
       mark('click', { phase: 'approach', label: typed.text, box: b });
       await glide(page, b.x + 60, b.y + b.height / 2);
@@ -88,6 +94,26 @@ await page.waitForTimeout(1200);
 await press(page, button('이 전략으로 확정'), '이 전략으로 확정');
 await button('백테스트 시작하기').waitFor({ state: 'visible', timeout: 60000 });
 await page.waitForTimeout(1200);
+// 지정 종목 — 확정된 전략 그래프의 '지정 종목 N개' 노드를 눌러 어떤 종목인지 펼쳐 보여 준다(2026-10-21 사용자 지시). 노드가 없으면 건너뛴다(편집도 이 기록이 있을 때만 장면을 만든다)
+const uniNode = page.locator('[data-testid="strategy-graph-canvas"] [data-item-key]:visible', { hasText: /지정 종목 \d+개/ }).first();
+if (await uniNode.count()) {
+  const label = (await uniNode.innerText().catch(() => '지정 종목')).replace(/\s+/g, ' ').trim();
+  await uniNode.evaluate((e) => e.scrollIntoView({ block: 'center' }));
+  await page.waitForTimeout(500);
+  await press(page, uniNode, label, 'universe');
+  await page.waitForTimeout(1500);   // 펼침 애니메이션(노드 이동 450ms) + 목록 배치
+  const cb = await page.evaluate(() => {
+    const c = [...document.querySelectorAll('[data-testid="strategy-graph-canvas"]')].filter((e) => e.offsetParent !== null).at(-1);
+    if (!c) return null;
+    const r = c.getBoundingClientRect();
+    return { x: r.x, y: r.y, width: r.width, height: r.height };
+  });
+  mark('card', { phase: 'card', label: 'universe', box: cb, count: (label.match(/\d+/) || [''])[0] });
+  log('지정 종목 노드 펼침:', label, cb ? 'ok' : '그래프 위치 못 찾음');
+  await page.waitForTimeout(5500);   // 편집이 목록을 읽을 시간 동안 정지
+}
+await button('백테스트 시작하기').evaluate((e) => e.scrollIntoView({ block: 'center' })); // 확정 요약이 길면(종목 칩 두 줄 등) 버튼이 하단 입력 패널 뒤에 가려져 클릭이 먹지 않는다(10-21 스페이스X 실측)
+await page.waitForTimeout(600);
 await press(page, button('백테스트 시작하기'), '백테스트 시작하기');
 log('백테스트 시작');
 

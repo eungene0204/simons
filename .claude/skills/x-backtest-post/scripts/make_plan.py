@@ -247,6 +247,23 @@ def build(folder: Path, meta: dict) -> dict:
     shots.append({"t": confirm_a["t"] + 500, "box": chip_box(confirm_a["box"]), "move": 500})
     shots.append({"t": confirm_p["t"] + CHIP_TAIL_MS, "box": chip_box(confirm_a["box"])})
 
+    # ⑤-2 지정 종목 노드 펼치기 — 녹화가 확정 그래프의 '지정 종목 N개' 노드를 눌렀을 때만(universe 기록). 노드로 다가가 눌러 펼친 뒤 펼쳐진 그래프로 당겨 읽을 시간을 준다
+    uni_p = next((m for m in marks if m["action"] == "universe" and m.get("phase") == "press"), None)
+    uni_a = next((m for m in marks if m["action"] == "universe" and m.get("phase") == "approach"), None)
+    uni_c = find(marks, "card", "card", "universe")
+    if uni_p and uni_a and uni_c:
+        import re
+        n = uni_c.get("count") or (re.search(r"지정 종목\s*(\d+)개", result.get("summary", "")) or [None, ""])[1]
+        cap = f"지정 종목 {n}개 노드를 눌러 펼치면 — 해석된 종목 목록이 나옵니다" if n else "지정 종목 노드를 눌러 펼치면 — 해석된 종목 목록이 나옵니다"
+        u_to = uni_c["t"] + 5200
+        clips.append({"from": uni_a["t"] - 200, "to": u_to, "speed": 1, "caption": cap})
+        shots.append({"t": uni_a["t"] + 300, "box": chip_box(uni_a["box"]), "move": 500})
+        shots.append({"t": uni_p["t"] + 400, "box": chip_box(uni_a["box"])})
+        nb = uni_p["box"]   # 누른 노드 — 펼친 목록은 이 노드 바로 아래에 붙는다
+        zb = [nb["x"] - 110, nb["y"] - 40, nb["width"] + 220, 330]
+        shots.append({"t": uni_c["t"] + 200, "box": zb, "move": 800})
+        shots.append({"t": u_to, "box": zb})
+
     # ⑥ 시작 버튼 → 실행(빨리 감기, 전체 화면)
     start_a = find(marks, "click", "approach", "백테스트 시작하기")
     start_p = find(marks, "click", "press", "백테스트 시작하기")
