@@ -226,19 +226,16 @@ def test_partially_bindable_chip_with_unsupported_concept_is_not_emitted():
     assert "거래량 급증(전일 대비 3배) 시 매수" not in payload["chip_bindings"]
 
 
-def test_plain_volume_spike_chip_still_binds():
-    """배수 없는 '거래량 급증 시 매수'는 지원 개념이므로 결속·노출된다."""
+def test_volume_ratio_entry_chip_binds_multiple():
+    """매수 칩의 거래량 조건은 배수 칩이다(2026-10-22 — 배수 없는 '거래량 급증'이 OBV로 결속되던 칩 교체).
+    칩 텍스트에 배수가 있어도 정본 표로 결속되므로 거래량 배수 칩 가드에 걸리지 않는다."""
+    chip = "거래량이 20일 평균의 1.5배 이상일 때 매수"
     prev = ParsedStrategy.model_validate(_etf_strategy())
-    payload = _pending_ask_payload(
-        "어떤 조건에서 매수할까요?", ["거래량 급증 시 매수"], "매수 조건", prev,
-    )
+    payload = _pending_ask_payload("어떤 조건에서 매수할까요?", [chip], "매수 조건", prev)
     assert payload is not None
-    assert payload["chips"] == ["거래량 급증 시 매수"]
-    binding = payload["chip_bindings"]["거래량 급증 시 매수"]
-    assert any(
-        signal.get("indicator") == "volume_spike"
-        for signal in binding.get("entry_signals", [])
-    )
+    assert payload["chips"] == [chip]
+    signals = payload["chip_bindings"][chip]["entry_signals"]
+    assert any(s.get("indicator") == "volume_ratio" and s.get("value") == 1.5 for s in signals)
 
 
 def test_all_chips_unbindable_drops_the_chip_list():

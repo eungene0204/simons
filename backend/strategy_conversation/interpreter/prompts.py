@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "8.15"  # 8.15: "N거래일 지나면 매도"=hold_period_days(최소 보유로 읽던 오배정). 8.14: EMA 한 선 이탈 청산 예시(진입 EMA 쌍 복사 방지). 8.13: 코치의 직전 질문을 수정 턴 문맥으로 전달
+PROMPT_VERSION = "8.16"  # 8.16: 배수 없는 거래량 급증=volume_ratio(value=null, 되묻기), volume_spike(OBV)는 OBV 명시 때만. 8.15: "N거래일 지나면 매도"=hold_period_days(최소 보유로 읽던 오배정). 8.14: EMA 한 선 이탈 청산 예시(진입 EMA 쌍 복사 방지). 8.13: 코치의 직전 질문을 수정 턴 문맥으로 전달
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -311,7 +311,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
    영어 정성 표현도 한국어와 같은 자리입니다(실측 2026-08-26, /us 자유입력 — 아래
    표현이 해석 실패 되묻기로 빠졌습니다): "volume explodes to 3x the average" →
    technical.volume_ratio operator ">=" value=3(규칙 5-2), "volume spikes" →
-   technical.volume_spike value=null, "eight stocks"처럼 철자 숫자 종목
+   technical.volume_ratio operator ">=" value=null, "eight stocks"처럼 철자 숫자 종목
    수 → selection_count=8, "double my money" → take_profit=100. 금액이 붙은 거래대금
    ("daily trading value of $100 million or more")은 volume_spike가 아니라
    fundamental.trading_value >= 1(억 환산)입니다.
@@ -347,7 +347,8 @@ NON_STRATEGY_REQUEST(전략과 무관)
    technical.breakout(신고가)에 crosses_below를 붙여 신저가 매수를 표현하지 마세요 —
    그 조합은 진입 신호로 표현할 수 없습니다. 기간 언급이 없으면 lookback_period는 비워 두세요(되묻기).
 5-2. '거래량이 급증/평소보다 늘어남/평균 대비 증가/터짐'처럼 **배수 없이** 말한 거래량 조건은
-   거래량 급증 신호(technical.volume_spike, value=null)입니다 — 억원 임계가 있는 거래대금
+   거래량 배수 조건(technical.volume_ratio, operator ">=", value=null)입니다 — 배수는 되묻습니다.
+   technical.volume_spike(OBV)는 사용자가 OBV를 직접 말했을 때만 씁니다. 억원 임계가 있는 거래대금
    조건으로 분류하지 마세요. '평소보다 3배'·'20일 평균보다 1.5배 많은'처럼 **배수**를 말했으면
    거래량 배수 조건(technical.volume_ratio)입니다 → operator ">=", value=3 / 1.5 (unit "ratio"),
    평균 기간을 말했으면 parameters.period=20. 배수를 버리거나 unsupported_features로 보내지

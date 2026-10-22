@@ -255,7 +255,14 @@ def _clarification_items(
         metric: Optional[str] = None
         # 조건 임계값 질문 → "영업이익률 10% 이상" 칩(수정 메시지로 재전송 가능한 형태)
         cond = conditions_by_field.get(q.field)
-        if cond is not None and q.recommended_value is not None:
+        if cond is not None and cond.factor == "technical.volume_ratio":
+            # 배수 없는 '거래량 급증'의 배수 되묻기(2026-10-22 사용자 결정: 1.5·2·3배 칩). 칩은 기본
+            # 기간(20일) 신호를 결속한다 — 다른 평균 기간을 말했으면 칩이 그 기간을 잃으므로 무칩.
+            role = "entry" if (q.field or "").startswith("strategy.entry_") else "exit"
+            if (cond.parameters or {}).get("period") in (None, 20, 20.0):
+                chips.extend(strategy_slots.volume_ratio_chip(role, m)
+                             for m in strategy_slots.VOLUME_RATIO_OPTIONS)
+        elif cond is not None and q.recommended_value is not None:
             spec = REGISTRY.get(cond.factor)
             if spec is not None:
                 unit = {"percent": "%", "ratio": "배", "억원": "억원"}.get(spec.value_type or "", "")
@@ -1924,6 +1931,15 @@ def _check_condition_quotes(
     if verdicts is None:
         _log_llm("△ 조건 인용 대조 실패", f"{len(targets)}개 조건 — 판정 없음으로 진행(교정·제거 안 함)")
     else:
+        # 반대 칸 교정 — 두 역할 판정이 일치한 조건만 옮긴다(quote_check.quote_move_target).
+        strategy = intent.strategy
+        for cond, role in targets:
+            move_to = quote_check.quote_move_target(verdicts, cond)
+            if move_to is None or move_to == role:
+                continue
+            setattr(strategy, role, [c for c in getattr(strategy, role) if c is not cond])
+            getattr(strategy, move_to).append(cond)
+            _log_llm("↔ 조건 칸 교정", f"'{cond.source_text}' {role} → {move_to}")
         _log_llm("✓ 조건 인용 대조", "; ".join(
             f"{cond.source_text}={getattr(verdicts.get(cond), 'expresses', None)}/"
             f"{getattr(verdicts.get(cond), 'describes', None)}"
@@ -3126,7 +3142,8 @@ def _bind_chips(
             bound.append(text)
             bindings[text] = {"rebalance_method": method_value}
             continue
-        touch_patch = strategy_slots.bollinger_touch_chip_patch(text, base)
+        touch_patch = (strategy_slots.bollinger_touch_chip_patch(text, base)
+                       or strategy_slots.volume_ratio_chip_patch(text, base))
         if touch_patch is not None:
             # 볼린저 하단 터치 인정 기간 칩(v16.39) — 값 대기 조건은 parsed에 없으므로 정본 표가
             # 신호 전체를 추가하는 패치로 결속한다(원문 보정 파서에 어휘를 넣지 않는다).

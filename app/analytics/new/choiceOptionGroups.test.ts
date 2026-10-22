@@ -4,14 +4,16 @@ import { groupChoiceOptions } from "./choiceOptionGroups";
 
 const FREE_INPUT = "직접 입력";
 
-// 백엔드 정본(engine/strategy_slots.py ENTRY)의 매수 칩 아홉 개 + 빌더 레인이 붙이는 '직접 입력'.
+// 백엔드 정본(engine/strategy_slots.py ENTRY)의 매수 칩 열한 개 + 빌더 레인이 붙이는 '직접 입력'.
 const ENTRY_CHIPS = [
   "골든크로스(5일/20일) 발생 시 매수",
   "RSI 30 이하에서 매수",
   "MACD 골든크로스 매수",
   "볼린저밴드 하단 터치 시 매수",
   "20일 고점 돌파 시 매수",
-  "거래량 급증 시 매수",
+  "거래량이 20일 평균의 1.5배 이상일 때 매수",
+  "거래량이 20일 평균의 2배 이상일 때 매수",
+  "거래량이 20일 평균의 3배 이상일 때 매수",
   "최근 3개월 수익률 상위 매수",
   "PER 10 이하",
   "ROE 15% 이상",
@@ -24,7 +26,7 @@ describe("선택 칩 묶음", () => {
     expect(grouped?.groups).toEqual([
       {
         title: "매수 시점 신호",
-        options: ENTRY_CHIPS.slice(0, 6),
+        options: ENTRY_CHIPS.slice(0, 8),
       },
       { title: "순위로 담기", options: ["최근 3개월 수익률 상위 매수"] },
       { title: "종목 필터", options: ["PER 10 이하", "ROE 15% 이상"] },

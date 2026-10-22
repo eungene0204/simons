@@ -890,6 +890,9 @@ def test_dropped_plan_turn_is_fully_interpreted(monkeypatch):
             '{"phrases": ["종가가 200일 이동평균선 아래에 있으면", "RSI(14)가 30 미만이면"]}',
         condition_recall.build_period_system_prompt(): '{"quote": null, "period": null}',
         quote_check.build_system_prompt(): '{"items": [{"expresses": "no", "describes": "moving_average"}]}',
+        # 칸 역할 대조(2026-10-22) — 인용은 매수 규칙이라 옮기지 않는다.
+        quote_check._SIDE_SYSTEM: '{"items": [{"side": "buy"}]}',
+        quote_check._SIDE_CONFIRM_SYSTEM: '{"items": [{"side": "buy"}]}',
         contribution_plan_check.build_system_prompt(): _PLAN_REPLY.replace(
             '"quote": "종가가 200일 이동평균선 아래에 있으면"', f'"quote": "{_MA_QUOTE}"').replace(
             '"quote": "RSI(14)가 30 미만이면"', f'"quote": "{_RSI_QUOTE}"'),

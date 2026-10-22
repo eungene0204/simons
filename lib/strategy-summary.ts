@@ -506,7 +506,7 @@ export const INDICATOR_LABELS: Record<string, string> = {
   bollinger_bands: "볼린저밴드",
   breakout: "브레이크아웃",
   consecutive_up: "종가 연속 상승",
-  volume_spike: "거래량 급증",
+  volume_spike: "OBV 평균 상향 돌파",
   volume_ratio: "거래량 배수",
   trading_value_ratio: "거래대금 배수",
   stochastic: "스토캐스틱",

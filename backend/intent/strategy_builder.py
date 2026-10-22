@@ -1508,7 +1508,11 @@ _ENTRY_CHIP_PATCHES: dict[str, dict] = {
     "20일 고점 돌파 시 매수": {
         "strategy_type": "breakout", "lookback_days": 20, "lookback_label": "20일",
     },
-    "거래량 급증 시 매수": {"strategy_type": "volume_spike", "volume_period": 20},
+    # 거래량 배수 칩(2026-10-22) — 빌더 상태에 배수 유형이 없어 재무 칩과 같이 자유 서술 규칙으로
+    # 넘긴다(칩 문장에 배수가 적혀 있어 파서 레인이 technical.volume_ratio로 옮긴다).
+    "거래량이 20일 평균의 1.5배 이상일 때 매수": {"strategy_type": "custom", "entry_rule": "거래량이 20일 평균의 1.5배 이상일 때 매수"},
+    "거래량이 20일 평균의 2배 이상일 때 매수": {"strategy_type": "custom", "entry_rule": "거래량이 20일 평균의 2배 이상일 때 매수"},
+    "거래량이 20일 평균의 3배 이상일 때 매수": {"strategy_type": "custom", "entry_rule": "거래량이 20일 평균의 3배 이상일 때 매수"},
     "최근 3개월 수익률 상위 매수": {
         "strategy_type": "momentum", "lookback_days": 63, "lookback_label": "3개월",
     },

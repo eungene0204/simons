@@ -346,7 +346,11 @@ _QUESTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
         "다음으로 어떤 조건에서 매수할지 정해볼까요?",
         ("골든크로스(5일/20일) 발생 시 매수", "RSI 30 이하에서 매수",
          "MACD 골든크로스 매수", "볼린저밴드 하단 터치 시 매수",
-         "20일 고점 돌파 시 매수", "거래량 급증 시 매수",
+         "20일 고점 돌파 시 매수",
+         # 배수 없는 '거래량 급증'은 OBV가 아니라 거래량 배수다(2026-10-22 사용자 결정) — 칩은
+         # VOLUME_RATIO_CHIP_VALUES와 같은 글자(결속은 volume_ratio_chip_patch).
+         "거래량이 20일 평균의 1.5배 이상일 때 매수", "거래량이 20일 평균의 2배 이상일 때 매수",
+         "거래량이 20일 평균의 3배 이상일 때 매수",
          "최근 3개월 수익률 상위 매수",
          "PER 10 이하", "ROE 15% 이상"),
     ),
@@ -356,9 +360,7 @@ _QUESTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
     #   골든크로스→데드크로스 · RSI 과매도→과매수 · MACD 골든→데드 ·
     #   볼린저 하단→상단 · 고점 돌파→저점 이탈
     # 대응을 넣지 못한 매수 칩 3종:
-    #   · 거래량 급증 — 엔진은 OBV 하락 전환(매도)을 지원하지만 파서에 그 매도 표현이 없어
-    #     칩이 값에 결속되지 않는다. 결속 안 되는 칩은 노출하지 않는다(칩=값 결속 계약).
-    #     어휘를 덧붙여 결속시키는 것은 대원칙 1이 금지하는 방향이라 하지 않는다.
+    #   · 거래량 배수 — 매수 칩의 반대(거래량 감소 시 매도)는 2026-10-22 결정 범위 밖이라 두지 않는다.
     #   · 모멘텀 상위 — 랭킹 전략의 청산은 매도 신호가 아니라 리밸런싱 편출이다(FR-BT-015b).
     #   · PER·ROE — 재무 지표는 청산 조건이 될 수 없다(역할 검증, FR-STR-019t ②).
     EXIT: (
@@ -492,6 +494,40 @@ def bollinger_touch_chip_patch(chip: str, parsed_dump: dict) -> Optional[dict]:
     signal = {
         "indicator": "bollinger_bands", "signal_type": "buy" if role == "entry" else "sell",
         "band": "middle", "cross": "above", "touch_lookback": days,
+    }
+    current = list(parsed_dump.get(key) or [])
+    if any(isinstance(s, dict) and all(s.get(k) == v for k, v in signal.items()) for s in current):
+        return None
+    return {key: current + [signal]}
+
+
+# 배수 없이 말한 '거래량 급증'(v16.10 거래량 배수의 값 대기) 칩 — 2026-10-22 사용자 결정: 되묻기 +
+# 20일 평균의 1.5·2·3배 칩. 볼린저 터치 칩과 같이 신호 전체를 추가하는 패치로 결속하고 역할은 칩 문구가 담는다.
+VOLUME_RATIO_OPTIONS: tuple[float, ...] = (1.5, 2.0, 3.0)
+
+
+def volume_ratio_chip(role: str, multiple: float) -> str:
+    action = "매수" if role == "entry" else "매도"
+    return f"거래량이 20일 평균의 {multiple:g}배 이상일 때 {action}"
+
+
+VOLUME_RATIO_CHIP_VALUES: dict[str, tuple[str, float]] = {
+    volume_ratio_chip(role, m): (role, m)
+    for role in ("entry", "exit") for m in VOLUME_RATIO_OPTIONS
+}
+
+
+def volume_ratio_chip_patch(chip: str, parsed_dump: dict) -> Optional[dict]:
+    """거래량 배수 칩이면 신호를 덧붙인 ParsedStrategy 패치, 아니면 None.
+    같은 신호가 이미 있으면 바꿀 것이 없으므로 None(결속 실패 = 칩 미노출)."""
+    picked = VOLUME_RATIO_CHIP_VALUES.get((chip or "").strip())
+    if picked is None:
+        return None
+    role, multiple = picked
+    key = "entry_signals" if role == "entry" else "exit_signals"
+    signal = {
+        "indicator": "volume_ratio", "signal_type": "buy" if role == "entry" else "sell",
+        "period": 20, "operator": ">=", "value": multiple,
     }
     current = list(parsed_dump.get(key) or [])
     if any(isinstance(s, dict) and all(s.get(k) == v for k, v in signal.items()) for s in current):

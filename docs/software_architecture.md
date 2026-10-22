@@ -95,6 +95,7 @@
 ### primary 수정 조건의 출처와 인용 판정 — 2026-10-11 후속
 
 - `primary.run_primary_modification`은 숫자 스칼라 patch가 기존 숫자 출처 게이트에서 거부됐을 때 `interpreter/numeric_patch_check.py`에 경로·출처를 넘긴다. 보조 LLM은 원문 수량을 독립적으로 옮겨 적고 코드는 인용 포함·값·단위만 검증한다. 실패·모호함이면 거부를 유지한다. `patch_pair_check.py`는 같은 조건 목록의 add와 인용 없는 remove 한 쌍을 교체/추가/불명확으로 분류한다. 불명확하면 둘 다 보류한다.
+- (2026-10-22) `quote_check.check_quotes`는 인용 대조가 `no`이면서 신호 종류가 `moving_average`·`bollinger`인 조건에 한해 칸 역할 대조(`_SIDE_SYSTEM`, buy/sell/unclear)를 두 번 묻는다. 두 답이 같은 반대 역할이면 `Verdict.move_to`를 싣고 `primary._check_condition_quotes`가 그 조건을 반대 칸으로 옮긴다(판정은 yes로 바뀌어 `required_checks`의 판정 보류에 잡히지 않는다). 불일치·실패는 옮기지 않는다. 같은 날 배수 없는 거래량 급증의 정본을 `technical.volume_ratio`(값 대기 → 1.5·2·3배 칩, `strategy_slots.VOLUME_RATIO_CHIP_VALUES`로 신호 전체 결속)로 옮겼다. `volume_spike`(OBV)는 OBV 명시 때만이다(프롬프트 8.16).
 - 패치 적용 후 새로 추가된 조건에 한해서 생성 턴의 `_drop_fabricated_conditions` 인용 대조를 사용한다. 기존 조건을 현재 발화로 다시 검사하지 않으며, 짧은 수정 답변 전체를 인용한 것을 생성 턴의 형식 위반으로 취급하지 않는다. 새 조건이 부정 판정으로 제거되고 짝 remove가 있으면 교체 전체를 보류하고 안내한다. `AgentsTab` 흐름에도 두 보조 판정과 부정 판정 소비를 반영했다.
 - 운영 120B의 “한 달 지나면 정리” 1차 출력이 MA/신고가 청산으로 틀릴 수 있었다. 당시 인용 대조는 거짓 신호만 막고 보유 기간 21일은 복구하지 못했다. 이후의 제한적 복구와 실제 UI 질문 재표본은 위 10-12·10-13 절 및 [안정화 진단 후속 실행 17](development/interpretation-stability-audit-2026-10-10.md)을 따른다.
 

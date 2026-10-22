@@ -48,7 +48,9 @@ const ENTRY_CHIPS = [
   "MACD 골든크로스 매수",
   "볼린저밴드 하단 터치 시 매수",
   "20일 고점 돌파 시 매수",
-  "거래량 급증 시 매수",
+  "거래량이 20일 평균의 1.5배 이상일 때 매수",
+  "거래량이 20일 평균의 2배 이상일 때 매수",
+  "거래량이 20일 평균의 3배 이상일 때 매수",
   "최근 3개월 수익률 상위 매수",
   "PER 10 이하",
   "ROE 15% 이상",
@@ -144,8 +146,8 @@ describe("슬롯 선택지 표시", () => {
     expect(screen.getByRole("button", { name: "골든크로스(5일/20일) 발생 시 매수" }).textContent)
       .toBe("1골든크로스(5일/20일) 발생 시 매수");
     expect(screen.getByRole("button", { name: "최근 3개월 수익률 상위 매수" }).textContent)
-      .toBe("7최근 3개월 수익률 상위 매수");
-    expect(screen.getByRole("button", { name: "ROE 15% 이상" }).textContent).toBe("9ROE 15% 이상");
+      .toBe("9최근 3개월 수익률 상위 매수");
+    expect(screen.getByRole("button", { name: "ROE 15% 이상" }).textContent).toBe("11ROE 15% 이상");
   });
 
   it("'직접 입력' 칩 대신 입력창을 칩 위에 열어 두고, 적은 답은 같은 경로로 보낸다", async () => {

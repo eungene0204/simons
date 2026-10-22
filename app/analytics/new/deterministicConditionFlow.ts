@@ -90,7 +90,10 @@ const ENTRY_SIGNAL_BY_CHOICE: Record<
     signal_type: "buy",
     lookback_period: 20,
   },
-  "거래량 급증 시 매수": { indicator: "volume_spike", signal_type: "buy" },
+  // 배수 없는 거래량 급증=거래량 배수(2026-10-22) — 백엔드 strategy_slots.volume_ratio_chip_patch와 같은 값.
+  "거래량이 20일 평균의 1.5배 이상일 때 매수": { indicator: "volume_ratio", signal_type: "buy", period: 20, operator: ">=", value: 1.5 },
+  "거래량이 20일 평균의 2배 이상일 때 매수": { indicator: "volume_ratio", signal_type: "buy", period: 20, operator: ">=", value: 2 },
+  "거래량이 20일 평균의 3배 이상일 때 매수": { indicator: "volume_ratio", signal_type: "buy", period: 20, operator: ">=", value: 3 },
 };
 
 // 모멘텀(상위 K)은 진입 '신호'가 아니라 랭킹으로 표현된다 — 엔진에서 선정=진입이다.

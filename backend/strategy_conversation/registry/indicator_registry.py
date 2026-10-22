@@ -390,10 +390,10 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                notes="캔들 패턴 — 완성 봉에 신호(연산자·값 없음). 주봉·월봉은 parameters.timeframe"),
     _technical("candle_three_black_crows", "흑삼병 캔들 패턴", "event", (), {},
                notes="캔들 패턴 — 완성 봉에 신호(연산자·값 없음). 주봉·월봉은 parameters.timeframe"),
-    _technical("volume_spike", "거래량 급증(OBV)", "event", ("crosses_above",),
+    _technical("volume_spike", "OBV 평균 상향 돌파", "event", ("crosses_above",),
                {"period": ParamSpec(default=20, minimum=2, maximum=250)},
-               notes="OBV 크로스오버 기반 — 배수 없이 '거래량이 급증/늘어난/터진'이라고만 말했을 때. "
-                     "'평소보다 N배'처럼 배수를 말했으면 technical.volume_ratio(value=배수)"),
+               notes="OBV 크로스오버 기반 — 사용자가 OBV를 직접 말했을 때만. "
+                     "'거래량 급증/늘어난/터진'은 technical.volume_ratio(배수를 말했으면 value=배수, 아니면 value=null)"),
     _technical("volume_ratio", "거래량 배수(평균 대비)", "ratio", _COMPARISON_OPS,
                {"period": ParamSpec(default=20, minimum=2, maximum=250)},
                value_range=(0.1, 100), recommended=2,
@@ -603,7 +603,9 @@ _ALIASES: Dict[str, str] = {
     "breakout": "technical.breakout", "신고가돌파": "technical.breakout", "신고가": "technical.breakout",
     "고가돌파": "technical.breakout",
     "consecutive_up": "technical.consecutive_up", "연속상승": "technical.consecutive_up",
-    "volume_spike": "technical.volume_spike", "거래량급증": "technical.volume_spike",
+    "volume_spike": "technical.volume_spike",
+    # 배수 없는 거래량 급증의 정본은 거래량 배수(값 대기→되묻기, 2026-10-22 사용자 결정) — OBV는 명시 때만.
+    "거래량급증": "technical.volume_ratio",
     "volume_ratio": "technical.volume_ratio", "거래량배수": "technical.volume_ratio",
     "volume_multiple": "technical.volume_ratio",
     "trading_value_ratio": "technical.trading_value_ratio",

@@ -216,7 +216,7 @@ const STRATEGY_LABELS: Record<string, string> = {
   macd: "MACD",
   bollinger: "볼린저 밴드",
   breakout: "돌파",
-  volume_spike: "거래량 급증",
+  volume_spike: "OBV 평균 상향 돌파",
   stochastic: "스토캐스틱",
   cci: "CCI",
   rsi: "RSI",

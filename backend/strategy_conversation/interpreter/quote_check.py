@@ -104,6 +104,17 @@ _ROLE_CONFIRM_SYSTEM = _ROLE_SYSTEM + """
 원문이 명시적으로 그 역할의 조건을 요청했는지만 다시 판정하세요."""
 
 
+_SIDE_SYSTEM = """당신은 전략 문장 속 인용 조각의 역할을 가리는 대조기입니다.
+[전략 문장]에서 각 인용 조각이 사는 규칙(매수·진입)인지 파는 규칙(매도·청산·정리)인지 답하세요.
+둘 다 아니거나 판단이 어려우면 "unclear"입니다.
+출력 형식(JSON만, 항목 순서대로): {"items": [{"side": "buy"}, {"side": "sell"}]}"""
+
+_SIDE_CONFIRM_SYSTEM = _SIDE_SYSTEM + """
+조건을 다른 칸으로 옮기기 전의 독립 재확인입니다. 인용 조각이 문장에서 맡은 역할만 다시 판정하세요."""
+
+SIDES = frozenset({"buy", "sell", "unclear"})
+
+
 def build_system_prompt() -> str:
     return _SYSTEM
 
@@ -112,6 +123,9 @@ def build_system_prompt() -> str:
 class Verdict:
     expresses: Optional[str]   # yes / no / unclear / None(enum 밖)
     describes: Optional[str]   # moving_average / bollinger / new_high_breakout / ranking / other / None
+    # 반대 칸 교정(2026-10-22): 인용이 같은 신호의 반대 역할(매수 칸의 매도 문구 등)이라고 두 판정이
+    # 일치하면 옮길 칸("entry_conditions"/"exit_conditions"). 그 밖은 None.
+    move_to: Optional[str] = None
 
 
 class QuoteVerdicts:
@@ -242,6 +256,24 @@ def check_quotes(
         else:
             resolved.append((cond, initial or Verdict(None, None)))
 
+    # 신호 종류는 맞는데(이동평균·볼린저) 이 칸의 조건이 아니라는 답은 인용이 반대 역할(매수 칸에
+    # 들어간 '60일선 아래로 내려오면 정리')일 수 있다 — 종전엔 판정 보류로 잡혀 조건이 통째로
+    # 빠지고 "보류한 조건을 다시 알려 달라"만 남았다(2026-10-22 예시 55·68·69). 역할을 두 번 묻고
+    # 일치하는 반대 역할일 때만 옮긴다. 판정 불일치·실패는 종전대로 둔다.
+    misplaced = [(c, role) for c, role in targets
+                 if (v := _verdict(verdicts, c)) is not None and v.expresses == "no"
+                 and v.describes in ("moving_average", "bollinger")]
+    if misplaced:
+        first = _request_sides(user_input, misplaced, chat, _SIDE_SYSTEM)
+        second = _request_sides(user_input, misplaced, chat, _SIDE_CONFIRM_SYSTEM) if first else None
+        for cond, role in misplaced:
+            opposite = {"entry_conditions": ("sell", "exit_conditions"),
+                        "exit_conditions": ("buy", "entry_conditions")}[role]
+            if first and second and first.get(id(cond)) == second.get(id(cond)) == opposite[0]:
+                index = next(i for i, (held, _) in enumerate(resolved) if held is cond)
+                family = resolved[index][1].describes or _verdict(verdicts, cond).describes
+                resolved[index] = (cond, Verdict("yes", family, move_to=opposite[1]))
+
     compact_input = _compact(user_input)
     suspect_roles = [
         (c, role) for c, role in targets
@@ -312,6 +344,39 @@ def _request_verdicts(
             for c, v in pairs
         ])
         return QuoteVerdicts(pairs)
+
+
+def _request_sides(user_input, targets, chat, system):
+    """인용 조각마다 매수/매도 역할 판정. 실패는 None(fail-open — 옮기지 않는다)."""
+    from observability import span
+    from strategy_conversation.interpreter.output_repair import extract_json_object
+
+    rows = "\n".join(f'{i}. "{cond.source_text}"' for i, (cond, _r) in enumerate(targets, 1))
+    name = "Quote Check · 칸 역할 재확인" if system == _SIDE_CONFIRM_SYSTEM else "Quote Check · 칸 역할 대조"
+    with span(name, "chain", inputs={"quotes": [c.source_text for c, _ in targets]}) as trace:
+        try:
+            raw = chat(system, f"[전략 문장]\n{user_input}\n\n[인용 조각]\n{rows}",
+                       max_tokens=48 + 16 * len(targets))
+            payload = json.loads(extract_json_object(raw))
+            items = payload.get("items") if isinstance(payload, dict) else None
+            if not isinstance(items, list) or len(items) != len(targets):
+                raise ValueError(f"항목 수 불일치: {len(targets)}개 요청")
+        except Exception as exc:  # noqa: BLE001 — 보조 판정이 턴을 깨지 않는다(fail-open)
+            logger.warning("quote side pass failed — no move | err=%s", str(exc)[:200])
+            trace.output(failed=True, error=str(exc)[:300])
+            return None
+        sides = {}
+        for (cond, _r), item in zip(targets, items):
+            side = item.get("side") if isinstance(item, dict) else None
+            sides[id(cond)] = side if side in SIDES else None
+        trace.output(sides=[sides[id(c)] for c, _ in targets])
+        return sides
+
+
+def quote_move_target(verdicts: Optional[QuoteVerdicts], cond: Any) -> Optional[str]:
+    """두 역할 판정이 일치해 옮겨야 할 칸(entry_conditions/exit_conditions), 아니면 None."""
+    verdict = _verdict(verdicts, cond)
+    return verdict.move_to if verdict is not None else None
 
 
 def _verdict(verdicts: Optional[QuoteVerdicts], cond: Any) -> Optional[Verdict]:

@@ -2052,7 +2052,7 @@ def test_primary_notices_approximated_condition(monkeypatch):
     assert result is not None
     approx = [n for n in result["notices"] if "가깝게 반영" in n]
     assert approx, f"근사 반영 신고가 안내되지 않았다: {result['notices']}"
-    assert "거래대금이 늘어난" in approx[0] and "거래량 급증" in approx[0]
+    assert "거래대금이 늘어난" in approx[0] and "OBV 평균 상향 돌파" in approx[0]
 
 
 def test_primary_approximated_condition_fragment_not_noticed_as_unsupported(monkeypatch):
