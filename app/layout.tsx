@@ -69,6 +69,16 @@ export default function RootLayout({
 
   return (
     <html lang={language} style={displaySerifStyle}>
+      <head>
+        {/* AdSense 사이트 소유권 확인·광고 스크립트 — KR 전용(/us는 제외) */}
+        {language !== "en" && (
+          <script
+            async
+            src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8335444243080631"
+            crossOrigin="anonymous"
+          />
+        )}
+      </head>
       <body className="page-transition bg-[var(--background)] text-white font-inter antialiased">
         <LanguageProvider initialLanguage={language}>
           <QueryProvider>
