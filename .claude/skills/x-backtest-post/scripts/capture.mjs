@@ -32,19 +32,7 @@ await page.waitForTimeout(2000);
 await page.mouse.move(2, 2); // 차트 크로스헤어·툴팁이 사진에 남지 않게
 await shot(`${prefix}_b_overview.png`, { x: 0, y: 231, w: 1019, h: 619 });
 
-await page.getByText('내 전략', { exact: true }).first().click();
-await page.waitForTimeout(1200);
-const pop = await boxOf(() => {
-  const leaf = [...document.querySelectorAll('*')].find((e) => e.children.length === 0 && e.textContent.trim() === '프롬프트');
-  let n = leaf;
-  while (n && !['absolute', 'fixed'].includes(getComputedStyle(n).position)) n = n.parentElement;
-  const r = n.getBoundingClientRect();
-  return { x: r.x + scrollX, y: r.y + scrollY, w: r.width, h: r.height };
-});
-await shot(`${prefix}_a_strategy.png`, { x: pop.x, y: pop.y, w: pop.w, h: pop.h });
-// 팝업은 Escape로 안 닫힌다 — 제목 영역을 눌러 닫는다
-await page.getByText('백테스트 결과', { exact: true }).first().click({ position: { x: 5, y: 5 } });
-await page.waitForTimeout(800);
+// '내 전략' 팝업(a_strategy) 캡처는 뺐다 — 상단 메뉴에 같은 이름의 '내 전략' 탭이 생겨(2026-10-21) 팝업 대신 /my-strategies로 이동한다(2026-10-23 실측).
 
 await page.getByText('심화 분석', { exact: true }).first().click();
 await page.waitForTimeout(3000);
