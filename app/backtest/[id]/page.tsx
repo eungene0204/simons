@@ -113,9 +113,15 @@ export default function BacktestDetailPage() {
   // BacktestHistory.result는 백엔드 응답을 그대로 저장한 것이라 signals만 있고
   // BacktestDashboard가 매매 기록 탭에 쓰는 tradesList는 없다(app/analytics/[id]와 달리
   // 여기서는 별도 매핑을 거치지 않았음). signals에서 재구성해 보완한다.
+  const savedResult = item.result as any;
   const result = {
     ...item.result,
     ownerUserId: item.ownerUserId,
+    // 벤치마크 곡선·라벨은 저장본에 백엔드 키(snake_case)로만 있다 — app/analytics/[id]와 같은 이름으로 옮기지 않으면
+    // 결과 차트에서 벤치마크 선이 사라지고 라벨이 기본값 'KODEX 200'으로 나온다(2026-10-23 사용자 지적).
+    benchmarkEquity: savedResult.benchmarkEquity ?? savedResult.benchmark_equity,
+    benchmarkLabel: savedResult.benchmarkLabel ?? savedResult.benchmark_label,
+    benchmarkPartial: savedResult.benchmarkPartial ?? savedResult.benchmark_partial,
     tradesList: item.result.tradesList?.length
       ? item.result.tradesList
       : (item.result.signals ?? []).map((signal: any) => ({

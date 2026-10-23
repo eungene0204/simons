@@ -37,6 +37,9 @@ vi.mock("@/components/strategy/backtest/BacktestDashboard", () => ({
       data-testid="backtest-dashboard"
       data-has-dsl={backtestDsl ? "yes" : "no"}
       data-trades-count={result?.tradesList?.length ?? -1}
+      data-benchmark-length={result?.benchmarkEquity?.length ?? -1}
+      data-benchmark-label={result?.benchmarkLabel ?? ""}
+      data-benchmark-partial={String(result?.benchmarkPartial)}
       data-graph-origin={strategyGraphInput?.origin ?? "none-prop"}
       data-graph-ref={strategyGraphInput?.sourceRef ?? ""}
       data-graph-max-positions={String(strategyGraphInput?.request?.risk?.max_positions)}
@@ -316,6 +319,33 @@ describe("BacktestDetailPage", () => {
 
     const dashboard = await screen.findByTestId("backtest-dashboard");
     expect(dashboard).toHaveAttribute("data-trades-count", "2");
+  });
+
+  it("저장된 결과의 snake_case 벤치마크(benchmark_equity·label·partial)를 대시보드가 읽는 이름으로 옮긴다", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (url === "/api/backtest/history/hist-1") {
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            baseHistoryResponse({
+              result: {
+                ...(baseHistoryResponse().result as any),
+                benchmark_equity: [10_000_000, 10_500_000],
+                benchmark_label: "KODEX 코스피",
+                benchmark_partial: false,
+              },
+            }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) });
+    });
+
+    render(<BacktestDetailPage />);
+
+    const dashboard = await screen.findByTestId("backtest-dashboard");
+    expect(dashboard).toHaveAttribute("data-benchmark-length", "2");
+    expect(dashboard).toHaveAttribute("data-benchmark-label", "KODEX 코스피");
+    expect(dashboard).toHaveAttribute("data-benchmark-partial", "false");
   });
 
   it("기록 조회 실패 상태에서 안내 영역을 중앙 정렬하고 돌아가기 버튼은 router.back을 호출한다", async () => {
