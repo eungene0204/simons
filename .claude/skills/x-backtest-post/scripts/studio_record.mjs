@@ -70,6 +70,8 @@ for (let i = 0; i < 12; i++) {
       await graphAdd(page, typed.text, Date.now() - 20000);
       continue;
     }
+    const chips = (await page.locator('button:visible').allInnerTexts()).map((t) => t.trim()).filter((t) => t && t.length < 40);
+    log('화면의 버튼:', chips.join(' | '));
     throw new Error(`준비된 답이 없는 질문: ${q ?? '(질문 문구 못 찾음)'} — spec.answers에 칩 글자(또는 spec.typed에 직접 입력)를 넣고 다시 녹화한다`);
   }
   misses = 0;

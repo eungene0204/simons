@@ -117,7 +117,6 @@ def build(folder: Path) -> str:
         out += ["", "종목별로 보면 수익 상위 2개는 "
                 + f"{tops[0].group(1)}({tops[0].group(2)}원, {tops[0].group(3)}거래), {tops[1].group(1)}({tops[1].group(2)}원, {tops[1].group(3)}거래)입니다. "
                 + f"두 종목 합계 {won(sum(num(t.group(2)) for t in tops))}은 총 수익의 약 {share:.1f}%입니다."]
-    out += ["", "위 수치는 과거 데이터로 시뮬레이션한 결과입니다."]
     return "\n".join(out) + "\n"
 
 
