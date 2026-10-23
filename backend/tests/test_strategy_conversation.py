@@ -7207,6 +7207,38 @@ def test_consecutive_rise_without_day_count_needs_clarification():
     assert any("parameters.period" in field for field in report.missing_fields)
 
 
+def test_consecutive_fall_validates_and_compiles_as_own_signal():
+    """엔진 v16.42: 'N거래일 연속 하락'은 연속 상승의 거울이 아니라 자기 신호로 백테스트까지 간다."""
+    from engine.strategy_converter import to_backtest_request
+
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.consecutive_down", "operator": None, "value": None,
+             "parameters": {"period": 3}, "source_text": "3거래일 연속 하락한"},
+        ],
+    ))
+    validated, report = run_validation(intent)
+    parsed, dropped, pending = compile_partial(validated, report, "3거래일 연속 하락한 종목 매수")
+
+    assert not dropped and not pending
+    assert [(s.indicator, s.period) for s in parsed.entry_signals] == [("consecutive_down", 3)]
+    request = to_backtest_request(parsed, resolve_symbols=False)
+    assert any(c["id"] == "consecutive_down" and c["params"]["period"] == 3
+               for c in request["entry"]["conditions"])
+
+
+def test_consecutive_fall_without_day_count_needs_clarification():
+    intent = StrategyIntent.model_validate(_full_intent_dict(
+        entry_conditions=[
+            {"factor": "technical.consecutive_down", "operator": None, "value": None,
+             "source_text": "연속 하락한"},
+        ],
+    ))
+    _validated, report = run_validation(intent)
+
+    assert any("parameters.period" in field for field in report.missing_fields)
+
+
 def test_monthly_rebalance_cannot_recover_unstated_contribution_plan(monkeypatch):
     """Example 18: monthly rebalancing is not a monthly cash contribution."""
     from strategy_conversation import primary

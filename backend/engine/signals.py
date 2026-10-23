@@ -223,17 +223,18 @@ class SignalEngine:
             arr = get_col(f"candle_{p.get('pattern')}")
             return np.zeros(data_len, dtype=bool) if arr is None else (arr > 0.5)
 
-        if cid == 'consecutive_up':
-            # N거래일 연속 상승 = 마지막 N개의 종가 변화가 모두 양수. 현재 봉까지의
+        if cid in ('consecutive_up', 'consecutive_down'):
+            # N거래일 연속 상승(하락) = 마지막 N개의 종가 변화가 모두 양수(음수). 현재 봉까지의
             # 종가만 사용하고, 동일 종가·결측은 연속 횟수를 끊는다.
             period = int(p.get('period') or 0)
             close = get_col('close')
             if close is None or period < 1 or data_len <= period:
                 return result
-            rising = np.zeros(data_len, dtype=bool)
-            rising[1:] = (np.isfinite(close[1:]) & np.isfinite(close[:-1])
-                          & (close[1:] > close[:-1]))
-            cumulative = np.cumsum(rising, dtype=np.int64)
+            moving = np.zeros(data_len, dtype=bool)
+            both = np.isfinite(close[1:]) & np.isfinite(close[:-1])
+            moving[1:] = both & ((close[1:] > close[:-1]) if cid == 'consecutive_up'
+                                 else (close[1:] < close[:-1]))
+            cumulative = np.cumsum(moving, dtype=np.int64)
             result[period:] = cumulative[period:] - cumulative[:-period] == period
             return result
 
@@ -634,15 +635,16 @@ class SignalEngine:
             val = safe_get(f"candle_{p.get('pattern')}", idx)
             return bool(val is not None and val > 0.5)
 
-        if cid == 'consecutive_up':
+        if cid in ('consecutive_up', 'consecutive_down'):
             period = int(p.get('period') or 0)
             if period < 1 or idx < period:
                 return False
+            rising = cid == 'consecutive_up'
             return all(
                 (current := safe_get('close', day)) is not None
                 and (previous := safe_get('close', day - 1)) is not None
                 and np.isfinite(current) and np.isfinite(previous)
-                and current > previous
+                and (current > previous if rising else current < previous)
                 for day in range(idx - period + 1, idx + 1)
             )
 
@@ -1014,6 +1016,8 @@ class SignalEngine:
             return [tr.part(tr.CANDLE_PATTERN, tr.part(label))]
         if cid == 'consecutive_up':
             return [tr.part(tr.CONSECUTIVE_UP, p.get('period'))]
+        if cid == 'consecutive_down':
+            return [tr.part(tr.CONSECUTIVE_DOWN, p.get('period'))]
         if cid == 'ma_crossover':
             short = p.get('shortMA', p.get('short_period', p.get('short', 5)))
             long_ = p.get('longMA', p.get('long_period', p.get('long', 20)))

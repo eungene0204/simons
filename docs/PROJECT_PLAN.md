@@ -645,6 +645,7 @@ simons/
 | `volume_spike` | OBV 기반 거래량 급증 | period, signalType | ✅ |
 | `breakout` | 52주 신고가/신저가 돌파 (NL: "박스권 돌파", "N일 고점 돌파" 등 서술형 표현도 인식) | lookbackPeriod, signalType | ✅ |
 | `consecutive_up` | 종가 N거래일 연속 상승 | period (거래일 수) | ✅ (2026-09-26, OHLCV 파케이 종가) |
+| `consecutive_down` | 종가 N거래일 연속 하락 | period (거래일 수) | ✅ (2026-10-23, 엔진 v16.42.0 — 새 조건 형태, 기존 결과 불변) |
 | `ema` | 지수이동평균 | period | ✅ |
 | `stochastic` | 스토캐스틱 | kPeriod, dPeriod | ✅ |
 | `cci` | 상품채널지수 | period | ✅ |

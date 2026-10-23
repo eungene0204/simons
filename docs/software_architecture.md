@@ -729,6 +729,8 @@ interface BacktestResult {
 
 ### 4.2 자연어 → 전략 파싱 파이프라인
 
+`technical.consecutive_down`(엔진 v16.42.0)은 같은 경로에서 전일 종가 대비 엄격한 감소를 판정하는 대칭 조건이며, 인터프리터 어휘 노출은 `data/indicator-ontology.json`의 분류·방향성 등록이 필요하다(레지스트리만으로는 프롬프트에 오르지 않는다).
+
 `technical.consecutive_up`은 해석기의 `parameters.period`를 `TechnicalSignal.period`와 백테스트 조건에 보존한다. 신호 엔진은 OHLCV 파케이 `close`의 현재일까지 N회 연속 상승(전일 종가 대비 엄격한 증가)을 벡터·행별 경로에서 동일하게 판정한다. 동일 종가·결측은 거짓이며 미래 봉을 읽지 않는다.
 
 ```

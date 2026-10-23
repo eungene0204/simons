@@ -13,6 +13,7 @@ export type IndicatorType =
   | "trading_value_ratio"
   | "breakout"
   | "consecutive_up"
+  | "consecutive_down"
   | "stochastic"
   | "cci"
   | "adx"

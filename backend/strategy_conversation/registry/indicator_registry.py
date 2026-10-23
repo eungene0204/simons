@@ -363,6 +363,10 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                {"period": ParamSpec(minimum=1, maximum=250, required=True)},
                notes="최근 N거래일 각각의 종가가 직전 거래일 종가보다 높음. "
                      "parameters.period=N, operator/value 없음. 동일 종가·결측은 연속 상승이 아님"),
+    _technical("consecutive_down", "종가 연속 하락", "event", (),
+               {"period": ParamSpec(minimum=1, maximum=250, required=True)},
+               notes="최근 N거래일 각각의 종가가 직전 거래일 종가보다 낮음. "
+                     "parameters.period=N, operator/value 없음. 동일 종가·결측은 연속 하락이 아님"),
     # 캔들 패턴(엔진 v16.29) — 잎마다 패턴 하나. 엔진 조건 id는 candle_pattern+pattern 파라미터(컨버터가 옮긴다).
     _technical("candle_hammer", "망치형 캔들 패턴", "event", (), {},
                notes="캔들 패턴 — 완성 봉에 신호(연산자·값 없음). 주봉·월봉은 parameters.timeframe"),
@@ -603,6 +607,7 @@ _ALIASES: Dict[str, str] = {
     "breakout": "technical.breakout", "신고가돌파": "technical.breakout", "신고가": "technical.breakout",
     "고가돌파": "technical.breakout",
     "consecutive_up": "technical.consecutive_up", "연속상승": "technical.consecutive_up",
+    "consecutive_down": "technical.consecutive_down", "연속하락": "technical.consecutive_down",
     "volume_spike": "technical.volume_spike",
     # 배수 없는 거래량 급증의 정본은 거래량 배수(값 대기→되묻기, 2026-10-22 사용자 결정) — OBV는 명시 때만.
     "거래량급증": "technical.volume_ratio",

@@ -265,6 +265,17 @@ export function describeCondition(cond: EngineCondition, meta: GraphMeta | null)
     };
   }
 
+  if (id === "consecutive_down") {
+    const period = num(p.period);
+    return {
+      ...base,
+      expression: t("{0}거래일 연속 종가 하락", period ?? "?"),
+      rows: [...(period !== null ? [row(t("연속 기간"), t("{0}거래일", period))] : []), NO_THRESHOLD()],
+      status: period === null ? "pending" : "not_applicable",
+      statusNote: period === null ? t("연속 기간이 스냅샷에 없습니다.") : t("연속 하락 판정이라 기준값이 필요하지 않습니다."),
+    };
+  }
+
   if (id === "candle_pattern") {
     return {
       ...base,

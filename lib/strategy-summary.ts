@@ -506,6 +506,7 @@ export const INDICATOR_LABELS: Record<string, string> = {
   bollinger_bands: "볼린저밴드",
   breakout: "브레이크아웃",
   consecutive_up: "종가 연속 상승",
+  consecutive_down: "종가 연속 하락",
   volume_spike: "OBV 평균 상향 돌파",
   volume_ratio: "거래량 배수",
   trading_value_ratio: "거래대금 배수",
@@ -639,6 +640,12 @@ function getSignalLabelBase(
     return signal.period != null
       ? t("종가 {0}거래일 연속 상승", signal.period)
       : t(INDICATOR_LABELS.consecutive_up);
+  }
+
+  if (signal.indicator === "consecutive_down") {
+    return signal.period != null
+      ? t("종가 {0}거래일 연속 하락", signal.period)
+      : t(INDICATOR_LABELS.consecutive_down);
   }
 
   // 브레이크아웃은 기준 기간(lookback_period)에 따라 의미가 달라진다 — 252일(≈52주)은 "52주 신고가",
