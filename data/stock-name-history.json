@@ -7,9 +7,9 @@
  ],
  "snapshotCount": 320,
  "counts": {
-  "renames": 3324,
+  "renames": 3325,
   "formerNames": 1584,
-  "rejected": 179
+  "rejected": 180
  },
  "formerNames": {
   "APS홀딩스": "054620",
@@ -24865,6 +24865,13 @@
    "to": "S&K글로벌",
    "observedOn": "2026-10-20",
    "source": "DART"
+  },
+  {
+   "symbol": "457600",
+   "from": "벡트",
+   "to": "벡트로보틱스",
+   "observedOn": "2026-10-24",
+   "source": "DART"
   }
  ],
  "rejected": [
@@ -25252,6 +25259,13 @@
    "reason": "too_short",
    "symbols": [
     "104200"
+   ]
+  },
+  {
+   "name": "벡트",
+   "reason": "too_short",
+   "symbols": [
+    "457600"
    ]
   },
   {
@@ -26142,5 +26156,5 @@
    ]
   }
  ],
- "updatedAt": "2026-10-20T21:24:41.892781+09:00"
+ "updatedAt": "2026-10-24T21:31:21.512414+09:00"
 }
