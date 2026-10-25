@@ -38,6 +38,7 @@ from strategy_conversation.interpreter.output_repair import (
     build_repair_prompt,
     cross_role_duplicate_error,
     cross_role_duplicate_fields,
+    restore_repair_role_drift,
     is_bare_unsupported_request,
     misfiled_trading_value_error,
     misfiled_trading_value_fields,
@@ -425,6 +426,8 @@ class StrategyInterpreter:
         format_protected_conditions: list = []
         format_original_other_slots = None
         fallback_used = False
+        # 스키마 복구를 요청한 원출력(복구본이 내용을 바꿨는지 대조하는 근거).
+        schema_bad_raw: Optional[str] = None
         while True:
             try:
                 intent = StrategyIntent.model_validate_json(extract_json_object(current_raw))
@@ -585,6 +588,14 @@ class StrategyInterpreter:
                     )
                     _log_llm(f"◀ 매수·매도 중복 재생성 응답({attempts}회차)", current_raw.strip())
                     continue
+                # 스키마 복구본이 조건의 매수/매도 칸을 원출력과 다르게 바꿨다(복구 계약 위반 — 복사·이동).
+                # 재생성 한도가 남지 않으므로 원출력의 칸으로 결정적으로 되돌린다
+                # (restore_repair_role_drift docstring). 생성 턴만 본다.
+                if schema_bad_raw is not None and format_fallback_raw is None and draft is None:
+                    intent, drifted = restore_repair_role_drift(intent, schema_bad_raw)
+                    if drifted:
+                        _log_llm("△ 복구본 칸 이동 복원",
+                                 f"{', '.join(drifted)} — 원출력의 매수·매도 칸으로 되돌림")
                 if format_violations:
                     _log_llm("△ 입력 전체 인용 잔존",
                              f"{', '.join(format_violations)} — 이후 가드가 인용 없이 제거")
@@ -651,6 +662,7 @@ class StrategyInterpreter:
                     attempts, str(exc)[:300],
                 )
                 _log_llm(f"⟳ 복구 요청({attempts}회차)", f"검증 오류: {str(exc)[:300]}")
+                schema_bad_raw = current_raw
                 repair_prompt = build_repair_prompt(user_input, current_raw, str(exc), draft)
                 current_raw = self._chat(self._system_prompt, repair_prompt)
                 _log_llm(f"◀ 복구 응답({attempts}회차)", current_raw.strip())

@@ -235,6 +235,14 @@ def _add_condition_columns(sdf, cid, p, target_cols, log) -> None:
             # stockstats close_{n}_roc: n봉 전 대비 변화율(%). 모멘텀 지표.
             period = p.get('period', 12)
             target_cols.add(f'close_{period}_roc')
+        elif cid == 'disparity':
+            # 이격도 = 종가 ÷ N일 단순이동평균 × 100 (100=이동평균선 위, 120=20% 위로 벌어짐).
+            # stockstats에 없는 지표라 volatility처럼 직접 계산한다. 현재 봉까지의 종가만 쓴다.
+            period = int(p.get('period', 20))
+            sdf[f'disparity_{period}'] = (
+                sdf['close'] / sdf['close'].rolling(window=period).mean() * 100.0
+            )
+            target_cols.add(f'disparity_{period}')
         elif cid == 'volatility':
             # 연환산 변동성(%): 일수익률 롤링 표준편차 × √246 × 100.
             # 연환산 계수는 결과 통계와 동일한 KRX 실측 연 거래일(v12.0 정정)을

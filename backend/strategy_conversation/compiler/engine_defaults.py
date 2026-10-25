@@ -33,6 +33,7 @@ ENGINE_EFFECTIVE_PARAM_DEFAULTS: Dict[str, Dict[str, float]] = {
     "williams_r": {"period": 14},
     "mfi": {"period": 14},
     "roc": {"period": 12},
+    "disparity": {"period": 20},
     "bollinger_bands": {"period": 20},
     "volume_spike": {"period": 20},
     "breakout": {"lookback_period": 20},

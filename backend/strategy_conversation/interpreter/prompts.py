@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "8.16"  # 8.16: 배수 없는 거래량 급증=volume_ratio(value=null, 되묻기), volume_spike(OBV)는 OBV 명시 때만. 8.15: "N거래일 지나면 매도"=hold_period_days(최소 보유로 읽던 오배정). 8.14: EMA 한 선 이탈 청산 예시(진입 EMA 쌍 복사 방지). 8.13: 코치의 직전 질문을 수정 턴 문맥으로 전달
+PROMPT_VERSION = "8.17"  # 8.17: 오실레이터 임계 비교 목록에 technical.disparity(이격도) 추가. 8.16: 배수 없는 거래량 급증=volume_ratio(value=null, 되묻기), volume_spike(OBV)는 OBV 명시 때만. 8.15: "N거래일 지나면 매도"=hold_period_days(최소 보유로 읽던 오배정). 8.14: EMA 한 선 이탈 청산 예시(진입 EMA 쌍 복사 방지). 8.13: 코치의 직전 질문을 수정 턴 문맥으로 전달
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -439,7 +439,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
    - 배타(>, <): '초과'·'미만'·'넘는'(초과 의미)·'못 미치는'
      ("PBR 0.8 미만" → "<", 0.8 / "PER 10 초과" → ">", 10)
    기본은 포함(>=, <=)입니다 — '초과'·'미만'이라고 명시했을 때만 배타를 쓰세요.
-5-5. 오실레이터(technical.stochastic/cci/adx/williams_r/mfi/roc)는 임계값 비교만 지원합니다
+5-5. 오실레이터(technical.stochastic/cci/adx/williams_r/mfi/roc/disparity)는 임계값 비교만 지원합니다
    — operator는 <, <=, >, >= 중 하나이고 value에 임계값을 넣으세요. crosses_above/crosses_below를
    쓰지 마세요(엔진이 표현할 수 없어 조건이 무의미해집니다). '과매도에서 반등하면 매수' 류는
    그 과매도 임계값 이하(<=)로, '과매수면 매도'는 임계값 이상(>=)으로 표현하세요:

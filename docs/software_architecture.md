@@ -731,6 +731,8 @@ interface BacktestResult {
 
 `technical.consecutive_down`(엔진 v16.42.0)은 같은 경로에서 전일 종가 대비 엄격한 감소를 판정하는 대칭 조건이며, 인터프리터 어휘 노출은 `data/indicator-ontology.json`의 분류·방향성 등록이 필요하다(레지스트리만으로는 프롬프트에 오르지 않는다).
 
+`technical.disparity`(엔진 v16.43.0)는 `IndicatorEngine`이 `disparity_{period}` 열(종가÷단순이동평균×100)을 직접 계산하고 `SignalEngine`이 임계 비교하는 오실레이터형 조건이다. 온톨로지 시드 등록은 위와 같다.
+
 `technical.consecutive_up`은 해석기의 `parameters.period`를 `TechnicalSignal.period`와 백테스트 조건에 보존한다. 신호 엔진은 OHLCV 파케이 `close`의 현재일까지 N회 연속 상승(전일 종가 대비 엄격한 증가)을 벡터·행별 경로에서 동일하게 판정한다. 동일 종가·결측은 거짓이며 미래 봉을 읽지 않는다.
 
 ```
@@ -869,6 +871,8 @@ LLM Strategy Interpreter (interpreter/llm_strategy_interpreter.py)
 조건 인용 대조 (interpreter/quote_check.py, LLM — 이동평균·볼린저 조건이 있을 때만, 턴당 1회)
 > 볼린저(엔진 v16.39, 2026-10-10): 인터프리터는 방향을 이름에 담은 볼린저 개념 ID(상단 돌파·상단 되밀림·중심선 상향/하향·하단 터치·하단 반등·하단 터치 후 중심선 회복)를 고르고 컴파일러가 `TechnicalSignal.band/cross/touch_lookback`으로 옮긴다. 레거시 `technical.bollinger_bands`(역할 고정)는 저장 전략 재읽기 전용이며 반대 방향은 검증기·컴파일러가 제외+안내한다. AND 매수 칸의 하단 터치+중심선 돌파 쌍은 output_repair가 오류를 돌려 1회 재생성한다.
 > 매수·매도 중복(2026-10-20): 같은 인용·factor·연산자·값의 조건이 entry와 exit에 함께 있으면 `output_repair.cross_role_duplicate_fields`가 형식 위반으로 오류를 돌려 1회 재생성한다(생성 턴만, 잔존 시 conflict_validator 안내). 어느 칸이 맞는지는 LLM이 정한다.
+
+> 복구본 칸 이동 복원(2026-10-25): 스키마 복구 요청(1회 예산)으로 다시 쓴 출력이 조건의 매수/매도 칸을 원출력과 다르게 바꾸면(복사·이동) `output_repair.restore_repair_role_drift`가 원출력의 칸으로 되돌린다. 원출력에 없던 조건·원출력에서도 두 칸에 있던 조건은 건드리지 않고, 원출력의 칸은 strategy 안을 먼저 보되 괄호가 일찍 닫혀 최상위로 밀린 칸도 읽는다.
 > 신저가 돌파(엔진 v16.41, 2026-10-18): 인터프리터는 방향을 이름에 담은 개념 ID `technical.breakout_low`(lookback_period만)를 고르고, 컴파일러가 `TechnicalSignal(indicator="breakout", side="low")`로 옮긴다(매수 칸이면 신저가 진입, 청산 칸이면 신저가 이탈). 엔진은 `side="low"`면 역할과 무관하게 저가 이탈 사건을 쓴다. 신고가 돌파에 `crosses_below`를 붙인 진입은 여전히 컴파일 거부(방향을 연산자로 받지 않는다).
     └── 조건을 평이한 문장으로 옮겨 적어 보여주고 항목마다 expresses(yes/no/unclear)·
         describes(moving_average/bollinger/new_high_breakout/other) enum을 받음 →

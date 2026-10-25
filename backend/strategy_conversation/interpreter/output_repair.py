@@ -375,6 +375,67 @@ def cross_role_duplicate_error(paths: list) -> str:
     )
 
 
+_CONDITION_ROLES = ("entry_conditions", "exit_conditions")
+
+
+def restore_repair_role_drift(intent, original_raw: str):
+    """스키마 복구본이 조건의 **칸(매수/매도)을 바꿨으면** 원출력의 칸으로 되돌린 사본과 바뀐 경로.
+
+    복구 요청은 "형식·스키마 오류만 고치고 내용은 바꾸지 말라"는 계약이다(build_repair_prompt).
+    2026-10-25 실측(nemotron-3.5-super-vl): 원출력은 '이격도 90 이하 매수 / 100 이상 매도'를 맞게
+    나눴는데 매수 목록에 떠돌이 문자열 "approximated"가 섞여 스키마 오류가 났고, 복구본은 매도 조건을
+    매수 칸에 **복사**하거나(중복) **옮겼다**(매도 칸 비움). 복구가 재생성 한도를 써서 다른 재생성은
+    못 돈다. 판정은 LLM 출력끼리의 대조다(인용 표기·factor·operator·value가 같은 항목): 원출력에서
+    한 칸에만 있던 조건이 복구본에서 다른 칸에 있으면 원출력의 칸으로 옮기고, 그 칸에 이미 같은
+    조건이 있으면 복사본을 뺀다. 원출력에 없던 조건·원출력에서도 두 칸에 있던 조건은 건드리지 않는다
+    (결정론이 칸을 새로 정하지 않는다). 원출력의 칸은 strategy 안을 먼저 보고, 괄호가 일찍 닫혀
+    최상위로 밀린 칸(실측)도 읽는다. 원출력이 JSON으로 읽히지 않으면 아무것도 하지 않는다.
+    """
+    from engine.nl_parser import _compact
+
+    strategy = getattr(intent, "strategy", None)
+    if strategy is None:
+        return intent, []
+    try:
+        original = json.loads(extract_json_object(original_raw))
+    except (ValueError, json.JSONDecodeError):
+        return intent, []
+    if not isinstance(original, dict):
+        return intent, []
+    original_strategy = original.get("strategy") if isinstance(original.get("strategy"), dict) else {}
+
+    def _key(factor, operator, value, quote):
+        try:
+            value = float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+        return (_compact(quote or ""), factor, operator, value)
+
+    original_roles: dict = {}
+    for role in _CONDITION_ROLES:
+        items = original_strategy.get(role, original.get(role))
+        for item in items if isinstance(items, list) else []:
+            if isinstance(item, dict):
+                key = _key(item.get("factor"), item.get("operator"), item.get("value"), item.get("source_text"))
+                original_roles.setdefault(key, set()).add(role)
+
+    lists = {role: list(getattr(strategy, role)) for role in _CONDITION_ROLES}
+    changed = []
+    for role in _CONDITION_ROLES:
+        other = next(r for r in _CONDITION_ROLES if r != role)
+        for index, cond in enumerate(getattr(strategy, role)):
+            key = _key(cond.factor, cond.operator, cond.value, cond.source_text)
+            if original_roles.get(key) != {other}:
+                continue
+            lists[role].remove(cond)
+            if not any(_key(c.factor, c.operator, c.value, c.source_text) == key for c in lists[other]):
+                lists[other].append(cond)
+            changed.append(f"strategy.{role}[{index}]")
+    if not changed:
+        return intent, []
+    return intent.model_copy(update={"strategy": strategy.model_copy(update=lists)}), changed
+
+
 def is_bare_unsupported_request(intent) -> bool:
     """무엇이 지원되지 않는지 적지 않은 UNSUPPORTED_REQUEST인가(형식 위반).
 

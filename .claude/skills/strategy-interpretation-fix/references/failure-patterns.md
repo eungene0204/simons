@@ -71,6 +71,11 @@ SKILL.md 2단계 표의 기호별 상세. 각 절은 **식별 신호 → 실제 
 - **통한 수리**: 원출력에서 배열 경계만 형식 추출해 병합한다(`output_repair._salvage_array`, `salvage_*`).
   질문 복원은 형식 재생성에는 적용하지 않는다(지어낸 조건에 대한 질문일 수 있어서다).
 - **재생 방법**: 트레이스의 Interpreter 하위 LLM 응답 두 개를 fake chat_fn으로 `StrategyInterpreter.interpret`에 넣는다. (project_repair_turn_list_field_loss.md)
+- **변형 — 칸 이동(2026-10-25)**: 스키마 복구본이 조건을 다른 칸에 **복사하거나 옮긴다**(매도 조건→매수 칸). 화면엔
+  "진입 조건 모순"·"진입과 청산에 동일한 조건" 안내와 칩 없는 "보류한 조건" 되묻기. 복구가 1회 예산(`MAX_REPAIR_ATTEMPTS=1`)을
+  쓰므로 `cross_role_duplicate` 재생성은 못 돈다. 수리=`output_repair.restore_repair_role_drift`(원출력의 칸으로 되돌림).
+  함정: 원출력은 스키마만 틀린 게 아니라 **괄호가 일찍 닫혀 칸이 strategy 밖으로 밀린** 형태일 수 있다 — 원출력 대조는 최상위 칸도 읽는다.
+  같은 문장도 표본마다 복사형·이동형이 갈려, 한 표본만 재생해 고치면 다른 형태가 남는다(재표본 필수). (project_disparity_v16_43_myth_25_blocked.md)
 
 ## N — 거짓 안내(값은 제 칸에 있음)
 

@@ -77,3 +77,67 @@ def test_cross_role_duplicate_left_in_place_when_regeneration_keeps_it():
     replies = iter([bad, bad])
     result = StrategyInterpreter(chat_fn=lambda s, u, **_: next(replies), model="stub-model").interpret(USER)
     assert len(result.intent.strategy.entry_conditions) == 2
+
+
+# ── 2026-10-25 사고: 스키마 복구본이 새로 만든 중복 ─────────────────────────────────────────
+# 원출력은 '이격도 90 이하 매수 / 100 이상 매도'를 맞게 나눴지만 매수 목록에 떠돌이 문자열
+# "approximated"가 섞여 스키마 오류 → 복구 요청(한도 1회 소진) → 복구본이 매도 조건을 매수 칸에도
+# 복사했다. 중복 재생성은 한도가 없어 못 돌았고, 화면엔 "진입 조건 모순" 안내 + 칩 없는 되묻기가 떴다.
+
+DISP_USER = ("KOSPI 종목 중 20일선 이격도가 90 이하로 눌린 종목을 매수하고, 20일선 이격도가 100 이상으로 "
+             "돌아오면 매도하고 싶습니다.")
+DISP_BUY = {"factor": "technical.disparity", "operator": "<=", "value": 90, "unit": "point",
+            "parameters": {"period": 20}, "source_text": "20일선 이격도가 90 이하로 눌린"}
+DISP_SELL = {"factor": "technical.disparity", "operator": ">=", "value": 100, "unit": "point",
+             "parameters": {"period": 20}, "source_text": "20일선 이격도가 100 이상으로 돌아오면 매도"}
+
+
+def test_duplicate_introduced_by_schema_repair_is_dropped_without_another_call():
+    replies = iter([_body([DISP_BUY, "approximated"], [DISP_SELL]),   # 스키마 위반 원출력(트레이스 그대로의 형태)
+                    _body([DISP_BUY, DISP_SELL], [DISP_SELL])])        # 복구본이 매도를 매수 칸에 복사
+    calls = []
+
+    def fake_chat(system, user, **_):
+        calls.append(user)
+        return next(replies)
+
+    result = StrategyInterpreter(chat_fn=fake_chat, model="stub-model").interpret(DISP_USER)
+    strategy = result.intent.strategy
+    assert len(calls) == 2
+    assert [(c.operator, c.value) for c in strategy.entry_conditions] == [("<=", 90)]
+    assert [(c.operator, c.value) for c in strategy.exit_conditions] == [(">=", 100)]
+
+
+def test_duplicate_already_in_original_output_is_not_dropped_by_repair_guard():
+    """원출력에서도 두 칸에 있던 중복은 복구가 만든 것이 아니다 — 결정론이 칸을 정하지 않는다."""
+    replies = iter([_body([DISP_BUY, DISP_SELL, "approximated"], [DISP_SELL]),
+                    _body([DISP_BUY, DISP_SELL], [DISP_SELL])])
+    result = StrategyInterpreter(chat_fn=lambda s, u, **_: next(replies), model="stub-model").interpret(DISP_USER)
+    assert len(result.intent.strategy.entry_conditions) == 2
+
+
+def test_repair_guard_reads_original_whose_exit_list_slipped_outside_strategy():
+    """실측 원출력 형태: 매수 목록 뒤 괄호가 일찍 닫혀 exit_conditions가 strategy 밖(최상위)에 있었다."""
+    broken = json.dumps({"intent": "CREATE_STRATEGY", "confidence": 0.9,
+                         "strategy": {"universe": {"markets": ["KOSPI"], "sectors": []},
+                                      "entry_conditions": [DISP_BUY, "approximated"]},
+                         "exit_conditions": [DISP_SELL], "entry_logic": "AND"}, ensure_ascii=False)
+    replies = iter([broken, _body([DISP_BUY, DISP_SELL], [DISP_SELL])])
+    result = StrategyInterpreter(chat_fn=lambda s, u, **_: next(replies), model="stub-model").interpret(DISP_USER)
+    assert [(c.operator, c.value) for c in result.intent.strategy.entry_conditions] == [("<=", 90)]
+
+
+def test_condition_moved_to_other_role_by_schema_repair_is_moved_back():
+    """같은 사고의 다른 표본: 복구본이 매도 조건을 복사가 아니라 **옮겼다**(매도 칸 비움)."""
+    replies = iter([_body([DISP_BUY, "approximated"], [DISP_SELL]), _body([DISP_BUY, DISP_SELL], [])])
+    result = StrategyInterpreter(chat_fn=lambda s, u, **_: next(replies), model="stub-model").interpret(DISP_USER)
+    strategy = result.intent.strategy
+    assert [(c.operator, c.value) for c in strategy.entry_conditions] == [("<=", 90)]
+    assert [(c.operator, c.value) for c in strategy.exit_conditions] == [(">=", 100)]
+
+
+def test_condition_absent_from_original_is_left_where_repair_put_it():
+    """원출력에 없던 조건은 대조 근거가 없다 — 칸을 결정론이 정하지 않는다."""
+    replies = iter([_body([DISP_BUY, "approximated"], []), _body([DISP_BUY, DISP_SELL], [])])
+    result = StrategyInterpreter(chat_fn=lambda s, u, **_: next(replies), model="stub-model").interpret(DISP_USER)
+    assert len(result.intent.strategy.entry_conditions) == 2

@@ -517,6 +517,7 @@ export const INDICATOR_LABELS: Record<string, string> = {
   williams_r: "Williams %R",
   mfi: "MFI",
   roc: "ROC",
+  disparity: "이격도",
   relative_return: "시장 대비 초과수익률",
   // 엔진 TechnicalSignal.indicator(backend/engine/nl_parser.py)에 있는 지표는 **빠짐없이**
   // 여기 라벨이 있어야 한다 — 없으면 배지가 내부 변수명을 그대로 노출한다
@@ -689,6 +690,12 @@ function getSignalLabelBase(
   if (signal.indicator === "volatility" && signal.operator != null && signal.value != null) {
     const opKr = t(OPERATOR_KO_LABELS[signal.operator] ?? signal.operator);
     return t("변동성 {0}% {1}", signal.value, opKr);
+  }
+
+  // 이격도(엔진 v16.43, 종가÷N일 이동평균×100) — 이동평균 기간과 임계가 조건의 정체다.
+  if (signal.indicator === "disparity" && signal.value != null) {
+    const opKr = t(OPERATOR_KO_LABELS[signal.operator ?? ">="] ?? signal.operator ?? "");
+    return t("{0}일선 이격도 {1} {2}", signal.period ?? 20, signal.value, opKr);
   }
 
   // 거래대금 신호의 임계는 억원 단위다(registry technical.trading_value) — 금액이 빠지면

@@ -428,6 +428,12 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
     _technical("roc", "ROC(변화율/모멘텀)", "percent", _COMPARISON_OPS,
                {"period": ParamSpec(default=20, minimum=2, maximum=250)},
                value_range=(-100, 1000), recommended=0),
+    _technical("disparity", "이격도(종가÷이동평균×100)", "point", _COMPARISON_OPS,
+               {"period": ParamSpec(default=20, minimum=2, maximum=250)},
+               value_range=(10, 500), recommended=110,
+               notes="종가 ÷ period일 단순이동평균 × 100. 100=이동평균선 위치, 120='이동평균보다 20% 위로 벌어짐', "
+                     "90='10% 아래'. parameters.period=이동평균 기간(20일선=20), value=이격도 값(말한 %를 100 기준으로 옮김). "
+                     "'과열(많이 벌어짐)'은 >=, '침체(많이 눌림)'는 <="),
     _technical("relative_return", "시장 대비 초과수익률", "percent", _COMPARISON_OPS,
                {"period": ParamSpec(default=60, minimum=2, maximum=250)},
                value_range=(-100, 1000), recommended=0,
@@ -635,6 +641,7 @@ _ALIASES: Dict[str, str] = {
     "윌리엄스": "technical.williams_r",
     "mfi": "technical.mfi", "자금흐름지표": "technical.mfi",
     "roc": "technical.roc", "모멘텀": "technical.roc",
+    "disparity": "technical.disparity", "이격도": "technical.disparity",
     "relative_return": "technical.relative_return", "초과수익률": "technical.relative_return",
     "시장대비초과수익률": "technical.relative_return", "시장대비수익률": "technical.relative_return",
     "ai_model": "technical.ai_model", "ai상승예측": "technical.ai_model",

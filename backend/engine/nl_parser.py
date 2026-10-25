@@ -772,10 +772,10 @@ class TechnicalSignal(BaseModel):
     indicator: Literal[
         "ma_crossover", "rsi", "ema", "macd",
         "bollinger_bands", "breakout", "consecutive_up", "consecutive_down", "volume_spike", "volume_ratio", "trading_value_ratio",
-        "stochastic", "cci", "adx", "williams_r", "mfi", "roc", "volatility",
+        "stochastic", "cci", "adx", "williams_r", "mfi", "roc", "disparity", "volatility",
         "relative_return", "trading_value", "ai_model", "ai_drop_model",
         "candle_hammer", "candle_hanging_man", "candle_inverted_hammer", "candle_shooting_star", "candle_doji", "candle_bullish_engulfing", "candle_bearish_engulfing", "candle_piercing_line", "candle_dark_cloud_cover", "candle_morning_star", "candle_evening_star", "candle_three_white_soldiers", "candle_three_black_crows"
-    ] = Field(description="지표 종류. candle_*=캔들 패턴(완성 봉에 신호). williams_r=Williams %R(-100~0), mfi=자금흐름지표(0~100), roc=변화율/모멘텀(%), volatility=연환산 변동성(%, 일수익률 롤링 표준편차×√246), relative_return=시장 대비 초과수익률(%p, 종목 N일 수익률−상장 시장 지수 N일 수익률), volume_ratio=거래량 배수(당일 거래량 ÷ 직전 N일 평균 거래량, value=배수), trading_value_ratio=거래대금 배수(당일 거래대금 ÷ 직전 N일 평균 거래대금, value=배수), ai_model=AI 상승 예측 매수, ai_drop_model=AI 하락 예측 매도")
+    ] = Field(description="지표 종류. candle_*=캔들 패턴(완성 봉에 신호). williams_r=Williams %R(-100~0), mfi=자금흐름지표(0~100), roc=변화율/모멘텀(%), disparity=이격도(종가÷period일 단순이동평균×100, 120=이동평균보다 20% 위, value=이격도 값), volatility=연환산 변동성(%, 일수익률 롤링 표준편차×√246), relative_return=시장 대비 초과수익률(%p, 종목 N일 수익률−상장 시장 지수 N일 수익률), volume_ratio=거래량 배수(당일 거래량 ÷ 직전 N일 평균 거래량, value=배수), trading_value_ratio=거래대금 배수(당일 거래대금 ÷ 직전 N일 평균 거래대금, value=배수), ai_model=AI 상승 예측 매수, ai_drop_model=AI 하락 예측 매도")
     signal_type: Literal["buy", "sell"] = Field(default="buy", description="매수=buy, 매도=sell")
 
     # MA / EMA 크로스오버

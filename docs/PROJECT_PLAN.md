@@ -646,6 +646,7 @@ simons/
 | `breakout` | 52주 신고가/신저가 돌파 (NL: "박스권 돌파", "N일 고점 돌파" 등 서술형 표현도 인식) | lookbackPeriod, signalType | ✅ |
 | `consecutive_up` | 종가 N거래일 연속 상승 | period (거래일 수) | ✅ (2026-09-26, OHLCV 파케이 종가) |
 | `consecutive_down` | 종가 N거래일 연속 하락 | period (거래일 수) | ✅ (2026-10-23, 엔진 v16.42.0 — 새 조건 형태, 기존 결과 불변) |
+| `disparity` | 종가 ÷ N일 단순이동평균 × 100 임계 비교(이격도) | period, operator, value | ✅ (2026-10-25, 엔진 v16.43.0 — 새 조건 형태, 기존 결과 불변) |
 | `ema` | 지수이동평균 | period | ✅ |
 | `stochastic` | 스토캐스틱 | kPeriod, dPeriod | ✅ |
 | `cci` | 상품채널지수 | period | ✅ |
@@ -2495,3 +2496,4 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 - 백테스트 가이드 오른쪽 공개 진입점 추가. 운영/검증 기록:
   [community-board.md](development/community-board.md).
 - ✅ 완료(2026-10-20) 매수·매도 중복 조건 형식 재생성: 120B가 'RSI가 70 이상으로 올라오면 매도'를 매수 칸에도 복사해 "진입과 청산에 동일한 조건(technical.rsi >= 70.0)" 안내가 뜨던 사고. 같은 인용·조건이 두 칸에 있으면 오류를 LLM에 돌려 1회 재생성(`output_repair.cross_role_duplicate_fields`). 회귀 `tests/test_cross_role_duplicate_condition.py`. 실서버 120B 3회: 1회 복사 발생→재생성 정상, 2회 정상. 게이트(예시 전수·되묻기 하니스) 미실행.
+- ✅ 완료(2026-10-25) 스키마 복구본의 매수·매도 칸 이동 복원: 속설 #25 문장(이격도 90 이하 매수 / 100 이상 매도)에서 원출력은 맞았지만 매수 목록의 떠돌이 문자열로 스키마 복구가 돌았고, 복구본이 매도 조건을 매수 칸에 복사·이동해 "진입 조건 모순" 안내+칩 없는 되묻기가 떴다(복구가 1회 예산을 써서 중복 재생성 불가). 복구본의 칸이 원출력과 다르면 원출력의 칸으로 되돌린다(`output_repair.restore_repair_role_drift`, AI 출력끼리 대조). 회귀 `tests/test_cross_role_duplicate_condition.py`(트레이스 형태 포함). 실서버(nemotron-3.5-super-vl): 수리 전·부분 수리 중 8회 중 4회 실패 → 최종 수리 후 4/4 정상(그중 3회 복구 턴). 게이트(nemotron-3.5-super-vl:free): `qa_free_input.py modify` 42 PASS·0 FAIL, `fill`은 HEAD 기준선과 동일(PASS 9·HARNESS_INVALID 32 — 첫 실행의 FAIL 1건은 새 서버 재실행에서 통과해 흔들림), 예시 전수(`qa_template_detect.py`) 치명 4건은 기준선·현재 코드 대조 재실행에서 항목이 바뀌며 양쪽 모두 치명이 나와(기준선 3건: 11·15·31번 / 현재 2건: 11·25번) 이번 변경과 무관한 흔들림으로 판단, 볼린저(25번) 6/6 동일. 화면 표시 전수 조사(`QA_DISPLAY_SWEEP`)·`/us` 영어 하니스 미실행.

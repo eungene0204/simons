@@ -20,6 +20,7 @@ export type IndicatorType =
   | "williams_r"
   | "mfi"
   | "roc"
+  | "disparity"
   | "relative_return"
   | "volatility";
 

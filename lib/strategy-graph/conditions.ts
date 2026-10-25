@@ -129,7 +129,7 @@ function crossStatus(): { status: NodeStatus; statusNote: string | null } {
 }
 
 const LEVEL_INDICATORS = new Set([
-  "cci", "adx", "williams_r", "mfi", "roc", "volatility", "relative_return",
+  "cci", "adx", "williams_r", "mfi", "roc", "disparity", "volatility", "relative_return",
   "volume_ratio", "trading_value_ratio", "trading_value",
 ]);
 

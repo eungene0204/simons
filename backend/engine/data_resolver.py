@@ -39,7 +39,7 @@ FUNDAMENTAL_IDS = set(FUNDAMENTAL_CIDS)
 TECHNICAL_IDS = {
     'ma_crossover', 'rsi', 'ema', 'macd', 'stochastic',
     'cci', 'adx', 'bollinger_bands', 'volume_spike', 'volume_ratio', 'trading_value_ratio', 'breakout',
-    'williams_r', 'mfi', 'roc', 'relative_return',
+    'williams_r', 'mfi', 'roc', 'disparity', 'relative_return',
 }
 
 # 계산 가능한 파생 지표
@@ -110,6 +110,9 @@ def _get_required_columns_base(cond: Dict) -> List[str]:
     elif cid == 'roc':
         period = p.get('period', 12)
         return [f'close_{period}_roc']
+    elif cid == 'disparity':
+        period = p.get('period', 20)
+        return [f'disparity_{period}']
     elif cid == 'relative_return':
         period = p.get('period', 60)
         return [f'relative_return_{period}']

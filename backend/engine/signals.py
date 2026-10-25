@@ -382,6 +382,15 @@ class SignalEngine:
             default_op = '>' if sig_type != 'sell' else '<'
             return compare_vec(roc, p.get('operator', default_op), float(p.get('value', 0)))
 
+        elif cid == 'disparity':
+            # 이격도(종가÷N일 이동평균×100). 과열(임계 이상) 매도 / 침체(임계 이하) 매수 기본.
+            period = p.get('period', 20)
+            disp = get_col(f'disparity_{period}')
+            sig_type = p.get('signalType', 'buy')
+            default_val = 90.0 if sig_type != 'sell' else 110.0
+            default_op = '<=' if sig_type != 'sell' else '>='
+            return compare_vec(disp, p.get('operator', default_op), float(p.get('value', default_val)))
+
         elif cid == 'relative_return':
             # 시장 대비 초과수익률(%p). 시장보다 나은(0 초과) 매수 / 못한(0 미만) 매도 기본.
             period = p.get('period', 60)
@@ -811,6 +820,14 @@ class SignalEngine:
             default_op = '>' if sig_type != 'sell' else '<'
             return compare(roc_val, p.get('operator', default_op), float(p.get('value', 0)))
 
+        elif cid == 'disparity':
+            period = p.get('period', 20)
+            disp_val = safe_get(f'disparity_{period}', idx)
+            sig_type = p.get('signalType', 'buy')
+            default_val = 90.0 if sig_type != 'sell' else 110.0
+            default_op = '<=' if sig_type != 'sell' else '>='
+            return compare(disp_val, p.get('operator', default_op), float(p.get('value', default_val)))
+
         elif cid == 'relative_return':
             period = p.get('period', 60)
             rr_val = safe_get(f'relative_return_{period}', idx)
@@ -1090,6 +1107,11 @@ class SignalEngine:
             period = p.get('period', 12)
             val = p.get('value', 0)
             return [tr.part(tr.ROC_LEVEL, period, val, op_seg)]
+        elif cid == 'disparity':
+            period = p.get('period', 20)
+            sig_type = p.get('signalType', 'buy')
+            val = p.get('value', 90 if sig_type != 'sell' else 110)
+            return [tr.part(tr.DISPARITY_LEVEL, period, val, op_seg)]
         elif cid == 'relative_return':
             period = p.get('period', 60)
             sig_type = p.get('signalType', 'buy')
