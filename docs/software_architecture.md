@@ -1,5 +1,11 @@
 # Software Architecture
 
+### 2026-10-26 수익률 랭킹의 하한 대조
+
+- Primary 생성은 랭킹 중복 정리(`_dedupe_relative_return_against_ranking`) 뒤, 위쪽 순위 기간 수익률 랭킹이 있고 `portfolio.absolute_momentum_threshold_percent`가 비어 있을 때만 `interpreter/return_floor_check.py`의 짧은 LLM 판정을 부른다. LLM은 `stated|none|unclear`와 하한 숫자 표기(`value_text`)를 옮겨 적고, 코드는 그 표기가 입력에 실재하고 숫자+% 꼴인지만 확인해 칸을 채운다. 실패·애매함은 칸을 그대로 둔다(fail-open). 메인 프롬프트는 바꾸지 않았다.
+- 같은 정리 단계는 걷어낸 조건의 인용이 입력에 그대로 있을 때만 "랭킹으로 반영" 안내를 낸다. LLM이 원문에 없는 말을 덧붙인 인용("30% 이상 오른 (시장 대비)")을 사용자 말처럼 되돌려 주지 않는다.
+- 전략 그래프의 순위 선정 칸은 수익률 랭킹에 하한이 있으면 "최소 수익률 N% 초과" 줄을 보인다(엔진은 `momentum > N%`만 후보로 남긴다, `backtest_engine.py` 절대 모멘텀).
+
 ### 2026-10-15 보유기간 복구의 정본 개념 제외
 
 생성 턴의 미지 청산 조건 복구 대상은 잎 registry 외에도 기존 concept ontology의 전개 선언을 확인한다. 데드크로스 같은 정상 개념은 기존 quote/도메인/컴파일 경로로 보내며 holding 미해결을 잘못 부여하지 않는다. 실제 미지 시간 조건의 복구/보류 정책은 유지한다. 원문 어휘 분기·새 호출·모델/엔진 변경은 없다. 최소 재현/API 5 PASS, 직접 관련 53 PASS이며 전체 검사 실패와 live 미실행을 구분한다. [수리 기록](development/interpretation-stability-first-fail-2026-10-15.md).

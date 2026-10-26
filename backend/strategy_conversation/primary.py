@@ -1291,7 +1291,7 @@ def _normalize_size_class_labels(intent: StrategyIntent) -> None:
     _log_llm("✓ 규모 라벨 정규화", f"{labels} → 시가총액 조건({sorted(existing)})")
 
 
-def _dedupe_relative_return_against_ranking(intent: StrategyIntent) -> List[str]:
+def _dedupe_relative_return_against_ranking(intent: StrategyIntent, user_input: str = "") -> List[str]:
     """'시장 대비 수익률 상위'가 랭킹과 조건(technical.relative_return)에 **이중으로** 실리면
     조건 쪽을 걷어내고 어디로 반영됐는지 알린다.
 
@@ -1326,6 +1326,8 @@ def _dedupe_relative_return_against_ranking(intent: StrategyIntent) -> List[str]
     from strategy_conversation.validation.capability_validator import _ranking_id
 
     _rank_id = _ranking_id(matched[0][0].metric)
+    from engine.nl_parser import _compact
+
     notices: List[str] = []
 
     def _reflected_notice(quote: str) -> str:
@@ -1354,7 +1356,10 @@ def _dedupe_relative_return_against_ranking(intent: StrategyIntent) -> List[str]
                 kept.append(cond)
                 continue
             quote = (cond.source_text or "").strip()
-            if quote and len(quote) <= _QUOTED_FEATURE_MAX_LEN:
+            # 인용이 입력에 그대로 있을 때만 안내한다 — LLM이 원문에 없는 말을 덧붙인 인용
+            # ('30% 이상 오른 (시장 대비)', 2026-10-26)을 사용자 말처럼 되돌려 주지 않는다.
+            if (quote and len(quote) <= _QUOTED_FEATURE_MAX_LEN
+                    and _compact(quote) in _compact(user_input or "")):
                 notices.append(_reflected_notice(quote))
             _log_llm("✓ 상대강도 중복 제거",
                      f"{role} relative_return 조건 → 랭킹으로 일원화(인용={quote!r} 연산자={cond.operator!r})")
@@ -2219,7 +2224,12 @@ def run_primary_parse(
         from strategy_conversation.interpreter.semantic_reconciliation import reconcile_semantic_fields
         reconcile_semantic_fields(result.intent, user_input, recall_chat)
     _normalize_size_class_labels(result.intent)
-    repair_notices += _dedupe_relative_return_against_ranking(result.intent)
+    repair_notices += _dedupe_relative_return_against_ranking(result.intent, user_input)
+    # 수익률 하한 대조 — 랭킹 전략의 'N% 이상 오른' 하한이 1차 해석에서 빠지면(위 중복 제거가 엉뚱한
+    # 시장 대비 조건을 걷어낸 자리 포함) LLM에게 다시 묻는다(2026-10-26 속설 #27, 2회 중 1회 소실).
+    from strategy_conversation.interpreter.return_floor_check import recover_return_floor
+
+    recover_return_floor(result.intent, user_input, recall_chat)
     # 조건 누락 대조 패스 — 1차 해석은 조건이 여러 개 나열되면 하나를 밀어낸다(2026-08-18
     # 실측: 위치·문장 길이가 무엇이 밀릴지 정하고, 프롬프트 보강·컨텍스트 확대 모두 무효).
     # 빠진 조건을 LLM에게 다시 묻고(해석은 LLM 레인) 되살린다. 환각 가드 앞에 두어

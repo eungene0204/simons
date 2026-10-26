@@ -3826,6 +3826,8 @@ export const en: Record<string, string> = {
   "제외 기한": "Expiry",
   "그룹당 보유 상한": "Holding cap per group",
   "선정 비율": "Selection ratio",
+  "최소 수익률": "Minimum return",
+  "{0}% 초과": "Above {0}%",
   "복합 순위 합산": "Composite ranking",
   "가중치": "Weight",
   "묶음 점수": "Score group",
