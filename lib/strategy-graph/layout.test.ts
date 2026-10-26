@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { confirmedInput, META } from "./fixtures";
-import { defaultExpanded, expandableIds, layoutTree, textWidth, type LayoutItem } from "./layout";
+import { defaultExpanded, expandableIds, layoutTree, textWidth, wrap, type LayoutItem } from "./layout";
 import { buildOutline } from "./textOutline";
 import { buildStrategyGraph } from "./transform";
 
@@ -132,5 +132,19 @@ describe("text outline uses the same model", () => {
     const item = buildOutline(graph).flatMap((s) => s.items).find((i) => i.id === "cond:exit/exit.0");
     expect(item?.indicator?.name).toBe("RSI");
     expect(item?.indicator?.path.length).toBeGreaterThan(0);
+  });
+});
+
+describe("label wrapping", () => {
+  it("breaks at a space instead of inside a number (2026-10-26: '최소 3 / 0% 초과')", () => {
+    const lines = wrap("기간 수익률 랭킹(모멘텀) · 최소 30% 초과", 260);
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines.some((l) => l.includes("30%"))).toBe(true);
+    for (const l of lines) expect(textWidth(l)).toBeLessThanOrEqual(260);
+  });
+  it("still cuts a single word longer than the width", () => {
+    const lines = wrap("가".repeat(30), 140);
+    expect(lines.every((l) => textWidth(l) <= 140)).toBe(true);
+    expect(lines.join("")).toBe("가".repeat(30));
   });
 });

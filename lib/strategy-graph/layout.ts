@@ -74,16 +74,24 @@ const STAGES: SectionKey[][] = [["universe", "filters", "ranking"], ["entry"], [
 const charW = (ch: string): number => (/[ᄀ-ᇿ㄰-㆏가-힣一-鿿]/.test(ch) ? FONT : FONT * 0.68);
 export const textWidth = (s: string): number => Array.from(s).reduce((sum, ch) => sum + charW(ch), 0);
 
-function wrap(text: string, maxW: number): string[] {
+export function wrap(text: string, maxW: number): string[] {
   const lines: string[] = [];
   let line = "";
   let w = 0;
   for (const ch of Array.from(text)) {
     const cw = charW(ch);
     if (w + cw > maxW && line) {
-      lines.push(line);
-      line = "";
-      w = 0;
+      // 띄어쓰기에서 끊는다 — 글자 단위로 자르면 "최소 3 / 0% 초과"처럼 숫자 중간이 갈린다(2026-10-26).
+      const cut = line.lastIndexOf(" ");
+      if (cut > 0 && ch !== " ") {
+        lines.push(line.slice(0, cut));
+        line = line.slice(cut + 1);
+      } else {
+        lines.push(line.trimEnd());
+        line = "";
+      }
+      w = textWidth(line);
+      if (ch === " " && !line) continue;
     }
     line += ch;
     w += cw;
