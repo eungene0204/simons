@@ -158,6 +158,17 @@ describe("7. pending, valueless, zero, empty", () => {
     const g = buildStrategyGraph({ ...input, request }, META);
     expect(g.nodes.some((n) => n.id === "section:ranking")).toBe(false);
   });
+  it("shows the return floor on a return ranking (2026-10-26: '30% 이상 오른' was missing from the graph)", () => {
+    const input = confirmedInput("filterRankingEntry");
+    const request = JSON.parse(JSON.stringify(input.request));
+    request.risk.ranking_metric = "return";
+    request.risk.absolute_momentum_threshold_pct = 30;
+    const metric = buildStrategyGraph({ ...input, request }, META).nodes.find((n) => n.id === "setting:ranking/metric") as GraphNode;
+    expect(row(metric, "최소 수익률")).toBe("30% 초과");
+    request.risk.absolute_momentum_threshold_pct = null;
+    const bare = buildStrategyGraph({ ...input, request }, META).nodes.find((n) => n.id === "setting:ranking/metric") as GraphNode;
+    expect(row(bare, "최소 수익률")).toBeUndefined();
+  });
   it("returns an empty graph for an empty strategy", () => {
     const g = build("emptyStrategy");
     expect(isEmptyGraph(g)).toBe(false);

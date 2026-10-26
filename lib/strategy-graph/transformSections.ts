@@ -240,6 +240,8 @@ export function buildRanking(ctx: SectionCtx): void {
   if (cap !== null) rows.push(row(t("그룹당 보유 상한"), t("{0}종목", cap)));
   const pct = num(r.max_positions_pct);
   if (pct !== null) rows.push(row(t("선정 비율"), `${pct}%`));
+  const floor = num(r.absolute_momentum_threshold_pct);
+  if (floor !== null && metric === "return") rows.push(row(t("최소 수익률"), t("{0}% 초과", floor)));
 
   // A lookback the user never stated is filled by the compiler (60 days); say so when we can tell.
   const parsedLookback = ctx.parsed?.ranking_lookback_days;
