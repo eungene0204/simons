@@ -165,9 +165,11 @@ describe("7. pending, valueless, zero, empty", () => {
     request.risk.absolute_momentum_threshold_pct = 30;
     const metric = buildStrategyGraph({ ...input, request }, META).nodes.find((n) => n.id === "setting:ranking/metric") as GraphNode;
     expect(row(metric, "최소 수익률")).toBe("30% 초과");
+    expect(metric.label).toContain("최소 30% 초과");
     request.risk.absolute_momentum_threshold_pct = null;
     const bare = buildStrategyGraph({ ...input, request }, META).nodes.find((n) => n.id === "setting:ranking/metric") as GraphNode;
     expect(row(bare, "최소 수익률")).toBeUndefined();
+    expect(bare.label).not.toContain("최소");
   });
   it("returns an empty graph for an empty strategy", () => {
     const g = build("emptyStrategy");

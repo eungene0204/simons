@@ -240,8 +240,8 @@ export function buildRanking(ctx: SectionCtx): void {
   if (cap !== null) rows.push(row(t("그룹당 보유 상한"), t("{0}종목", cap)));
   const pct = num(r.max_positions_pct);
   if (pct !== null) rows.push(row(t("선정 비율"), `${pct}%`));
-  const floor = num(r.absolute_momentum_threshold_pct);
-  if (floor !== null && metric === "return") rows.push(row(t("최소 수익률"), t("{0}% 초과", floor)));
+  const floor = metric === "return" ? num(r.absolute_momentum_threshold_pct) : null;
+  if (floor !== null) rows.push(row(t("최소 수익률"), t("{0}% 초과", floor)));
 
   // A lookback the user never stated is filled by the compiler (60 days); say so when we can tell.
   const parsedLookback = ctx.parsed?.ranking_lookback_days;
@@ -270,9 +270,11 @@ export function buildRanking(ctx: SectionCtx): void {
   }
 
   const { name, leafId } = rankingName(ctx, metric);
+  const base = direction ? `${name} (${direction})` : name;
   const id = setting(ctx, "ranking", sec, {
     key: "metric",
-    label: direction ? `${name} (${direction})` : name,
+    // 하한은 라벨에도 싣는다 — 상세 줄에만 두면 그래프·요약 카드에서 '30% 이상 오른'이 보이지 않는다(2026-10-26).
+    label: floor !== null ? t("{0} · 최소 {1}% 초과", base, floor) : base,
     rows,
     kind: "condition",
     note: compilerFilled ? t("산정 기간은 사용자가 지정하지 않아 컴파일러 보정값이 쓰였습니다.") : null,
