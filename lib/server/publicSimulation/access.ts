@@ -106,19 +106,35 @@ export async function findPublicStrategy(publicId: string): Promise<PublicStrate
   return { name: Strategy.name, description: Strategy.description, settings: Strategy.settings, row };
 }
 
-/** 전략명순(동명은 내부 ID순) 한 페이지. 결과 행이 없는 공개 전략은 pending 행을 만든다. 다음 페이지는 21번째 행으로 판단. */
+const SCAN_BATCH = 200;
+
+/** 목록에 올릴 수 없는 전략: 실행 가능한 스냅샷이 없거나, 현재 스냅샷으로 이미 '시뮬레이션 불가'로 판정된 전략. */
+function isUnsimulatable(r: { settings: string; PublicSimulationResult: { status: string; snapshotHash: string } | null }): boolean {
+  const snapshot = snapshotFromSettings(r.settings);
+  if (!snapshot) return true;
+  const stored = r.PublicSimulationResult;
+  return !!stored && stored.status === "unavailable" && stored.snapshotHash === snapshotHash(snapshot);
+}
+
+/**
+ * 전략명순(동명은 내부 ID순) 한 페이지. 시뮬레이션할 수 없는 전략은 목록에서 뺀다.
+ * 실행 가능 여부는 저장 설정을 읽어야 알 수 있어 DB 조건으로 거를 수 없다 — 배치로 훑어 거른 뒤 쪽을 자른다.
+ * 결과 행이 없는 공개 전략은 pending 행을 만든다. 다음 페이지는 21번째 행으로 판단.
+ */
 export async function listPublicStrategies(
   { q, page }: { q?: string; page: number }
 ): Promise<{ items: PublicStrategyRow[]; hasNext: boolean }> {
-  const rows = await prisma.strategy.findMany({
-    where: { ...PUBLIC_STRATEGY_WHERE, ...(q ? { name: { contains: q, mode: "insensitive" } } : {}) },
-    orderBy: [{ name: "asc" }, { id: "asc" }],
-    skip: (Math.max(1, page) - 1) * PAGE_SIZE,
-    take: PAGE_SIZE + 1,
-    select: { id: true, name: true, description: true, settings: true, PublicSimulationResult: { select: RESULT_ROW_SELECT } },
-  });
-  const hasNext = rows.length > PAGE_SIZE;
-  const pageRows = rows.slice(0, PAGE_SIZE);
+  const where = { ...PUBLIC_STRATEGY_WHERE, ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}) };
+  const skip = (Math.max(1, page) - 1) * PAGE_SIZE;
+  const wanted = skip + PAGE_SIZE + 1;
+  const eligible: Awaited<ReturnType<typeof fetchBatch>> = [];
+  for (let offset = 0; eligible.length < wanted; offset += SCAN_BATCH) {
+    const batch = await fetchBatch(where, offset);
+    eligible.push(...batch.filter((r) => !isUnsimulatable(r)));
+    if (batch.length < SCAN_BATCH) break;
+  }
+  const hasNext = eligible.length > skip + PAGE_SIZE;
+  const pageRows = eligible.slice(skip, skip + PAGE_SIZE);
 
   const missing = pageRows.filter((r) => !r.PublicSimulationResult);
   let created: Record<string, PublicStrategyRow["row"]> = {};
@@ -139,4 +155,14 @@ export async function listPublicStrategies(
     return row ? [{ name: r.name, description: r.description, settings: r.settings, row }] : [];
   });
   return { items, hasNext };
+}
+
+function fetchBatch(where: Record<string, unknown>, offset: number) {
+  return prisma.strategy.findMany({
+    where,
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+    skip: offset,
+    take: SCAN_BATCH,
+    select: { id: true, name: true, description: true, settings: true, PublicSimulationResult: { select: RESULT_ROW_SELECT } },
+  });
 }

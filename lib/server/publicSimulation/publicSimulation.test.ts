@@ -102,23 +102,39 @@ describe("공개 조건과 공개 응답 허용 목록", () => {
   });
 
   it("목록은 공개 조건·전략명순·검색을 쓰고 21번째 행으로 다음 페이지를 판단한다", async () => {
-    const rows = Array.from({ length: 21 }, (_, i) => ({
+    const rows = Array.from({ length: 41 }, (_, i) => ({
       id: `s${i}`, name: `전략${String(i).padStart(2, "0")}`, description: null, settings: settingsOf(),
       PublicSimulationResult: i === 0 ? null : { ...item().row, id: `p${i}`, strategyId: `s${i}` },
     }));
     strategyDb.findMany.mockResolvedValue(rows);
     db.findMany.mockResolvedValue([{ ...item().row, id: "pnew", strategyId: "s0" }]);
 
-    const out = await listPublicStrategies({ q: "rsi", page: 2 });
+    const out = await listPublicStrategies({ q: "rsi", page: 1 });
     const args = strategyDb.findMany.mock.calls[0][0];
     expect(args.where).toMatchObject({ ...PUBLIC_STRATEGY_WHERE, name: { contains: "rsi", mode: "insensitive" } });
     expect(args.orderBy).toEqual([{ name: "asc" }, { id: "asc" }]);
-    expect([args.skip, args.take]).toEqual([20, 21]);
+    expect([args.skip, args.take]).toEqual([0, 200]);
     expect(JSON.stringify(args.select)).not.toContain("userId");
     expect(out.hasNext).toBe(true);
     expect(out.items).toHaveLength(20);
     expect(db.createMany.mock.calls[0][0]).toMatchObject({ skipDuplicates: true, data: [{ strategyId: "s0" }] });
     expect(out.items[0].row.id).toBe("pnew");
+  });
+
+  it("시뮬레이션할 수 없는 전략(실행 설정 없음·불가 판정)은 목록에서 빼고 쪽을 채운다", async () => {
+    const okRow = (i: number) => ({ id: `ok${i}`, name: `전략${i}`, description: null, settings: settingsOf(), PublicSimulationResult: { ...item().row, id: `p${i}`, strategyId: `ok${i}` } });
+    const unavailable = { ...item().row, id: "pu", strategyId: "u", status: "unavailable", snapshotHash: snapshotHash(snapshotFromSettings(settingsOf())) };
+    strategyDb.findMany.mockResolvedValue([
+      { id: "meta", name: "가", description: null, settings: JSON.stringify({ name: "메타만" }), PublicSimulationResult: null },
+      { id: "u", name: "나", description: null, settings: settingsOf(), PublicSimulationResult: unavailable },
+      okRow(1),
+    ]);
+
+    const out = await listPublicStrategies({ page: 1 });
+
+    expect(out.items.map((i) => i.row.strategyId)).toEqual(["ok1"]);
+    expect(out.hasNext).toBe(false);
+    expect(db.createMany).not.toHaveBeenCalled();
   });
 });
 

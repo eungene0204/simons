@@ -460,3 +460,7 @@ Run 공통: Python 변경 → `uv run pytest backend/tests`(CLAUDE.md의 서버 
 | 카드·모달 요구(카드 필드·미니 그래프·모달 구성·포커스·Esc·카드 복귀) | ✅ 실브라우저 미확인 |
 | 메뉴 연결(Q) | ✅ (`/us`에서는 숨김) |
 | 문서 갱신(G) | ✅ 이 문서 외 PROJECT_PLAN·software_architecture·SRS·boundaries.md |
+
+## 목록 노출 규칙 (2026-10-27)
+
+시뮬레이션할 수 없는 전략은 목록(카드 그리드)에서 뺀다 — 실행 가능한 스냅샷이 없는 전략, 현재 스냅샷으로 이미 `unavailable`(미국 시장·적립식·비용 정보 없음 등)로 판정된 전략. 실행 가능 여부는 저장 설정을 읽어야 알 수 있어 `listPublicStrategies`가 200건 배치로 훑어 거른 뒤 쪽을 자른다. 아직 계산 전(pending)인 전략은 보이며, 계산 후 `unavailable`이면 다음 조회부터 사라진다. 직접 링크(상세)는 사유와 함께 열린다.
