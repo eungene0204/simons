@@ -31,6 +31,7 @@ import {
   X,
   Receipt,
   Funnel,
+  ChartLine,
 } from "phosphor-react";
 import {
   formatBacktestResetIn,
@@ -63,6 +64,8 @@ type MenuItem = {
   // 페이지는 전체를 미리 받아 즉시 전환한다. 대시보드·요금제는 서버 데이터를 보여주므로
   // 기본값을 유지한다(prefetch=true는 5분 캐시라 갱신된 플랜·잔고가 늦게 보일 수 있다).
   prefetch?: true;
+  // 한국 전략만 다루는 메뉴 — /us(미국 지역)에서는 숨긴다.
+  krOnly?: true;
 };
 
 const menuItems: MenuItem[] = [
@@ -100,6 +103,14 @@ const menuItems: MenuItem[] = [
     href: "/my-strategies",
     id: "my-strategies",
     Icon: BookmarkSimple,
+  },
+  // 공개 전략의 최근 3년 과거 시뮬레이션 — 로그인 없이 열람(2026-10-27 공개 노출 승인).
+  {
+    label: "전략 시뮬레이션",
+    href: "/strategy-simulation",
+    id: "strategy-simulation",
+    Icon: ChartLine,
+    krOnly: true,
   },
   // 대시보드 메뉴는 숨김(2026-10-20, 페이지·API 코드는 유지) — 그 자리에 전략공유를 둔다. 다시 켜려면 아래 항목을 복원한다.
   // {
@@ -202,6 +213,10 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
   const pathname = usePathname();
   const region = useRegion();
   const regionHref = useRegionHref();
+  const visibleMenuItems = useMemo(
+    () => menuItems.filter((item) => !(item.krOnly && region === "us")),
+    [region],
+  );
   const searchParams = useSearchParams();
   const router = useRouter();
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
@@ -579,7 +594,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
     let bestMatch: { id: string; href: string; pathLength: number } | null =
       null;
 
-    for (const item of menuItems) {
+    for (const item of visibleMenuItems) {
       if (item.href === "/") {
         continue;
       }
@@ -597,7 +612,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
     }
 
     return null;
-  }, [pathname]);
+  }, [pathname, visibleMenuItems]);
 
 
   return (
@@ -672,7 +687,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
           className="flex flex-shrink-0 items-center justify-center gap-0.5 2xl:gap-1"
           data-testid="top-navigation-menu"
         >
-          {menuItems.map((item) => {
+          {visibleMenuItems.map((item) => {
             const isActive = activeMenuItemId === item.id;
             const IconComponent = item.Icon;
 
@@ -801,7 +816,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
 
             <div className="flex-1 overflow-y-auto px-3 py-4">
               <div className="space-y-1">
-                {menuItems.map((item) => {
+                {visibleMenuItems.map((item) => {
                   const isActive = activeMenuItemId === item.id;
                   const IconComponent = item.Icon;
 

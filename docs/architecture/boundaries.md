@@ -904,6 +904,57 @@ Represent and execute a user's strict comparison of the latest reported quarter'
 
 ---
 
+## Boundary Z: Public Strategy Simulation
+
+### Purpose
+공개(`Strategy.isPublic`) 저장 전략의 최근 3년 과거 데이터 시뮬레이션 결과를 로그인 없이 열람하고, 방문자가
+지표 파라미터만 바꾼 임시 사본으로 같은 조건의 결과 차이를 확인하는 '전략 시뮬레이션' 기능 전용 boundary.
+계약·작업 명세: `docs/development/strategy-simulation.md`. 상태: 구현 완료(2026-10-27) — Z-1~Z-10.
+
+### Files
+신규(새로 만들 파일):
+- backend/public_simulation/** (`__init__.py`, `window.py`, `summary.py`, `params.py`)
+- backend/api/public_simulation_routes.py
+- backend/tests/test_public_simulation_*.py
+- lib/server/publicSimulation/** (access, originals, modified 및 *.test.ts)
+- app/api/strategy-simulation/** (route.ts, [publicId]/route.ts, [publicId]/run/route.ts 및 *.test.ts)
+- app/strategy-simulation/page.tsx
+- components/strategy-simulation/** (카드 그리드·미니 차트·상세 모달·수익률 차트·요약·파라미터 폼·재계산 훅 및 *.test.tsx)
+
+수정(기존 파일, 범위 한정):
+- backend/main.py (`include_router` 두 줄만)
+- lib/i18n/en.ts (이 기능의 신규 문구 번역만)
+- prisma/schema.prisma (`PublicSimulationResult` 모델과 `Strategy` 역관계 한 줄만) — 사용자 승인(명세 D1, 2026-10-27)으로 수정 완료
+- prisma/migrations/20261027000000_public_strategy_simulation/** — 위와 같은 조건(운영 DB 적용 완료)
+
+### Allowed Tasks
+- 공개 조건(`isPublic && isSaved && deletedAt null`) 재검증, 불투명 `publicId`, 허용 목록 기반 공개 응답
+- Asia/Seoul 기준 3년 창·데이터 기준일 계산과 기존 엔진 실행 경로(`backtest_executor.run` + 워치독) 재사용
+- 엔진 결과의 공개 요약 축약(초기자금·최종 평가자산·총 손익·누적 수익률·MDD·CAGR·샤프·승률·거래 수, 누적 수익률 곡선, 손익 기여 상·하위 3종목)
+- REGISTRY 기반 수정 가능 파라미터 설명자·서버 검증·깊은 복사본 적용
+- 원본 결과 영속 캐시(D1 승인 시)·지연 갱신, 수정 결과 메모리 캐시·중복 합치기·요청 제한·동시 실행 제한
+- 카드 목록·상세 모달·누적 수익률 차트 하나·파라미터 폼 UI와 회귀 테스트
+
+### Strict Rules
+- 한 작업은 이 boundary 안에서 3~5개 파일, 가능하면 200줄 미만. 내비게이션 연결은 Boundary Q, 문서 갱신은 Boundary G의 별도 작업이다.
+- 모든 조회·실행·캐시 응답·저장 직전에 공개 조건을 DB로 다시 확인한다. 공개 철회·삭제된 전략의 결과는 어떤 경로로도 응답하지 않는다.
+- 응답에 소유자 정보·`Strategy.id`·`symbols` 전체 목록·가상계좌·`BacktestHistory`·엔진 원본 결과를 싣지 않는다. 응답은 `Cache-Control: no-store`.
+- 지표·준비 기간·비용·체결 계산은 엔진 값만 쓰고 재계산·보간하지 않는다. 실패를 0%·거래 없음으로 바꾸지 않는다.
+- 스냅샷에 없는 설정을 기본값·recommended_value로 채우지 않는다(실행 불가로 표시). 프론트엔드에 지표 이름·단위·범위 사전을 두지 않는다.
+- 방문자 수정은 원본의 깊은 복사본에만 적용하며 `Strategy`·원본 결과·사용자 기록 테이블에 쓰지 않는다. 월 백테스트 한도를 소비하지 않는다.
+- 사용자 원문 해석·LLM·검색 호출을 하지 않는다. 추천·순위·우열·전망 표현을 쓰지 않는다.
+- 새 파일이나 의존성이 필요하면 구현 전에 이 목록과 명세를 먼저 갱신한다.
+
+### Forbidden
+- 백테스트 엔진·지표·시뮬레이터·결과 처리(`backend/backtest_engine.py`, `backend/backtest_executor.py`, `backend/engine/**`) 변경
+- provider 계층, 데이터 파일, 범용 스크립트(`scripts/**`, `backend/scripts/**`) 변경
+- 기존 백테스트·전략·공유 라우트(`app/api/backtest/**`, `app/api/strategy/**`, `app/api/shared/**`)와 `lib/server/backtestCache.ts` 변경
+- 인증·세션·소유권 로직 변경, 공개 플래그 토글 UI 변경
+- `PublicSimulationResult` 외 Prisma 모델·컬럼 변경
+- 조건 추가·삭제·지표 교체·자동 최적화·파라미터 탐색
+
+---
+
 ## Global Forbidden Paths
 
 Codex must NEVER modify:
@@ -921,6 +972,7 @@ Exception:
 - `prisma/**` is allowed inside `Boundary P: User Personalization / Ownership Persistence` only for user personalization models, ownership fields/FKs, and indexes required for per-user isolation.
 - `prisma/**` is allowed inside `Boundary J: Stock Info Profile Persistence`
 - `prisma/**` is allowed inside `Boundary M: News Impact Pipeline` only for news-specific models, migrations, and indexes
+- `prisma/**` is allowed inside `Boundary Z: Public Strategy Simulation` only for the `PublicSimulationResult` model, the `Strategy` back-relation line, and its single migration — user decision D1 in `docs/development/strategy-simulation.md` was approved on 2026-10-27 and the migration is applied
 
 ---
 

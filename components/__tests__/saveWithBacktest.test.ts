@@ -64,6 +64,10 @@ const VALID_DSL = {
   exit_signals: [{ indicator: "ai_drop_model" }],
   max_positions: 15,
   stop_loss_pct: 10,
+  // 엔진 요청형 — 저장 경로는 다시 실행할 수 있는 설정만 받는다.
+  entry: { conditions: [{ type: "indicator", id: "ai_model", params: {} }] },
+  exit: { conditions: [] },
+  risk: { max_positions: 15, stop_loss_pct: 10 },
 };
 
 const VALID_BACKTEST_RESULT = {

@@ -2504,3 +2504,16 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
   [community-board.md](development/community-board.md).
 - ✅ 완료(2026-10-20) 매수·매도 중복 조건 형식 재생성: 120B가 'RSI가 70 이상으로 올라오면 매도'를 매수 칸에도 복사해 "진입과 청산에 동일한 조건(technical.rsi >= 70.0)" 안내가 뜨던 사고. 같은 인용·조건이 두 칸에 있으면 오류를 LLM에 돌려 1회 재생성(`output_repair.cross_role_duplicate_fields`). 회귀 `tests/test_cross_role_duplicate_condition.py`. 실서버 120B 3회: 1회 복사 발생→재생성 정상, 2회 정상. 게이트(예시 전수·되묻기 하니스) 미실행.
 - ✅ 완료(2026-10-25) 스키마 복구본의 매수·매도 칸 이동 복원: 속설 #25 문장(이격도 90 이하 매수 / 100 이상 매도)에서 원출력은 맞았지만 매수 목록의 떠돌이 문자열로 스키마 복구가 돌았고, 복구본이 매도 조건을 매수 칸에 복사·이동해 "진입 조건 모순" 안내+칩 없는 되묻기가 떴다(복구가 1회 예산을 써서 중복 재생성 불가). 복구본의 칸이 원출력과 다르면 원출력의 칸으로 되돌린다(`output_repair.restore_repair_role_drift`, AI 출력끼리 대조). 회귀 `tests/test_cross_role_duplicate_condition.py`(트레이스 형태 포함). 실서버(nemotron-3.5-super-vl): 수리 전·부분 수리 중 8회 중 4회 실패 → 최종 수리 후 4/4 정상(그중 3회 복구 턴). 게이트(nemotron-3.5-super-vl:free): `qa_free_input.py modify` 42 PASS·0 FAIL, `fill`은 HEAD 기준선과 동일(PASS 9·HARNESS_INVALID 32 — 첫 실행의 FAIL 1건은 새 서버 재실행에서 통과해 흔들림), 예시 전수(`qa_template_detect.py`) 치명 4건은 기준선·현재 코드 대조 재실행에서 항목이 바뀌며 양쪽 모두 치명이 나와(기준선 3건: 11·15·31번 / 현재 2건: 11·25번) 이번 변경과 무관한 흔들림으로 판단, 볼린저(25번) 6/6 동일. 화면 표시 전수 조사(`QA_DISPLAY_SWEEP`)·`/us` 영어 하니스 미실행.
+
+### 저장 전략=다시 실행 가능한 설정만 (2026-10-27) ✅ 완료
+
+전략 시뮬레이션에서 공개 전략 2건이 "저장된 실행 조건이 없어 계산할 수 없습니다"로 나온 원인 — 결과 화면 '전략 저장'이 실행 설정 없이 `dsl ?? {}`로 빈 설정을 저장. 세 저장 경로가 엔진 요청형 설정만 받도록 통일(`lib/strategy/executableRequest.ts`, 400 `STRATEGY_NOT_EXECUTABLE`), 결과 화면은 화면 DSL → 결과의 `executedRequest` 순으로 저장 설정을 고르고 둘 다 없으면 저장 차단·계좌 만들기 숨김. 회귀 테스트: `lib/strategy/executableRequest.test.ts`, `app/api/strategy/route.post.test.ts`, ensure·save-with-backtest 라우트, 결과 화면 저장·계좌 만들기. 기존 2건은 다시 백테스트 후 저장해야 계산된다.
+
+### 전략 시뮬레이션 (2026-10-27) ✅ 완료
+
+- 공개(`Strategy.isPublic`) 저장 전략의 최근 3년(Asia/Seoul) 과거 데이터 시뮬레이션 결과를 로그인 없이 카드 목록·상세 모달로 공개하고, 방문자가 지표 파라미터만 바꾼 임시 사본으로 같은 조건의 결과 차이를 본다. 추천·자동 최적화·우열 판단 없음.
+- ✅ 완료(2026-10-27) 실행 명세와 전용 Boundary Z 정의: [strategy-simulation.md](development/strategy-simulation.md), `docs/architecture/boundaries.md`.
+- ✅ 완료(2026-10-27) Z-1 기간·결과 축약, Z-2 파라미터 설명자·검증, Z-3 FastAPI 공개 엔드포인트, Z-4 `PublicSimulationResult` 모델(운영 DB 마이그레이션 적용), Z-5 Next 서버 서비스, Z-6 공개 API 라우트, Z-7 목록 화면, Z-8 상세 모달, Z-9 수정 폼·재계산, Z-10 화면 보완, Q-1 상단 메뉴 연결, G-2 문서 갱신.
+- 검증: 백엔드 5,680 passed / 프론트 2,731 passed(전체 실행). 실제 엔진 실행으로 요약 지표·종목 손익 합 일치와 수정 전후 창·자본·비용·버전 동일을 확인했다.
+- 추가 완료: '내 전략' 공개 토글 안내 문구 갱신, `/us` 직접 주소 404, 딥링크 `?id=`.
+- 남은 일(별도 결정·작업): 기존 공개 전략 소유자 고지(D5 후속), 실제 브라우저·모바일 기기 확인과 `npm run build`, 운영 배포(FastAPI·Next 동시)와 미국 parquet 컬럼 통일(프로덕션 실행). 상세는 명세 §8.

@@ -84,7 +84,7 @@ describe("BacktestDashboard 저장 — 히스토리 중복 카드 방지", () =>
         onRestart={() => {}}
         disableHistorySave // 자동 저장 효과는 끄고 명시적 저장 경로만 검증
         promptText="pbr, roe 전략"
-        backtestDsl={{ universe: { id: "KOSPI" }, entry: {}, exit: {} }}
+        backtestDsl={{ universe: { id: "KOSPI" }, entry: {}, exit: {}, risk: {} }}
         strategySummary={{
           strategyName: "pbr, roe 전략",
           universeName: "KOSPI",
@@ -132,5 +132,42 @@ describe("BacktestDashboard 저장 — 히스토리 중복 카드 방지", () =>
     expect(lastPost.cacheKey).toBe(STRATEGY_ID);
     // 그리고 표시용 배지(names) conditions 로 갱신해야 한다.
     expect(lastPost.conditions.entry.names).toContain("PBR <= 1");
+  });
+
+  it("실행 설정이 어디에도 없으면 빈 설정으로 저장하지 않고 안내한다 (2026-10-27 사고: dsl ?? {} 저장)", async () => {
+    const calledUrls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      calledUrls.push(String(url));
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    }));
+    render(
+      <BacktestDashboard result={baseResult} onRestart={() => {}} disableHistorySave promptText="전략" backtestDsl={null} />
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /전략 저장/ }));
+    await user.type(await screen.findByPlaceholderText("전략 이름을 입력하세요"), "이름");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+
+    expect(await screen.findByText(/실행 조건이 없어 저장할 수 없습니다/)).toBeInTheDocument();
+    expect(calledUrls.some((u) => u.includes("/api/strategy/save-with-backtest"))).toBe(false);
+  });
+
+  it("화면 DSL이 없어도 결과에 동봉된 실행 요청이 있으면 그것을 저장한다", async () => {
+    const saveBodies: any[] = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: any) => {
+      if (String(url).includes("/api/strategy/save-with-backtest")) saveBodies.push(JSON.parse(init.body));
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ strategyId: STRATEGY_ID }) });
+    }));
+    const executedRequest = { universe_id: "kospi", entry: { conditions: [] }, exit: { conditions: [] }, risk: {} };
+    render(
+      <BacktestDashboard result={{ ...baseResult, executedRequest }} onRestart={() => {}} disableHistorySave promptText="전략" backtestDsl={null} />
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /전략 저장/ }));
+    await user.type(await screen.findByPlaceholderText("전략 이름을 입력하세요"), "이름");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(saveBodies).toHaveLength(1));
+    expect(saveBodies[0].dsl).toEqual(executedRequest);
   });
 });

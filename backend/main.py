@@ -172,6 +172,10 @@ app.include_router(intent_router)
 from api.strategy_graph_meta_routes import router as strategy_graph_meta_router
 app.include_router(strategy_graph_meta_router)
 
+# 공개 전략 시뮬레이션(내부 토큰 잠금 경로 /internal/public-simulation/*)
+from api.public_simulation_routes import router as public_simulation_router
+app.include_router(public_simulation_router)
+
 # 운영 콘솔 실패 분류(관찰 계층 Trace 읽기 뷰)
 from api.observability_routes import router as observability_router
 app.include_router(observability_router)

@@ -42,7 +42,7 @@ vi.mock("@/lib/server/planLimits", () => ({
 
 const { POST } = await import("@/app/api/strategy/ensure/route");
 
-const DSL = { universe: ["KOSPI"], entry: { conditions: [] }, exit: { conditions: [] } };
+const DSL = { universe: ["KOSPI"], entry: { conditions: [] }, exit: { conditions: [] }, risk: {} };
 
 function makeRequest(body: object): Request {
   return new Request("http://localhost/api/strategy/ensure", {
@@ -60,6 +60,13 @@ describe("POST /api/strategy/ensure", () => {
     strategyUpsert.mockImplementation(async ({ create }) => ({ id: create.id, name: create.name }));
     backtestResultFindFirst.mockResolvedValue(null);
     backtestResultCreate.mockImplementation(async ({ data }) => ({ id: "bt1", ...data }));
+  });
+
+  it("실행 조건이 없는 설정(이름·설명뿐인 빈 DSL)은 400이고 저장하지 않는다", async () => {
+    const res = await POST(makeRequest({ name: "저PBR 전략", dsl: {} }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("STRATEGY_NOT_EXECUTABLE");
+    expect(strategyUpsert).not.toHaveBeenCalled();
   });
 
   it("이름이나 DSL이 없으면 400", async () => {

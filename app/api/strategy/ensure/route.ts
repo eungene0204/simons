@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { StrategyDSL } from '@/types/strategy';
 import { inferStrategyType } from '@/lib/strategy-type';
+import { isExecutableStrategy, NOT_EXECUTABLE_CODE, NOT_EXECUTABLE_MESSAGE } from '@/lib/strategy/executableRequest';
 import { computeStrategyIdFromDsl } from '@/lib/server/backtestCache';
 import { getOwnershipContext, isUnauthorizedAccessError } from '@/lib/get-user';
 import {
@@ -64,6 +65,9 @@ export async function POST(request: Request) {
     }
     if (!dsl) {
       return NextResponse.json({ error: '전략 설정 정보가 없습니다.' }, { status: 400 });
+    }
+    if (!isExecutableStrategy(dsl)) {
+      return NextResponse.json({ error: NOT_EXECUTABLE_MESSAGE, code: NOT_EXECUTABLE_CODE, message: NOT_EXECUTABLE_MESSAGE }, { status: 400 });
     }
 
     const baseId = computeStrategyIdFromDsl(dsl);

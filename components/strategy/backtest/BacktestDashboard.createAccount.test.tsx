@@ -44,7 +44,7 @@ const baseResult = {
   signals: [],
 } as any;
 
-const BACKTEST_DSL = { universe: { id: "KOSPI" }, entry: {}, exit: {} };
+const BACKTEST_DSL = { universe: { id: "KOSPI" }, entry: {}, exit: {}, risk: {} };
 
 function stubFetch(overrides: Record<string, any> = {}) {
   const calls: Array<{ url: string; body: any }> = [];
@@ -76,14 +76,14 @@ function stubFetch(overrides: Record<string, any> = {}) {
   return calls;
 }
 
-function renderDashboard() {
+function renderDashboard({ result = baseResult, backtestDsl = BACKTEST_DSL } = {}) {
   return render(
     <BacktestDashboard
-      result={baseResult}
+      result={result}
       onRestart={() => {}}
       disableHistorySave
       promptText="KOSPI 저PBR 종목을 사는 전략"
-      backtestDsl={BACKTEST_DSL}
+      backtestDsl={backtestDsl}
       strategySummary={{
         strategyName: "저PBR 전략",
         universeName: "KOSPI",
@@ -131,6 +131,24 @@ describe("백테스트 결과 → 계좌 만들기", () => {
       // 백테스트 결과에서 여는 계좌는 전략 시뮬레이션을 켠 채로 시작한다.
       tradingMode: "auto",
     });
+  });
+
+  it("화면 DSL이 없으면 결과에 동봉된 실행 요청으로 전략을 확정한다", async () => {
+    const calls = stubFetch();
+    const executedRequest = { universe_id: "kospi", entry: { conditions: [] }, exit: { conditions: [] }, risk: {} };
+    renderDashboard({ result: { ...baseResult, executedRequest }, backtestDsl: null });
+
+    fireEvent.click(screen.getByRole("button", { name: "계좌 만들기" }));
+    fireEvent.click(await screen.findByRole("button", { name: "만들기" }));
+
+    await waitFor(() => expect(calls.some((c) => c.url === "/api/virtual-account")).toBe(true));
+    expect(calls.find((c) => c.url === "/api/strategy/ensure")?.body.dsl).toEqual(executedRequest);
+  });
+
+  it("실행 설정이 어디에도 없으면 계좌 만들기 버튼을 보이지 않는다", () => {
+    stubFetch();
+    renderDashboard({ backtestDsl: { entry_signals: [] } });
+    expect(screen.queryByRole("button", { name: "계좌 만들기" })).toBeNull();
   });
 
   it("전략을 결과 화면 '내 전략'과 같은 라벨·값 행으로 보여준다", async () => {

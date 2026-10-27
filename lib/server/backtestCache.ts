@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { spawn } from "child_process";
 import { prisma } from "@/lib/prisma";
+import { pickExecutedRequest } from "@/lib/strategy/executableRequest";
 
 function pruneUndefined(val: any): any {
   if (Array.isArray(val)) return val.map(pruneUndefined);
@@ -382,19 +383,7 @@ async function upsertStrategyForResult(strategyId: string, body: any) {
 // 같은 전략을 다시 실행(리밸런싱 기간별 비교 FR-BT-064·워크포워드)할 수 있게 하기 위해서다.
 // 종전에는 원천 Strategy 행(canonical_strategy_dsl이 있을 때만 생성)에서만 DSL을 역추적했고,
 // 그 행이 없는 기록은 재실행 기능이 조용히 비활성화됐다.
-const ENGINE_REQUEST_KEYS = [
-  "symbols", "universe_id", "backtest_mode", "target_stocks", "sector", "etf_theme",
-  "listing_from", "listing_to", "entry", "exit", "risk", "period", "startDate", "endDate", "options",
-] as const;
-
-export function pickExecutedRequest(body: any): Record<string, unknown> | null {
-  if (!body || typeof body !== "object" || !body.entry || !body.exit || !body.risk) return null;
-  const picked: Record<string, unknown> = {};
-  for (const key of ENGINE_REQUEST_KEYS) {
-    if (body[key] !== undefined) picked[key] = body[key];
-  }
-  return picked;
-}
+export { pickExecutedRequest };
 
 export async function saveCachedResult(
   cacheKey: string,

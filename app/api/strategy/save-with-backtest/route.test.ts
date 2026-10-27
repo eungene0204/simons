@@ -45,7 +45,7 @@ vi.mock("@/lib/server/planLimits", () => ({
 
 const { POST } = await import("./route");
 
-const DSL = { universe: { id: "KOSPI" }, entry: { conditions: [] }, exit: { conditions: [] } };
+const DSL = { universe: { id: "KOSPI" }, entry: { conditions: [] }, exit: { conditions: [] }, risk: {} };
 
 function makeRequest(body: object): Request {
   return new Request("http://localhost/api/strategy/save-with-backtest", {
@@ -61,6 +61,16 @@ describe("POST /api/strategy/save-with-backtest 플랜 한도", () => {
     getOwnershipContext.mockResolvedValue({ userId: 7 });
     strategyFindUnique.mockResolvedValue(null);
     strategyUpsert.mockImplementation(async ({ create }) => ({ id: create.id, name: create.name }));
+  });
+
+  it("실행 조건이 없는 설정(빈 DSL)은 400이고 저장하지 않는다 (2026-10-27 빈 설정 저장 사고)", async () => {
+    for (const dsl of [{}, { universe: { id: "KOSPI" }, entry_signals: [] }]) {
+      const res = await POST(makeRequest({ name: "저PBR 전략", dsl }));
+      expect(res.status).toBe(400);
+      expect((await res.json()).code).toBe("STRATEGY_NOT_EXECUTABLE");
+    }
+    expect(strategyUpsert).not.toHaveBeenCalled();
+    expect(assertCanSaveStrategy).not.toHaveBeenCalled();
   });
 
   it("신규 저장은 저장 전략 수 한도를 검사한다", async () => {

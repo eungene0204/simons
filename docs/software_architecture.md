@@ -1658,6 +1658,7 @@ install_socket_tracking). 토큰은 contextvar라 워커 스레드 진입 함수
 - `POST /api/strategy/rollback/resolve` — 되돌릴 지점 판정(FR-SA-008). 변경 이력을 요청에 실어 보내고(백엔드 무상태) 판정만 받는다 — 복원은 스냅샷을 보유한 클라이언트가 결정론으로 수행한다. 판정 실패는 전부 되묻기로 강등(임의 보정 금지)
 - `POST /api/strategy/backtest-stream` — 단일 전략 SSE 백테스트. 동일 strategy_id/cacheKey라도 항상 엔진을 재실행하고, 결과는 cacheKey로 upsert 저장(재사용 목적 아닌 dedup 저장용)
 - `POST /api/strategy/save-with-backtest` — 전략 저장 + 백테스트 동시 실행
+- **저장 전략=다시 실행 가능한 설정만(2026-10-27, `lib/strategy/executableRequest.ts`)** — 결과 화면의 '전략 저장'이 화면에 실행 설정이 없을 때 `dsl ?? {}`로 빈 설정을 보내고 서버가 그대로 저장해, 이름·설명만 남은 전략(재백테스트·전략 시뮬레이션 불가, `NO_EXECUTABLE_SNAPSHOT`)이 생겼다(운영 2건). 이제 세 저장 경로(`save-with-backtest`·`ensure`·`POST /api/strategy`)가 엔진 요청형(entry·exit·risk, `pickExecutedRequest` 단일 기준 — 기록의 `executedRequest`·공개 시뮬레이션 스냅샷과 같은 함수)이 아니면 400 `STRATEGY_NOT_EXECUTABLE`. 결과 화면은 화면 DSL → 결과에 동봉된 `executedRequest` 순으로 저장 설정을 고르고(`resolveStrategyToSave`), 둘 다 없으면 저장을 막고 안내하며 계좌 만들기 버튼은 숨긴다. 이미 저장된 2건은 고쳐지지 않는다(다시 백테스트 후 저장 필요)
 - `POST /api/strategy/ensure` — 백테스트 전략의 Strategy 행 확정(있으면 그대로, 없으면 저장). 백테스트 결과 화면의 '계좌 만들기'가 계좌 생성 직전에 호출한다
 - **결과 주인 대조(2026-09-30, `lib/resultOwner.ts`)** — 로그인 쿠키는 브라우저 전체가 공유하므로, A 계정 결과 화면을 띄운 채 다른 탭에서 B로 로그인하면 그 화면의 저장·계좌 만들기가 B로 들어갔다(guest_1656: 백테스트 0회인데 전략·계좌 생성). 서버가 결과를 내줄 때 주인을 붙이고(`backtest-stream`=`X-Result-Owner` 헤더 — SSE 패스스루라 본문에 못 끼움, `backtest/run`·`backtest/history/[id]`·`strategy/[id]`=`ownerUserId`), 결과 화면의 쓰기(`ensure`·`save-with-backtest`·`POST backtest/history`)는 본문의 결과에 실린 주인을 지금 세션과 대조해 다르면 409 `RESULT_OWNER_MISMATCH`. 주인 없는 옛 결과는 통과(판단 불가), 공유 기록 행에 저장할 때는 주인 표시를 뗀다
 - `GET/POST /api/strategy/batch-runs` — 배치 실행 시작/상세 조회/최근 이력/취소
@@ -2274,3 +2275,11 @@ BoardPost/BoardComment/BoardReport를 분리하고 BoardGuard로 분산 요청 �
 BoardAudit로 검수 조치를 기록한다. 기존 requireAdmin 인증을 재사용하며
 공개 응답은 비밀번호 해시를 제외한 필드만 선택한다.
 배포·신뢰 프록시·보존 정책은 docs/development/community-board.md 참조.
+
+### 전략 시뮬레이션 — 구조 (2026-10-27, 구현 완료)
+
+공개 전략 결과는 기존 로그인 백테스트 라우트(`/api/backtest/run`·`/api/strategy/backtest-stream`, 한도 소비·사용자 기록 저장)를 거치지 않는다.
+Next 공개 라우트(`/api/strategy-simulation/**`)가 공개 조건(`isPublic && isSaved && deletedAt null`)·불투명 `publicId`·허용 목록 응답·캐시·요청 제한을 맡고,
+FastAPI `POST /internal/public-simulation/run`(내부 토큰 필수)이 Asia/Seoul 3년 창·스냅샷 검증·파라미터 검증 후 기존 `backtest_executor.run`(워치독 포함)으로 엔진을 실행해 결과를 공개 요약으로 축약한다(재계산 없음).
+원본 결과는 `PublicSimulationResult`에 저장해 조회 시 데이터 기준일·엔진 버전·스냅샷 해시로 재검증·지연 갱신하고, 방문자 수정 결과는 Next 메모리 LRU에만 둔다.
+수정 가능 파라미터는 REGISTRY `engine_binding` 역조회로 서버가 만든다. 수정 실행은 공개 조건 재확인 → 원본 최신 여부(REFRESHING/CHANGED) 확인 → 요청 제한 → 중복 합치기 → 엔진 실행 → 저장 직전 공개 조건·설정 재확인 순이다. 화면은 `app/strategy-simulation/page.tsx` → `SimulationBrowser`(카드 그리드 + 상세 모달, 수정 폼은 `useModifiedSimulation`의 600ms 디바운스·마지막 입력만 반영)로 이어진다. 계약·구현 결과·남은 제약: docs/development/strategy-simulation.md, Boundary Z.

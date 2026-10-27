@@ -102,7 +102,7 @@ describe("BacktestDashboard 저장 — 백그라운드 AI 리포트 재사용", 
         onRestart={() => {}}
         disableHistorySave
         promptText="pbr, roe 전략"
-        backtestDsl={{ universe: { id: "KOSPI" }, entry: {}, exit: {} }}
+        backtestDsl={{ universe: { id: "KOSPI" }, entry: {}, exit: {}, risk: {} }}
         strategySummary={{
           strategyName: "pbr, roe 전략",
           universeName: "KOSPI",

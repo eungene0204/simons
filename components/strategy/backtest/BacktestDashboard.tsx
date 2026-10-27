@@ -64,6 +64,7 @@ import {
   normalizeLegacyBreakoutStrategy,
   resolveTradeReasonDisplay,
 } from "@/components/strategy/legacyBreakout";
+import { resolveStrategyToSave } from "@/lib/strategy/executableRequest";
 import {
   exportFileName,
   type BacktestExportPayload,
@@ -528,6 +529,12 @@ export default function BacktestDashboard({
     () => (backtestDsl ? normalizeLegacyBreakoutStrategy(backtestDsl) : backtestDsl),
     [backtestDsl]
   );
+  // 저장(전략 저장·계좌 만들기)에 쓰는 실행 가능한 설정 — 화면 DSL이 실행 가능하지 않으면 결과에 동봉된
+  // 실행 요청으로 대신하고, 둘 다 없으면 null(빈 설정으로 저장하지 않는다).
+  const strategyToSave = useMemo(() => {
+    const picked = resolveStrategyToSave(normalizedBacktestDsl, result);
+    return picked ? normalizeLegacyBreakoutStrategy(picked as any) : null;
+  }, [normalizedBacktestDsl, result]);
   const walkForwardOptimizationTargets = useMemo(
     () => buildWalkForwardOptimizationTargetsFromSummary(strategySummary),
     [strategySummary]
@@ -854,13 +861,14 @@ export default function BacktestDashboard({
   ) => {
     // 저장되는 전략 이름은 "계좌이름-전략" 형식이다(같은 DSL로 이미 저장된 전략은 기존 이름 유지).
     const savedStrategyName = `${accountName.trim()}-${t("전략")}`;
+    if (!strategyToSave) throw new Error(t("실행 조건이 없어 저장할 수 없습니다. 백테스트를 다시 실행한 뒤 저장해 주세요."));
     const ensured = await fetch("/api/strategy/ensure", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: savedStrategyName,
         description: promptText?.trim() || "",
-        dsl: normalizedBacktestDsl,
+        dsl: strategyToSave,
         // 이 경로로 저장된 전략도 저장 목록에 뜨므로 실행한 결과를 함께 남긴다
         // (없으면 목록에서 눌렀을 때 "저장된 백테스트 결과가 없습니다"만 나온다).
         backtestResult: result,
@@ -896,6 +904,10 @@ export default function BacktestDashboard({
 
   const handleSaveStrategy = async () => {
     if (!saveStrategyName.trim()) return;
+    if (!strategyToSave) {
+      setSaveResult({ ok: false, message: t("실행 조건이 없어 저장할 수 없습니다. 백테스트를 다시 실행한 뒤 저장해 주세요.") });
+      return;
+    }
     setIsSavingStrategy(true);
     setSaveResult(null);
     try {
@@ -914,7 +926,7 @@ export default function BacktestDashboard({
         body: JSON.stringify({
           name: saveStrategyName.trim(),
           description: saveDescription.trim(),
-          dsl: normalizedBacktestDsl ?? {},
+          dsl: strategyToSave,
           backtestResult: result,
           ...persistedReport,
           score: calculateScore(result),
@@ -1887,7 +1899,7 @@ export default function BacktestDashboard({
               <Faders className="w-4 h-4" weight="bold" />
               {t("전략 최적화")}
             </button>
-            {normalizedBacktestDsl && (
+            {strategyToSave && (
               <button
                 type="button"
                 onClick={() => setIsAccountModalOpen(true)}

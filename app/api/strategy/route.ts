@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { StrategyDSL } from '@/types/strategy';
 import { inferStrategyType } from '@/lib/strategy-type';
+import { isExecutableStrategy, NOT_EXECUTABLE_CODE, NOT_EXECUTABLE_MESSAGE } from '@/lib/strategy/executableRequest';
 import { computeStrategyIdFromDsl } from '@/lib/server/backtestCache';
 import {
   getOwnershipContext,
@@ -26,6 +27,9 @@ export async function POST(request: Request) {
 
     if (!data.name) {
       return NextResponse.json({ error: 'Strategy name is required' }, { status: 400 });
+    }
+    if (!isExecutableStrategy(data)) {
+      return NextResponse.json({ error: NOT_EXECUTABLE_MESSAGE, code: NOT_EXECUTABLE_CODE, message: NOT_EXECUTABLE_MESSAGE }, { status: 400 });
     }
 
     const strategyId = buildOwnedStrategyId(userId, data);

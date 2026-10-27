@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { inferStrategyType } from "@/lib/strategy-type";
+import { isExecutableStrategy, NOT_EXECUTABLE_CODE, NOT_EXECUTABLE_MESSAGE } from "@/lib/strategy/executableRequest";
 import { buildBacktestResultSummary } from "@/lib/server/backtestResultSummary";
 import { computeStrategyIdFromDsl, triggerVectorMemoryBacktestUpsert } from "@/lib/server/backtestCache";
 import {
@@ -47,6 +48,10 @@ export async function POST(request: Request) {
     }
     if (!dsl) {
       return NextResponse.json({ error: "전략 설정 정보가 없습니다." }, { status: 400 });
+    }
+    // 실행할 수 없는 설정(이름·설명만 있는 빈 DSL 등)은 저장하지 않는다 — 저장 전략은 언제든 다시 실행할 수 있어야 한다.
+    if (!isExecutableStrategy(dsl)) {
+      return NextResponse.json({ error: NOT_EXECUTABLE_MESSAGE, code: NOT_EXECUTABLE_CODE, message: NOT_EXECUTABLE_MESSAGE }, { status: 400 });
     }
     // 다른 계정으로 받은 결과 화면에서 저장하려는 요청 — 지금 계정에 저장하지 않는다.
     if (isResultOwnerMismatch(backtestResult?.ownerUserId, userId)) {
