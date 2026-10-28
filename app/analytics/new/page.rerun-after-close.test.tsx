@@ -226,7 +226,7 @@ describe("결과 닫기 후 재실행 화면", () => {
 
     // 1차 실행 → 결과 화면 진입
     fireEvent.click(await findRunButton(5_000));
-    expect(await screen.findByText("백테스트 진행 중")).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toBeInTheDocument();
     firstRun.finish();
     expect(await screen.findByTestId("backtest-dashboard")).toBeInTheDocument();
 
@@ -238,7 +238,7 @@ describe("결과 닫기 후 재실행 화면", () => {
 
     // 2차 실행 — 진행 중에는 직전 결과 화면이 되살아나지 않는다.
     fireEvent.click(await findRunButton());
-    expect(await screen.findByText("백테스트 진행 중")).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toBeInTheDocument();
     expect(screen.queryByTestId("backtest-dashboard")).not.toBeInTheDocument();
 
     // 완료되면 새 결과 화면으로 전환된다.

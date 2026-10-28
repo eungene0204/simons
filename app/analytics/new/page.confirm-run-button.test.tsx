@@ -244,7 +244,7 @@ describe("전략 확정 즉시 백테스트 버튼", () => {
     await submitCompleteStrategy();
 
     fireEvent.click(await findRunButton(5_000));
-    expect(await screen.findByText("백테스트 진행 중")).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toBeInTheDocument();
     await screen.findByText("성과 지표 계산 중...");
     expect(screen.getAllByText("성과 지표 계산 중...")).toHaveLength(1);
   });

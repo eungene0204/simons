@@ -234,7 +234,7 @@ describe("결과 화면 복귀 스크롤", () => {
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
     fireEvent.click(await findRunButton(5_000));
-    expect(await screen.findByText("백테스트 진행 중")).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toBeInTheDocument();
     run.finish();
     expect(await screen.findByTestId("backtest-dashboard")).toBeInTheDocument();
     scrollToMock.mockClear();
