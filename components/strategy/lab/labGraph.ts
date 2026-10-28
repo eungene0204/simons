@@ -1,4 +1,4 @@
-import type { Edge, Node, NodeChange } from "@xyflow/react";
+import type { BuiltInEdge, Edge, Node, NodeChange } from "@xyflow/react";
 import { t } from "@/lib/i18n";
 import type { GraphNode, NodeStatus, SectionKey, StrategyGraph } from "@/lib/strategy-graph/types";
 
@@ -48,6 +48,8 @@ export type PipelineNodeData = {
   /** 칸 결합 방식(모두 충족·하나라도 충족) — 스냅샷에 있을 때만. */
   logic: string | null;
   status: LabNodeStatus;
+  /** 전략에 따로 없는 칸을 다른 칸의 동작으로 풀어 그린 것이면 그 칸 — 편집·삭제는 그 칸으로 간다. */
+  derivedFrom?: PipelineStage;
 };
 
 export type ConditionNodeData = {
@@ -56,6 +58,11 @@ export type ConditionNodeData = {
   label: string;
   status: LabNodeStatus;
   graphNode: GraphNode;
+  derivedFrom?: PipelineStage;
+  /** 매도 칸에도 이어지는 청산 조건(손절·익절 등) — 왼쪽 포트로 매도 칸의 선을 받는다. */
+  sellTrigger?: boolean;
+  /** 매수·매도 칸을 대신 일으키는 종목 교체 항목 — 오른쪽 포트에서 매수·매도 칸으로 선을 낸다. */
+  swapTrade?: boolean;
 };
 
 export type LabNode = Node<PipelineNodeData, "pipeline"> | Node<ConditionNodeData, "condition">;
@@ -105,8 +112,10 @@ function sectionLeaves(graph: StrategyGraph, sectionId: string): { leaves: Graph
   return { leaves, logic };
 }
 
-// 칸 배치 — 매수까지는 한 줄로 이어지고, 그 뒤 청산 · 배분(비중→리밸런싱) · 위험 관리가 나란히 갈라져
-// 백테스트에서 다시 합쳐진다(n8n의 분기·병합 모양). 갈래는 서로 독립이라 순서를 주장하지 않는다.
+// 칸 배치 — 매수까지는 한 줄로 이어지고, 그 뒤 매도와 배분(비중→리밸런싱)이 나란히 갈라진다.
+// 위험 관리 칸은 매도 칸 오른쪽에 놓되 칸끼리는 잇지 않는다 — 매도를 일으키는 것은 칸이 아니라 그 안의
+// 손절·익절 같은 청산 조건이라, 그 조건 노드가 위험 관리(소속)와 매도(동작) 두 곳에 이어진다(SELL_TRIGGER_KEYS).
+// 매도 칸이 없으면 위험 관리 칸은 매수 칸에 흐름 선으로 잇는다.
 // 없는 칸은 건너뛰고 가까운 앞 칸에 잇는다. 선은 앞→뒤로만 가서 순환이 생기지 않는다.
 const STAGE_PARENT: Partial<Record<PipelineStage, PipelineStage>> = {
   filters: "universe",
@@ -115,7 +124,7 @@ const STAGE_PARENT: Partial<Record<PipelineStage, PipelineStage>> = {
   exit: "entry",
   allocation: "entry",
   rebalance: "allocation",
-  risk: "entry",
+  risk: "exit",
 };
 
 /** 같은 갈래(줄)에 놓이는 칸 — 줄 번호가 작을수록 위. */
@@ -125,29 +134,75 @@ const STAGE_LANE: Record<PipelineStage, number> = {
   ranking: 0,
   entry: 0,
   exit: 0,
+  risk: 0,
   allocation: 1,
   rebalance: 1,
-  risk: 2,
   output: 1, // 실제 줄은 갈래들의 가운데로 정한다(laneOf)
 };
 
 const LANE_MIN_HEIGHT = 190;
 
+/** 보유 종목을 파는 위험 관리 잎(transformSections.buildRisk의 setting 키). 손절 후 재진입 금지처럼 팔지 않는 설정은 뺀다. */
+const SELL_TRIGGER_KEYS = new Set(["stop_loss", "take_profit", "trailing", "max_holding", "partial_tp"]);
+/** 매도 칸 → 청산 조건 선이 꺾이는 자리 — 매도 칸의 조건 노드(오른쪽 끝)와 위험 관리 조건 노드(왼쪽 끝) 사이. */
+const SELL_LINK_STEP = 0.85;
+
+const isSellTrigger = (leaf: GraphNode) =>
+  leaf.status !== "not_applicable" && leaf.id.startsWith("setting:risk/") && SELL_TRIGGER_KEYS.has(leaf.id.slice("setting:risk/".length));
+
+/** 종목 교체 리밸런싱 잎(transformSections.buildRebalance가 방식 값으로 id를 만든다). */
+const REBALANCE_SWAP_LEAF_ID = "setting:rebalance/reconstitute";
+
+// 리밸런싱 매매 배치 — 매수·매도 조건이 따로 없고 리밸런싱이 종목을 바꾸면, 그 전략의 실제 매수·매도는
+// 리밸런싱이 한다(빠진 종목을 팔고 새로 들어온 종목을 산다). 그래서 매수·매도 칸을 리밸런싱에서 풀어
+// 그리고(derivedFrom), 배분 → 리밸런싱 → 매수 / 매도 → 위험 관리로 잇는다.
+const REBALANCE_TRADE_PARENT: Partial<Record<PipelineStage, PipelineStage>> = {
+  allocation: "ranking",
+  entry: "rebalance",
+  exit: "rebalance",
+};
+const REBALANCE_TRADE_LANE: Partial<Record<PipelineStage, number>> = { allocation: 0, rebalance: 0, entry: 0, exit: 1, risk: 1 };
+
+function derivedLeaf(base: GraphNode, stage: "entry" | "exit", label: string, expression: string): GraphNode {
+  return {
+    ...base,
+    id: `derived:${stage}/rebalance`,
+    kind: "setting",
+    label,
+    section: stage,
+    details: { ...base.details, role: t(stage === "entry" ? "매수 규칙" : "매도 규칙"), expression, rows: [] },
+  };
+}
+
 /** 전략 그래프 → 캔버스 노드·엣지. 그래프에 없는 칸은 그리지 않는다. 백테스트 칸은 그리지 않는다(2026-10-28 — 보여줄 필요 없음). */
 export function buildLabGraph(graph: StrategyGraph | null): LabGraph {
   if (!graph || !graph.nodes.some((n) => n.kind === "section")) return { nodes: [], edges: [] };
 
-  type Present = { stage: PipelineStage; section?: GraphNode; leaves: GraphNode[]; logic: string | null };
+  type Present = { label: string; status: LabNodeStatus; leaves: GraphNode[]; logic: string | null; derivedFrom?: PipelineStage };
   const present = new Map<PipelineStage, Present>();
   for (const stage of PIPELINE_ORDER) {
     if (stage === "output") continue;
     const section = graph.nodes.find((n) => n.kind === "section" && n.section === stage);
     if (!section) continue;
-    present.set(stage, { stage, section, ...sectionLeaves(graph, section.id) });
+    present.set(stage, { label: section.label, status: labStatus(section.status), ...sectionLeaves(graph, section.id) });
+  }
+
+  const swapLeaf = present.get("rebalance")?.leaves.find((leaf) => leaf.id === REBALANCE_SWAP_LEAF_ID);
+  const rebalanceTrades = !!swapLeaf && !present.has("entry") && !present.has("exit");
+  if (swapLeaf && rebalanceTrades) {
+    const derived = (stage: "entry" | "exit", label: string, expression: string): Present => ({
+      label: t(stage === "entry" ? "매수 규칙" : "매도 규칙"),
+      status: "ok",
+      leaves: [derivedLeaf(swapLeaf, stage, label, expression)],
+      logic: null,
+      derivedFrom: "rebalance",
+    });
+    present.set("entry", derived("entry", t("새로 편입된 종목 매수"), t("리밸런싱마다 조건을 다시 확인해 새로 들어온 종목을 삽니다.")));
+    present.set("exit", derived("exit", t("조건에서 빠진 종목 매도"), t("리밸런싱마다 조건을 다시 확인해 빠진 종목을 팝니다.")));
   }
 
   const parentOf = (stage: PipelineStage): PipelineStage | null => {
-    let p = STAGE_PARENT[stage];
+    let p = (rebalanceTrades ? REBALANCE_TRADE_PARENT[stage] : undefined) ?? STAGE_PARENT[stage];
     while (p && !present.has(p)) p = STAGE_PARENT[p];
     return p ?? null;
   };
@@ -162,11 +217,12 @@ export function buildLabGraph(graph: StrategyGraph | null): LabGraph {
     return d;
   };
   const stages = PIPELINE_ORDER.filter((s) => present.has(s));
+  const sellLinked = present.has("exit") && parentOf("risk") === "exit";
   const bodyStages = stages.filter((s) => s !== "output");
 
+  const laneOf = (stage: PipelineStage): number => (rebalanceTrades ? REBALANCE_TRADE_LANE[stage] : undefined) ?? STAGE_LANE[stage];
   // 줄 높이 = 그 줄 칸들에 매달린 조건 중 가장 긴 것 — 아래 줄과 겹치지 않게 위에서부터 쌓는다.
-  const bodyLanes = [...new Set(bodyStages.map((s) => STAGE_LANE[s]))].sort((a, b) => a - b);
-  const laneOf = (stage: PipelineStage) => STAGE_LANE[stage];
+  const bodyLanes = [...new Set(bodyStages.map(laneOf))].sort((a, b) => a - b);
   const usedLanes = bodyLanes;
   const laneTop = new Map<number, number>();
   let cursor = 0;
@@ -183,21 +239,21 @@ export function buildLabGraph(graph: StrategyGraph | null): LabGraph {
   const edges: Edge[] = [];
 
   for (const stage of stages) {
-    const { section, leaves, logic } = present.get(stage)!;
+    const { label, status, leaves, logic, derivedFrom } = present.get(stage)!;
     const family = STAGE_FAMILY[stage];
     const x = depthOf(stage) * STAGE_GAP_X;
     const y = laneTop.get(laneOf(stage)) ?? 0;
     const id = `stage:${stage}`;
 
-    if (!section) continue;
     const leafStatuses = leaves.map((leaf) => labStatus(leaf.status));
     const pipelineData: PipelineNodeData = {
       stage,
       family,
-      label: section.label,
+      label,
       itemCount: leaves.length,
       logic,
-      status: worst([labStatus(section.status), ...leafStatuses]),
+      status: worst([status, ...leafStatuses]),
+      ...(derivedFrom ? { derivedFrom } : {}),
     };
     leaves.forEach((leaf, index) => {
       const childId = `item:${leaf.id}`;
@@ -205,9 +261,47 @@ export function buildLabGraph(graph: StrategyGraph | null): LabGraph {
         id: childId,
         type: "condition",
         position: { x: x + 10, y: y + CHILD_OFFSET_Y + index * CHILD_GAP_Y },
-        data: { stage, family, label: leaf.label, status: leafStatuses[index], graphNode: leaf },
+        data: {
+          stage,
+          family,
+          label: leaf.label,
+          status: leafStatuses[index],
+          graphNode: leaf,
+          ...(derivedFrom ? { derivedFrom } : {}),
+          ...(sellLinked && stage === "risk" && isSellTrigger(leaf) ? { sellTrigger: true } : {}),
+          ...(rebalanceTrades && leaf.id === REBALANCE_SWAP_LEAF_ID ? { swapTrade: true } : {}),
+        },
         connectable: false,
       });
+      if (sellLinked && stage === "risk" && isSellTrigger(leaf)) {
+        const sellEdge: Extract<BuiltInEdge, { type?: "smoothstep" }> = {
+          id: `sell:stage:exit->${childId}`,
+          source: "stage:exit",
+          sourceHandle: "out",
+          target: childId,
+          targetHandle: "side",
+          type: "smoothstep",
+          className: "lab-edge-aux",
+          pathOptions: { stepPosition: SELL_LINK_STEP },
+          selectable: false,
+        };
+        edges.push(sellEdge);
+      }
+      if (rebalanceTrades && leaf.id === REBALANCE_SWAP_LEAF_ID) {
+        // 종목 교체는 빠진 종목을 팔고 새 종목을 사는 일이다 — 그 항목이 매수·매도 칸에도 이어진다.
+        for (const trade of ["entry", "exit"] as const) {
+          edges.push({
+            id: `swap:${childId}->stage:${trade}`,
+            source: childId,
+            sourceHandle: "trade",
+            target: `stage:${trade}`,
+            targetHandle: "in",
+            type: "smoothstep",
+            className: "lab-edge-aux",
+            selectable: false,
+          });
+        }
+      }
       edges.push({
         id: `sub:${id}->${childId}`,
         source: id,
@@ -239,7 +333,7 @@ export function buildLabGraph(graph: StrategyGraph | null): LabGraph {
     });
   for (const stage of bodyStages) {
     const p = parentOf(stage);
-    if (p) link(p, stage);
+    if (p && !(stage === "risk" && sellLinked)) link(p, stage);
   }
   return { nodes, edges };
 }

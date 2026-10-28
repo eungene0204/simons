@@ -132,6 +132,8 @@ export const ConditionNode = memo(function ConditionNode({ data, selected }: Nod
       title={data.label}
     >
       <Handle type="target" id="top" position={Position.Top} className={HANDLE_CLASS} isConnectable={false} />
+      {data.sellTrigger && <Handle type="target" id="side" position={Position.Left} className={HANDLE_CLASS} isConnectable={false} />}
+      {data.swapTrade && <Handle type="source" id="trade" position={Position.Right} className={HANDLE_CLASS} isConnectable={false} />}
       <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-[var(--lab-panel)]">
         <Icon size={14} weight="bold" className="text-[var(--text-label)]" />
       </span>

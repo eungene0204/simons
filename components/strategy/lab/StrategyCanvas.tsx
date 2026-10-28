@@ -83,6 +83,11 @@ type Dialog =
   | { kind: "details"; node: LabNode }
   | null;
 
+/** 편집·삭제가 향하는 칸 — 다른 칸에서 풀어 그린 칸(리밸런싱의 매수·매도)은 그 칸의 항목을 고친다. */
+function editStage(node: LabNode): PipelineStage {
+  return node.data.derivedFrom ?? node.data.stage;
+}
+
 function stageLabel(nodes: readonly LabNode[], stage: PipelineStage): string {
   return nodes.find((n) => n.type === "pipeline" && n.data.stage === stage)?.data.label ?? stage;
 }
@@ -191,13 +196,13 @@ function CanvasInner({ graph, loading, metaError, onRetryMeta, runState, items, 
   const openDeleteFor = (node: LabNode) => {
     // 조건 노드는 가리키는 전략 항목이 하나로 정해지면 고르는 단계 없이 바로 확인만 받는다.
     if (node.type === "condition") {
-      const [only, ...rest] = editableItems(node.data.stage, (node.data as ConditionNodeData).graphNode.sourceRef);
+      const [only, ...rest] = editableItems(editStage(node), (node.data as ConditionNodeData).graphNode.sourceRef);
       if (only && rest.length === 0) {
         setDialog({ kind: "confirmDelete", item: { id: only.id, label: only.label, value: only.value } });
         return;
       }
     }
-    setDialog({ kind: "delete", stage: node.data.stage, label: stageLabel(nodes, node.data.stage) });
+    setDialog({ kind: "delete", stage: editStage(node), label: stageLabel(nodes, editStage(node)) });
   };
 
   // React Flow 기본 삭제는 화면 상태에서만 노드를 지운다 — 전략과 어긋나므로 끄고(deleteKeyCode=null),
@@ -338,7 +343,7 @@ function CanvasInner({ graph, loading, metaError, onRetryMeta, runState, items, 
         <DetailsDialog
           node={dialog.node}
           editItems={editableItems(
-            dialog.node.data.stage,
+            editStage(dialog.node),
             dialog.node.type === "condition" ? (dialog.node.data as ConditionNodeData).graphNode.sourceRef : null,
           )}
           onEdit={

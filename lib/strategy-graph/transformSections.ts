@@ -400,6 +400,8 @@ export function buildRebalance(ctx: SectionCtx): void {
     const prow = [row(t("주기"), t(REBAL_LABELS[period] ?? period))];
     if (method && period !== "none") prow.push(row(t("방식"), t(REBAL_METHOD_LABELS[method] ?? method)));
     setting(ctx, "rebalance", sec, { key: "period", label: period === "none" ? t("리밸런싱 없음") : t("{0} 리밸런싱", t(REBAL_LABELS[period] ?? period)), rows: prow, path: "request.risk.rebalancing_period" });
+    // 방식은 값별 id로 그린다 — 종목 교체는 리밸런싱마다 매수·매도가 일어난다는 뜻이라 캔버스가 이 id로 매매 칸을 잇는다.
+    if (method && period !== "none") setting(ctx, "rebalance", sec, { key: method, label: t("리밸런싱 방식: {0}", t(REBAL_METHOD_LABELS[method] ?? method)), path: "request.risk.rebalance_method" });
   }
   if (threshold !== null) setting(ctx, "rebalance", sec, { key: "threshold", label: t("비중 이탈 {0}%p 시 조정", threshold), rows: [row(t("허용 이탈"), `${threshold}%p`)], path: "request.risk.rebalance_threshold_pct" });
   const minHold = num(r.min_holding_days);

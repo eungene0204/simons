@@ -57,6 +57,77 @@ describe("buildLabGraph — 고정 파이프라인 칸", () => {
     expect(aux.map((e) => e.label)).toEqual(["2개 항목", undefined]);
   });
 
+  it("손절·익절 노드는 위험 관리 칸과 매도 칸 두 곳에 이어지고, 위험 관리 칸과 매도 칸끼리는 잇지 않는다", () => {
+    const g = lab();
+    const into = (target: string) => g.edges.filter((e) => e.target === target);
+    // 칸끼리 흐름 선 없음.
+    expect(g.edges.some((e) => e.id.startsWith("flow:") && e.target === "stage:risk")).toBe(false);
+    for (const leaf of ["item:setting:risk/stop_loss", "item:setting:risk/take_profit"]) {
+      expect(into(leaf).map((e) => `${e.source}:${e.sourceHandle}->${e.targetHandle}`).sort()).toEqual(["stage:exit:out->side", "stage:risk:aux->top"]);
+      const node = g.nodes.find((n) => n.id === leaf);
+      expect(node?.type === "condition" && node.data.sellTrigger).toBe(true);
+    }
+    // 위험 관리 칸은 매도 칸 오른쪽, 같은 줄이다(선이 매도 칸의 조건 노드를 가로지르지 않게).
+    const pos = (id: string) => g.nodes.find((n) => n.id === id)!.position;
+    expect(pos("stage:risk").y).toBe(pos("stage:exit").y);
+    expect(pos("stage:risk").x).toBeGreaterThan(pos("stage:exit").x);
+
+    // 매도 칸이 없으면 위험 관리 칸은 매수 칸에 흐름 선으로 잇고, 매도 선은 없다.
+    const noExit = buildLabGraph(buildStrategyGraph(confirmedInput("riskRoles"), META));
+    expect(noExit.nodes.some((n) => n.id === "stage:exit")).toBe(false);
+    expect(noExit.edges.filter((e) => e.id.startsWith("flow:") && e.target === "stage:risk").map((e) => e.source)).toEqual(["stage:entry"]);
+    expect(noExit.edges.some((e) => e.id.startsWith("sell:"))).toBe(false);
+  });
+
+  it("팔지 않는 위험 관리 설정은 매도 칸에 잇지 않는다", () => {
+    const input = confirmedInput("goldenCrossRsiAnd");
+    const request = { ...input.request, risk: { ...input.request!.risk, stop_cooldown_days: 5 } };
+    const g = buildLabGraph(buildStrategyGraph({ ...input, request }, META));
+    expect(g.nodes.some((n) => n.id === "item:setting:risk/cooldown")).toBe(true);
+    expect(g.edges.some((e) => e.target === "item:setting:risk/cooldown" && e.source === "stage:exit")).toBe(false);
+  });
+
+  it("매수·매도 조건 없이 종목을 바꾸는 리밸런싱이면 리밸런싱에서 매수·매도 칸을 풀어 그리고 손절은 매도에 잇는다", () => {
+    // 실측(2026-10-28): 'PBR·ROE 필터 + 분기 리밸런싱 + 손절 -12%'는 매수·매도를 리밸런싱이 하는데
+    // 캔버스에 매수·매도 칸이 없어 손절이 종목 선정 필터에 매달려 보였다.
+    const withMethod = (method: string) => {
+      // 재무 필터만 남긴다(매수 신호 없음) — 사용자 전략과 같은 모양.
+      const input = confirmedInput("filterRankingEntry");
+      const entry = { ...input.request!.entry, conditions: input.request!.entry!.conditions!.filter((c) => c.type === "filter") };
+      const request = { ...input.request, entry, risk: { ...input.request!.risk, stop_loss_pct: 12, rebalance_method: method } };
+      return buildLabGraph(buildStrategyGraph({ ...input, parsed: { ...input.parsed!, entry_signals: [] }, request }, META));
+    };
+    const flow = (g: ReturnType<typeof lab>) => g.edges.filter((e) => e.id.startsWith("flow:")).map((e) => `${e.source}->${e.target}`);
+    const node = (g: ReturnType<typeof lab>, id: string) => g.nodes.find((n) => n.id === id);
+
+    const swap = withMethod("reconstitute");
+    expect(flow(swap)).toEqual(
+      expect.arrayContaining(["stage:allocation->stage:rebalance", "stage:rebalance->stage:entry", "stage:rebalance->stage:exit"]),
+    );
+    // 손절은 위험 관리 칸에 매달리고 매도 칸에도 이어진다.
+    expect(swap.edges.filter((e) => e.target === "item:setting:risk/stop_loss").map((e) => e.source).sort()).toEqual(["stage:exit", "stage:risk"]);
+    expect(flow(swap).some((f) => f.endsWith("->stage:allocation") && f.startsWith("stage:entry"))).toBe(false);
+    // 풀어 그린 칸은 전략 항목이 아니라 리밸런싱의 동작이다 — 편집·삭제는 리밸런싱으로 간다.
+    expect(node(swap, "stage:entry")?.data.derivedFrom).toBe("rebalance");
+    expect(node(swap, "item:derived:exit/rebalance")?.data.derivedFrom).toBe("rebalance");
+    expect(node(swap, "item:derived:exit/rebalance")?.data.label).toBe("조건에서 빠진 종목 매도");
+    // 종목 교체 항목은 매수·매도 칸에도 이어진다.
+    expect(swap.edges.filter((e) => e.source === "item:setting:rebalance/reconstitute" && e.sourceHandle === "trade").map((e) => e.target).sort()).toEqual([
+      "stage:entry",
+      "stage:exit",
+    ]);
+    expect(node(swap, "item:setting:rebalance/reconstitute")?.data).toMatchObject({ swapTrade: true });
+    // 손절은 매도 칸과 같은 줄이다.
+    expect(node(swap, "stage:risk")!.position.y).toBe(node(swap, "stage:exit")!.position.y);
+
+    // 비중만 조정하는 리밸런싱은 종목을 사고팔지 않으므로 매수·매도 칸을 지어내지 않는다.
+    const weights = withMethod("weights_only");
+    expect(weights.edges.some((e) => e.id.startsWith("swap:"))).toBe(false);
+    expect(weights.nodes.some((n) => n.id === "stage:entry" || n.id === "stage:exit")).toBe(false);
+    // 매수·매도 조건이 실제로 있으면 그 칸을 그대로 쓴다(풀어 그리지 않는다).
+    expect(lab().nodes.some((n) => n.data.derivedFrom)).toBe(false);
+  });
+
   it("같은 그래프는 같은 노드·엣지·좌표를 만든다", () => {
     expect(lab()).toEqual(lab());
   });

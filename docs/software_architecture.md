@@ -501,7 +501,7 @@ StrategyLabPage (app/analytics/new/page.tsx — 상태·대화 턴·백테스트
     │       └── ExampleCardsDrawer   — "전략 예시" 20장(분류 필터, 클릭=입력창 채우기·자동 전송 없음),
     │                                  끝에 StrategyLabLegalFooter(약관·사업자 정보·투자 유의 — 시작 화면과 공유)
     ├── [C] StrategyCanvas        — React Flow(@xyflow/react 12.8.4), 점 그리드, 고정 파이프라인 칸
-    │       ├── labGraph.ts       — 전략 그래프(lib/strategy-graph) → 칸 노드·조건 노드·엣지(순수). 칸 순서 고정 = 순환 불가
+    │       ├── labGraph.ts       — 전략 그래프(lib/strategy-graph) → 칸 노드·조건 노드·엣지(순수). 칸 순서 고정 = 순환 불가. 손절·익절 등 청산 조건 노드는 위험 관리 칸+매도 칸 두 곳에 연결, 종목 교체 리밸런싱(매수·매도 조건 없음)은 매수·매도 칸을 풀어 그림(derivedFrom)
     │       ├── StrategyNode.tsx  — 칸 노드(아이콘·이름·좌/우/하단 포트·＋) / 조건 노드(보조 포트에 매달림)
     │       └── useLabGraph.ts    — 입력: 마지막 확정 스냅샷이 지금 parsed와 같으면 그것, 아니면 초안 컴파일(X-Graph-Draft)
     └── [D] ChatPanel             — 대화 스크롤 영역 + 입력창(또는 칩 전용 되묻기 카드), 높이 조절·숨기기
