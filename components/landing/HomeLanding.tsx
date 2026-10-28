@@ -217,6 +217,9 @@ export function HomeLanding() {
             <StartButton href={LANDING_START_HREF} className={PRIMARY_BUTTON}>
               무료로 시작하기
             </StartButton>
+            <Link href="/strategy-simulation" className={SECONDARY_BUTTON}>
+              전략 시뮬레이션 경험하기
+            </Link>
             <Link href="/guide" className={SECONDARY_BUTTON}>
               백테스트 가이드 읽기
             </Link>
