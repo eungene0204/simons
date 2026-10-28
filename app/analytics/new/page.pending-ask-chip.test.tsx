@@ -94,6 +94,76 @@ describe("planner 유니버스 ask 칩 — 분류 우회 결정론 귀속", () =
     vi.unstubAllGlobals();
   });
 
+  it("[회귀 2026-10-28] 칩 턴은 '파싱 중...'이 아니라 '반영 중...'을 띄운다(백엔드 parsing 이벤트로 덮지 않음)", async () => {
+    let parseCalls = 0;
+    let releaseChipTurn: (() => void) | null = null;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/model/status") {
+        return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
+      }
+      if (url === "/api/user") {
+        return Promise.resolve(
+          createJsonResponse({ user: { name: "Tester", email: "tester@example.com" } })
+        );
+      }
+      if (url === "/api/query/classify") {
+        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
+      }
+      if (url === "/api/strategy/parse/stream") {
+        parseCalls += 1;
+        if (parseCalls === 1) {
+          return Promise.resolve(sseResultResponse({
+            parsed: minimalParsed(),
+            clarification_question: UNIVERSE_QUESTION,
+            clarification_suggestions: UNIVERSE_CHIPS,
+            clarification_priority: "dag_planner",
+            pending_ask: { topic: "유니버스", question: UNIVERSE_QUESTION, chips: UNIVERSE_CHIPS },
+            notices: [],
+          }));
+        }
+        // 칩 턴: 백엔드는 기본 'parsing' 단계를 먼저 흘린 뒤 결과를 보낸다.
+        const encoder = new TextEncoder();
+        const body = new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "stage", stage: "parsing" })}\n\n`));
+            releaseChipTurn = () => {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                type: "parsed_final",
+                parsed: minimalParsed({ target_symbols: ["012345"] }),
+                clarification_question: null,
+                pending_ask: null,
+                notices: [],
+              })}\n\ndata: ${JSON.stringify({
+                type: "dsl_ready",
+                backtest_request: { symbols: [], period: "5y", risk: {} },
+                symbol_count: 0,
+              })}\n\ndata: [DONE]\n\n`));
+              controller.close();
+            };
+          },
+        });
+        return Promise.resolve(new Response(body, {
+          status: 200, headers: { "Content-Type": "text/event-stream" },
+        }));
+      }
+      return Promise.resolve(createJsonResponse({}));
+    });
+
+    render(<StrategyLabPage />);
+    const textarea = await screen.findByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "보안주 관련 투자 전략" } });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+    fireEvent.click(await screen.findByRole("button", { name: "보안주(정보)" }, { timeout: 5000 }));
+
+    await waitFor(() => expect(releaseChipTurn).not.toBeNull(), { timeout: 5000 });
+    await screen.findByText("반영 중...");
+    expect(screen.queryByText("파싱 중...")).not.toBeInTheDocument();
+    expect(screen.queryByText("생각 중...")).not.toBeInTheDocument();
+    releaseChipTurn!();
+    await waitFor(() => expect(screen.queryByText("반영 중...")).not.toBeInTheDocument(), { timeout: 5000 });
+  });
+
   it("pending_ask 칩 클릭은 분류를 거치지 않고 pending_ask 에코와 함께 파스로 간다", async () => {
     let parseCalls = 0;
     fetchMock.mockImplementation((input: RequestInfo | URL) => {

@@ -12,25 +12,19 @@ describe("buildLabGraph — 고정 파이프라인 칸", () => {
     expect(buildLabGraph(null)).toEqual({ nodes: [], edges: [] });
   });
 
-  it("매수까지 한 줄로 이어지고 청산·배분·위험이 갈라져 백테스트에서 합쳐진다", () => {
+  it("백테스트 노드는 그리지 않고, 같은 부모에서 갈라진 칸은 서로 다른 줄에 놓인다", () => {
     const { nodes, edges } = lab();
     const stages = pipeline(nodes).map((n) => n.data.stage);
-    expect(stages[stages.length - 1]).toBe("output");
+    expect(stages).not.toContain("output");
+    expect(edges.some((e) => e.source === "stage:output" || e.target === "stage:output")).toBe(false);
     // 노드 순서는 PIPELINE_ORDER의 부분 수열이다(그래프에 없는 칸은 건너뛴다).
     const order = stages.map((s) => PIPELINE_ORDER.indexOf(s));
     expect([...order].sort((a, b) => a - b)).toEqual(order);
-    const at = (stage: string) => nodes.find((n) => n.id === `stage:${stage}`)!.position;
-    const out = at("output");
-    // 백테스트는 가장 오른쪽 열이고, 갈래의 끝은 모두 그곳으로 이어진다.
-    for (const n of pipeline(nodes)) if (n.data.stage !== "output") expect(n.position.x).toBeLessThan(out.x);
-    const into = edges.filter((e) => e.target === "stage:output").map((e) => e.source);
-    expect(into.length).toBeGreaterThan(0);
-    // 같은 부모에서 갈라진 칸은 서로 다른 줄(y)에 놓인다.
     const bySource = new Map<string, string[]>();
     for (const e of edges.filter((e) => e.id.startsWith("flow:"))) bySource.set(e.source, [...(bySource.get(e.source) ?? []), e.target]);
     for (const targets of bySource.values()) {
       const ys = targets.map((t) => nodes.find((n) => n.id === t)!.position.y);
-      if (targets.length > 1 && targets.every((t) => t !== "stage:output")) expect(new Set(ys).size).toBe(ys.length);
+      if (targets.length > 1) expect(new Set(ys).size).toBe(ys.length);
     }
   });
 

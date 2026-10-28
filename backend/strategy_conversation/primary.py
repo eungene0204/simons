@@ -2645,7 +2645,7 @@ def run_primary_parse(
     # 처음부터 다시 세우는 재시도 전용**이었다 — 값은 거의 못 얻으면서 LLM 턴 예산을 한 벌
     # 더 쓴다(실측: 예산 소진 → 재계획으로 planner가 한 파스에서 6회 호출, 148초 + 84초).
     # 예산 소진은 실패가 아니라 검증 리포트의 고정 질문으로 폴백하는 정상 경로다.
-    # (_dag_planner_clarification 자체는 칩 답변 턴의 재계획 _replan_next_question이 계속 쓴다.)
+    # (_dag_planner_clarification 자체는 수정 턴의 재계획 _replan_next_question이 계속 쓴다.)
     # 고정 파이프라인 질문의 결속(2026-07-31). 지금까지 pending_ask는 planner 분기
     # 두 곳에서만 발행됐다 — planner가 실패하거나(예산 소진) 가드가 그 ask를 거부하면
     # (_is_filled_slot_topic) 폴백인 검증 리포트 질문에는 결속이 없었고, 사용자의 다음
@@ -4282,7 +4282,7 @@ def _replan_next_question(
     user_input: str, parsed: Any, explicit_fields: Optional[Iterable[str]] = None,
     declined_fields: Optional[Iterable[str]] = None,
 ) -> tuple[Optional[str], Optional[List[str]], Optional[str], Optional[Dict[str, Any]]]:
-    """State 변경 후 다음 질문을 DAG planner로 재계획한다(§4 — 수정·칩 답변 공용).
+    """State 변경 후 다음 질문을 DAG planner로 재계획한다(§4 — 수정 턴 전용, 칩 답변 턴은 쓰지 않는다).
 
     골격 공백 여부는 결정론 게이트(detect_incomplete_backtest_conditions)가 판정하고,
     planner 실패 시 질문 없음 유지(기존 프론트 게이트 폴백).
@@ -4326,6 +4326,17 @@ def _replan_next_question(
                 f"gate={gate['gate']} 칩={gate['chips_bound']}/{gate['chips_offered']}"
             ))
     return question, (next_ask["chips"] if next_ask else None), "dag_planner", next_ask
+
+
+# 칩 답변 턴은 다음 질문을 planner(LLM)로 재계획하지 않는다 — 칩 선택은 결정론이라 LLM 왕복이
+# 클릭 반영을 '생각 중...'으로 붙잡는다(2026-10-28 사용자 지시, 실측 planner 1.2초). 질문이 비면
+# 최소 조건 게이트(main._build_parse_result)가 다음 빈 칸을 결정론 질문·결속 칩으로 묻는다.
+_CHIP_TURN_NO_PLANNER_QUESTION: Dict[str, Any] = {
+    "clarification_question": None,
+    "clarification_suggestions": None,
+    "clarification_priority": None,
+    "pending_ask": None,
+}
 
 
 def run_chip_answer(
@@ -4375,7 +4386,7 @@ def run_chip_answer(
         # list_concept_candidates 관찰의 카탈로그 정본 표기 그대로라 정확 일치 해석
         # (테마 카탈로그 정합)이 성립한다. 원문 해석이 아니라 시스템 생성 선택지의
         # 적용이다(계약 § 판정 기준). 적용 실패는 None — 수정 인터프리터가 처리.
-        return _apply_universe_chip(user_input, prev, text)
+        return _apply_universe_chip(prev, text)
     decline_field = (pending_ask.get("chip_declines") or {}).get(text)
     if isinstance(decline_field, str) and decline_field:
         # '안 함' — 전략 값은 그대로(비어 있는 채) 두고 그 슬롯을 더 묻지 않는다.
@@ -4384,14 +4395,9 @@ def run_chip_answer(
 
         declined = merge_declined_fields(previous_declined_fields, [decline_field])
         _log_llm("✓ 거부 칩 클릭", f"칩 '{text}' — {decline_field} 사용 안 함으로 확정")
-        question, suggestions, priority, next_ask = _replan_next_question(
-            user_input, prev, previous_explicit_fields, declined)
         return finalize_user_response({
             "parsed": prev,
-            "clarification_question": question,
-            "clarification_suggestions": suggestions,
-            "clarification_priority": priority,
-            "pending_ask": next_ask,
+            **_CHIP_TURN_NO_PLANNER_QUESTION,
             "declined_fields": declined,
             "notices": [],
             "interpreter": {
@@ -4409,14 +4415,9 @@ def run_chip_answer(
 
         explicit = merge_explicit_fields(previous_explicit_fields, [confirm_field])
         _log_llm("✓ 확정 칩 클릭", f"칩 '{text}' — {confirm_field} 현재값 확정(값 불변)")
-        question, suggestions, priority, next_ask = _replan_next_question(
-            user_input, prev, explicit, previous_declined_fields)
         return finalize_user_response({
             "parsed": prev,
-            "clarification_question": question,
-            "clarification_suggestions": suggestions,
-            "clarification_priority": priority,
-            "pending_ask": next_ask,
+            **_CHIP_TURN_NO_PLANNER_QUESTION,
             "explicit_fields": explicit,
             "notices": [],
             "interpreter": {
@@ -4465,20 +4466,17 @@ def run_chip_answer(
     else:
         _log_llm("✓ 칩 답변 확정", f"칩 '{text}' 결정적 반영(LLM 생략): {'; '.join(diff)}")
 
-    # 이월 질문 큐(한 턴에 한 질문)가 있으면 재계획 대신 큐의 다음 질문을 발행한다 —
-    # 재계획은 값-대기 조건을 모르는 planner가 다른 슬롯 질문으로 새게 한다.
+    # 이월 질문 큐(한 턴에 한 질문)가 있으면 큐의 다음 질문을 결정론으로 발행한다.
+    # 큐가 없으면 질문을 내지 않는다 — 다음 골격 질문은 최소 조건 게이트가 결정론으로 묻는다.
     queued = _next_ask_from_queue(pending_ask, parsed, explicit)
-    if queued is not None:
-        question, suggestions, priority, next_ask = queued
-    else:
-        question, suggestions, priority, next_ask = _replan_next_question(
-            user_input, parsed, explicit, previous_declined_fields)
+    next_question = (
+        dict(zip(("clarification_question", "clarification_suggestions",
+                  "clarification_priority", "pending_ask"), queued))
+        if queued is not None else _CHIP_TURN_NO_PLANNER_QUESTION
+    )
     return finalize_user_response({
         "parsed": parsed,
-        "clarification_question": question,
-        "clarification_suggestions": suggestions,
-        "clarification_priority": priority,
-        "pending_ask": next_ask,
+        **next_question,
         **({"explicit_fields": explicit} if explicit is not previous_explicit_fields else {}),
         "notices": [],
         "interpreter": {
@@ -4490,9 +4488,7 @@ def run_chip_answer(
     })
 
 
-def _apply_universe_chip(
-    user_input: str, prev: Any, chip_text: str
-) -> Optional[Dict[str, Any]]:
+def _apply_universe_chip(prev: Any, chip_text: str) -> Optional[Dict[str, Any]]:
     """유니버스 범위 칩 하나를 결정론으로 적용한다(Phase 5 — 칩 답변 결정론 계약 확장).
 
     정본 섹터 표기는 sector 병합, 카탈로그 테마 표기는 테마 상장사 적용(고정 체인과
@@ -4521,13 +4517,9 @@ def _apply_universe_chip(
     if not diff:
         return None
     _log_llm("✓ 유니버스 칩 확정", f"칩 '{chip_text}' 결정적 반영(LLM 생략): {'; '.join(diff)}")
-    question, suggestions, priority, next_ask = _replan_next_question(user_input, prev)
     return finalize_user_response({
         "parsed": prev,
-        "clarification_question": question,
-        "clarification_suggestions": suggestions,
-        "clarification_priority": priority,
-        "pending_ask": next_ask,
+        **_CHIP_TURN_NO_PLANNER_QUESTION,
         "notices": notices,
         "interpreter": {
             "mode": "primary_chip_answer",

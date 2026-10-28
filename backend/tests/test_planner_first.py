@@ -670,8 +670,8 @@ def test_front_planner_failure_does_not_trigger_a_second_planning_run(monkeypatc
     assert front_calls == [1]
 
 
-def test_chip_answer_turn_still_replans(monkeypatch):
-    """칩 답변 턴의 재계획(_replan_next_question)은 지연 수정과 무관하게 살아 있다."""
+def test_chip_answer_turn_does_not_replan(monkeypatch):
+    """칩 답변 턴은 planner로 다음 질문을 재계획하지 않는다(2026-10-28 — 칩 선택은 결정론)."""
     monkeypatch.setenv("STRATEGY_DAG_PLANNER_MODE", "primary")
     monkeypatch.setattr(
         primary_mod, "_dag_planner_clarification",
@@ -685,7 +685,7 @@ def test_chip_answer_turn_still_replans(monkeypatch):
         {"topic": "리스크관리", "question": "손절 기준은?", "chips": ["손절 8%"]},
     )
     assert result is not None
-    assert result["clarification_question"] == "언제 팔까요?"
+    assert result["clarification_question"] is None
 
 
 def test_replan_rejects_topic_outside_the_skeleton(monkeypatch):

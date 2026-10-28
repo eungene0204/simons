@@ -112,28 +112,27 @@ def test_technical_signal_chip_applies_deterministically():
                for s in result["parsed"].model_dump()["exit_signals"])
 
 
-def test_replan_emits_next_pending_ask(monkeypatch):
-    """칩 반영 후 남은 골격 공백이 있으면 planner 재계획 질문+다음 pending_ask를 낸다."""
+def test_chip_turn_never_calls_planner(monkeypatch):
+    """[회귀 2026-10-28] 칩 선택은 결정론이다 — 반영 후 다음 질문을 planner(LLM)로 재계획하면
+    클릭이 '생각 중...'으로 붙잡힌다(실측 planner 1.2초). 질문은 비우고 최소 조건 게이트에 맡긴다."""
     monkeypatch.setenv("STRATEGY_DAG_PLANNER_MODE", "primary")
-    monkeypatch.setattr(
-        primary_mod, "_dag_planner_clarification",
-        lambda user_input, parsed, explicit_fields=None, declined_fields=None: (
-            "어떤 조건에서 매도할까요?", ["데드크로스(5일/20일) 발생 시 매도"], "매도조건",
-        ),
-    )
+
+    def _planner(*_a, **_k):
+        raise AssertionError("칩 답변 턴에서 planner 호출")
+
+    monkeypatch.setattr(primary_mod, "_dag_planner_clarification", _planner)
     prev = _etf_strategy()
     result = run_chip_answer("손절 8%", prev, _pending_ask(["손절 8%"]))
     assert result is not None
-    assert result["clarification_question"] == "어떤 조건에서 매도할까요?"
-    assert result["clarification_priority"] == "dag_planner"
-    assert result["pending_ask"]["topic"] == "매도조건"
-    assert result["pending_ask"]["question"] == "어떤 조건에서 매도할까요?"
-    # 재계획 질문의 칩도 planner 문구가 아니라 슬롯 SOT 정본이다(2026-08-02 사용자 결정).
-    from engine import strategy_slots
-    assert result["pending_ask"]["chips"] == strategy_slots.suggestions_for_topic("매도조건")
-    # 칩=값 결속 계약 — 다음 턴의 클릭이 재해석 없이 쓸 값이 함께 실린다.
-    binding = result["pending_ask"]["chip_bindings"]["데드크로스(5일/20일) 발생 시 매도"]
-    assert binding["exit_signals"][0]["indicator"] == "ma_crossover"
+    assert result["parsed"].stop_loss_pct == 8
+    assert result["clarification_question"] is None
+    assert result["pending_ask"] is None
+    # 거부·확정 칩도 같다.
+    declined = run_chip_answer("손절 안 함", prev, {
+        "topic": "리스크 관리", "question": "손절 기준은?",
+        "chips": ["손절 안 함"], "chip_declines": {"손절 안 함": "stop_loss"},
+    })
+    assert declined is not None and declined["clarification_question"] is None
 
 
 def test_replan_off_mode_returns_no_question(monkeypatch):

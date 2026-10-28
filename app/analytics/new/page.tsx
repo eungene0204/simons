@@ -1151,6 +1151,8 @@ function ShimmerStatusText({
 // (planner 유니버스 해석 → universe → entry_conditions → exit_conditions → …)을 알린다.
 const ANALYSIS_STAGE_LABEL = {
   parsing: "파싱 중...",
+  // 칩 답변 — 백엔드 결정론 칩 레인이 결속값을 반영하는 동안(LLM 없음, 2026-10-28).
+  applying: "반영 중...",
   thinking: "생각 중...",
   validating: "검증 중...",
   searching: "검색 중...",
@@ -3328,6 +3330,7 @@ function StrategyLabContent() {
     promptText: string,
     currentParsed: ParsedSummary | null,
     currentBacktestReq: any,
+    options?: { chipAnswer?: boolean },
   ) => {
     // 이 턴이 되묻기로 끝나면 카드의 '돌아가기'가 되돌릴 상태 — 파스가 바꾸기 **전**에 남긴다.
     // 칩 턴(handleSuggestionClick의 previousStepState)과 같은 자리·같은 버튼이다.
@@ -3360,7 +3363,10 @@ function StrategyLabContent() {
     const requestVersion = { ...strategyVersionRef.current };
     const serverBaseline = serverParsedRef.current ?? currentParsed;
     // NL 파서 규칙 파싱 단계 — 'parsing...' 표시. LLM 폴백 시 'thinking...'으로 전환된다.
-    updateLastAssistant({ isLoading: true, loadingStage: "parsing" });
+    // 칩 답변은 해석이 아니라 결속값 반영이다 — '반영 중...'을 띄우고 백엔드의 기본 'parsing'
+    // 단계 이벤트로 덮지 않는다(결속 실패로 인터프리터에 넘어가면 'thinking'은 그대로 보인다).
+    const initialStage: AnalysisStage = options?.chipAnswer ? "applying" : "parsing";
+    updateLastAssistant({ isLoading: true, loadingStage: initialStage });
     const res = await fetch("/api/strategy/parse/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...regionRequestHeaders() },
@@ -3662,7 +3668,10 @@ function StrategyLabContent() {
           // 백엔드 진행 단계: 'parsing'(규칙 파싱) → 'kg_lookup'(개념 확인) →
           // 'searching'(용어 그라운딩 인터넷 검색) → 'thinking'(LLM 처리) → 'validating'(LLM 검증).
           // 인터프리터 스트리밍은 생성 중인 섹션을 세부 단계(universe/entry/exit/risk/settings)로 알린다.
-          if (typeof evt.stage === "string" && evt.stage in ANALYSIS_STAGE_LABEL) {
+          if (
+            typeof evt.stage === "string" && evt.stage in ANALYSIS_STAGE_LABEL &&
+            !(initialStage === "applying" && evt.stage === "parsing")
+          ) {
             updateLastAssistant({ isLoading: true, loadingStage: evt.stage as AnalysisStage });
           }
         } else if (evt.type === "parsed_final") {
@@ -3992,9 +4001,9 @@ function StrategyLabContent() {
       currentParsed &&
       pendingAskRef.current?.chips?.includes(userText.trim())
     ) {
-      await appendAssistant({ role: "assistant", isLoading: true });
+      await appendAssistant({ role: "assistant", isLoading: true, loadingStage: "applying" });
       try {
-        await runStrategyParseFlow(userText, currentParsed, currentBacktestReq);
+        await runStrategyParseFlow(userText, currentParsed, currentBacktestReq, { chipAnswer: true });
       } catch (e: any) {
         if (isChatAbort(e)) throw e;
         updateLastAssistant({

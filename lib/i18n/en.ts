@@ -549,6 +549,7 @@ export const en: Record<string, string> = {
   "파라미터 조합 계산 진행 상황": "Parameter combination calculation progress",
   "파싱 실패": "Parsing failed",
   "파싱 중...": "Parsing...",
+  "반영 중...": "Applying...",
   "현재 전략을 검증하지 못했습니다.": "Couldn't validate the current strategy.",
   "현재 조건을 그대로 두었어요.": "Kept the current conditions as they are.",
   "현재까지 이해한 전략입니다": "Here's the strategy as I understand it so far",

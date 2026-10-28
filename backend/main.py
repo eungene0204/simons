@@ -4068,7 +4068,7 @@ def _run_nl_parse_impl(request: NLParseRequest, on_stage=None,
             # Phase 4 후속 ①: planner ask 칩 클릭의 결정론 귀속. 입력이 직전 planner
             # 질문(pending_ask 에코)의 칩과 정확히 일치하면 새 수정 요청이 아니라 열거형
             # 옵션 선택이다 — 되묻기 가드·수정 인터프리터(LLM)보다 먼저 결정론으로 State에
-            # 반영하고 다음 질문을 재계획한다. 미일치·결정적 추출 실패는 None으로 기존
+            # 반영한다(다음 질문은 큐·최소 조건 게이트가 결정론으로 낸다). 미일치·결정적 추출 실패는 None으로 기존
             # 경로 그대로(칩 자기완결 계약의 안전망).
             from strategy_conversation.primary import run_chip_answer
             parsed = None
