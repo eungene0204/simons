@@ -5,6 +5,7 @@ import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 import {
   ChartLineUp,
   ChartPie,
+  ArrowsClockwise,
   CheckCircle,
   Funnel,
   Globe,
@@ -28,6 +29,11 @@ export const FAMILY_ICON: Record<StageFamily, ComponentType<IconProps>> = {
   sizing: ChartPie,
   risk: ShieldCheck,
   output: ChartLineUp,
+};
+
+// 같은 종류 안에서 칸을 구분해야 할 때만 칸 단위로 덮어쓴다(자금 배분=파이, 리밸런싱=순환 화살표).
+const STAGE_ICON: Partial<Record<PipelineNodeData["stage"], ComponentType<IconProps>>> = {
+  rebalance: ArrowsClockwise,
 };
 
 /** 캔버스가 실행 상태를 노드에 내려 줄 때 쓰는 추가 필드(그래프 모델 밖, 표시 전용). */
@@ -74,7 +80,7 @@ type PipelineNodeType = Node<PipelineNodeData & RunDecoration, "pipeline">;
 type ConditionNodeType = Node<ConditionNodeData & RunDecoration, "condition">;
 
 export const PipelineNode = memo(function PipelineNode({ data, selected }: NodeProps<PipelineNodeType>) {
-  const Icon = FAMILY_ICON[data.family];
+  const Icon = STAGE_ICON[data.stage] ?? FAMILY_ICON[data.family];
   const isOutput = data.stage === "output";
   const failed = isOutput && data.runState === "error";
   return (
