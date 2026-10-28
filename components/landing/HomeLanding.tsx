@@ -228,12 +228,16 @@ export function HomeLanding() {
       </section>
 
       <footer className="px-4 py-10 sm:px-6">
-        <div className="mx-auto max-w-5xl">
+        <div className="mx-auto max-w-5xl text-center">
           <p className="text-xs font-bold leading-relaxed text-[var(--text-label)]">
             널스탁은 투자 자문·투자 추천을 제공하지 않는 투자 연구 및 시뮬레이션 플랫폼입니다. 모든 결과는 과거 데이터
             기반 시뮬레이션이며 미래 수익은 보장되지 않습니다. 투자 판단과 그에 따른 책임은 사용자에게 있습니다.
           </p>
-          <nav aria-label="약관 및 정책" className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs font-bold text-gray-400">
+          <p className="mt-3 text-xs font-bold leading-relaxed text-gray-500">
+            상호명 : 널스페이스 · 사업자등록번호 : 898-50-00737 · 통신판매업신고번호 : 2026-서울서대문-0758 · 대표 : 이응준
+            <span className="block">주소 : 서울특별시 서대문구 이화여대7길 37, 3층 S88호</span>
+          </p>
+          <nav aria-label="약관 및 정책" className="mt-4 flex flex-wrap justify-center gap-x-5 gap-y-2 text-xs font-bold text-gray-400">
             <Link href="/?legal=terms" className="hover:text-white">
               서비스 이용약관
             </Link>

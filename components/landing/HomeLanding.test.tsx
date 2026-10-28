@@ -89,6 +89,16 @@ describe("HomeLanding", () => {
     expect(board).toHaveAttribute("href", "/board");
   });
 
+  it("shows the business registration and mail-order sales numbers in the footer", () => {
+    render(<HomeLanding />);
+    const footer = document.querySelector("footer")!;
+    expect(footer.textContent).toContain("상호명 : 널스페이스");
+    expect(footer.textContent).toContain("사업자등록번호 : 898-50-00737");
+    expect(footer.textContent).toContain("통신판매업신고번호 : 2026-서울서대문-0758");
+    expect(footer.textContent).toContain("대표 : 이응준");
+    expect(footer.textContent).toContain("주소 : 서울특별시 서대문구 이화여대7길 37, 3층 S88호");
+  });
+
   it("carries the not-advice disclosure and avoids recommendation wording", () => {
     const { container } = render(<HomeLanding />);
     const text = container.textContent ?? "";
