@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { confirmedInput, META } from "@/lib/strategy-graph/fixtures";
 import { buildStrategyGraph } from "@/lib/strategy-graph/transform";
-import { buildLabGraph, changedNodeIds, itemsForStage, PIPELINE_ORDER, STAGE_GAP_X, type LabNode } from "./labGraph";
+import { buildLabGraph, changedNodeIds, itemsForStage, PIPELINE_ORDER, type LabNode } from "./labGraph";
 
 const lab = () => buildLabGraph(buildStrategyGraph(confirmedInput("goldenCrossRsiAnd"), META));
 const pipeline = (nodes: LabNode[]) => nodes.filter((n) => n.type === "pipeline");
@@ -12,22 +12,34 @@ describe("buildLabGraph — 고정 파이프라인 칸", () => {
     expect(buildLabGraph(null)).toEqual({ nodes: [], edges: [] });
   });
 
-  it("칸을 엔진 실행 순서로 한 줄에 놓고 끝에는 항상 백테스트 칸이 온다", () => {
-    const { nodes } = lab();
+  it("매수까지 한 줄로 이어지고 청산·배분·위험이 갈라져 백테스트에서 합쳐진다", () => {
+    const { nodes, edges } = lab();
     const stages = pipeline(nodes).map((n) => n.data.stage);
     expect(stages[stages.length - 1]).toBe("output");
-    // 순서는 PIPELINE_ORDER의 부분 수열이다(그래프에 없는 칸은 건너뛴다).
+    // 노드 순서는 PIPELINE_ORDER의 부분 수열이다(그래프에 없는 칸은 건너뛴다).
     const order = stages.map((s) => PIPELINE_ORDER.indexOf(s));
     expect([...order].sort((a, b) => a - b)).toEqual(order);
-    pipeline(nodes).forEach((n, i) => expect(n.position).toEqual({ x: i * STAGE_GAP_X, y: 0 }));
+    const at = (stage: string) => nodes.find((n) => n.id === `stage:${stage}`)!.position;
+    const out = at("output");
+    // 백테스트는 가장 오른쪽 열이고, 갈래의 끝은 모두 그곳으로 이어진다.
+    for (const n of pipeline(nodes)) if (n.data.stage !== "output") expect(n.position.x).toBeLessThan(out.x);
+    const into = edges.filter((e) => e.target === "stage:output").map((e) => e.source);
+    expect(into.length).toBeGreaterThan(0);
+    // 같은 부모에서 갈라진 칸은 서로 다른 줄(y)에 놓인다.
+    const bySource = new Map<string, string[]>();
+    for (const e of edges.filter((e) => e.id.startsWith("flow:"))) bySource.set(e.source, [...(bySource.get(e.source) ?? []), e.target]);
+    for (const targets of bySource.values()) {
+      const ys = targets.map((t) => nodes.find((n) => n.id === t)!.position.y);
+      if (targets.length > 1 && targets.every((t) => t !== "stage:output")) expect(new Set(ys).size).toBe(ys.length);
+    }
   });
 
-  it("칸 사이 흐름 엣지는 앞 칸에서 뒤 칸으로만 이어져 순환이 생기지 않는다", () => {
+  it("흐름 엣지는 왼쪽에서 오른쪽으로만 이어져 순환이 생기지 않는다", () => {
     const { nodes, edges } = lab();
-    const ids = pipeline(nodes).map((n) => n.id);
+    const x = (id: string) => nodes.find((n) => n.id === id)!.position.x;
     const flow = edges.filter((e) => e.id.startsWith("flow:"));
-    expect(flow).toHaveLength(ids.length - 1);
-    for (const e of flow) expect(ids.indexOf(e.target)).toBe(ids.indexOf(e.source) + 1);
+    expect(flow.length).toBeGreaterThan(0);
+    for (const e of flow) expect(x(e.target)).toBeGreaterThan(x(e.source));
     // 사용자가 포트를 끌어 연결을 바꿀 수 없다.
     expect(nodes.every((n) => n.connectable === false)).toBe(true);
   });
@@ -42,6 +54,13 @@ describe("buildLabGraph — 고정 파이프라인 칸", () => {
     const children = edges.filter((e) => e.source === "stage:entry" && e.sourceHandle === "aux").map((e) => e.target);
     const labels = nodes.filter((n) => children.includes(n.id)).map((n) => n.data.label);
     expect(labels).toEqual(["20일선-60일선 골든크로스", "RSI(14) < 70"]);
+  });
+
+  it("항목 수는 칸 사이 흐름 선이 아니라 칸 아래 항목으로 이어지는 선에 표시한다", () => {
+    const { edges } = lab();
+    expect(edges.filter((e) => e.className === "lab-edge-flow").every((e) => e.label === undefined)).toBe(true);
+    const aux = edges.filter((e) => e.source === "stage:entry" && e.sourceHandle === "aux");
+    expect(aux.map((e) => e.label)).toEqual(["2개 항목", undefined]);
   });
 
   it("같은 그래프는 같은 노드·엣지·좌표를 만든다", () => {

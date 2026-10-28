@@ -105,27 +105,100 @@ function sectionLeaves(graph: StrategyGraph, sectionId: string): { leaves: Graph
   return { leaves, logic };
 }
 
+// 칸 배치 — 매수까지는 한 줄로 이어지고, 그 뒤 청산 · 배분(비중→리밸런싱) · 위험 관리가 나란히 갈라져
+// 백테스트에서 다시 합쳐진다(n8n의 분기·병합 모양). 갈래는 서로 독립이라 순서를 주장하지 않는다.
+// 없는 칸은 건너뛰고 가까운 앞 칸에 잇는다. 선은 앞→뒤로만 가서 순환이 생기지 않는다.
+const STAGE_PARENT: Partial<Record<PipelineStage, PipelineStage>> = {
+  filters: "universe",
+  ranking: "filters",
+  entry: "ranking",
+  exit: "entry",
+  allocation: "entry",
+  rebalance: "allocation",
+  risk: "entry",
+};
+
+/** 같은 갈래(줄)에 놓이는 칸 — 줄 번호가 작을수록 위. */
+const STAGE_LANE: Record<PipelineStage, number> = {
+  universe: 0,
+  filters: 0,
+  ranking: 0,
+  entry: 0,
+  exit: 0,
+  allocation: 1,
+  rebalance: 1,
+  risk: 2,
+  output: 1, // 실제 줄은 갈래들의 가운데로 정한다(laneOf)
+};
+
+const LANE_MIN_HEIGHT = 190;
+
 /** 전략 그래프 → 캔버스 노드·엣지. 그래프에 없는 칸은 그리지 않고, 끝에는 항상 백테스트 칸이 온다. */
 export function buildLabGraph(graph: StrategyGraph | null): LabGraph {
   if (!graph || !graph.nodes.some((n) => n.kind === "section")) return { nodes: [], edges: [] };
 
+  type Present = { stage: PipelineStage; section?: GraphNode; leaves: GraphNode[]; logic: string | null };
+  const present = new Map<PipelineStage, Present>();
+  for (const stage of PIPELINE_ORDER) {
+    if (stage === "output") {
+      present.set(stage, { stage, leaves: [], logic: null });
+      continue;
+    }
+    const section = graph.nodes.find((n) => n.kind === "section" && n.section === stage);
+    if (!section) continue;
+    present.set(stage, { stage, section, ...sectionLeaves(graph, section.id) });
+  }
+
+  const parentOf = (stage: PipelineStage): PipelineStage | null => {
+    let p = STAGE_PARENT[stage];
+    while (p && !present.has(p)) p = STAGE_PARENT[p];
+    return p ?? null;
+  };
+  const depth = new Map<PipelineStage, number>();
+  const depthOf = (stage: PipelineStage): number => {
+    if (stage === "output") return 0;
+    const cached = depth.get(stage);
+    if (cached !== undefined) return cached;
+    const p = parentOf(stage);
+    const d = p ? depthOf(p) + 1 : 0;
+    depth.set(stage, d);
+    return d;
+  };
+  const stages = PIPELINE_ORDER.filter((s) => present.has(s));
+  const bodyStages = stages.filter((s) => s !== "output");
+  const outputColumn = Math.max(0, ...bodyStages.map(depthOf)) + 1;
+  const hasChild = new Set(bodyStages.map(parentOf).filter((p): p is PipelineStage => !!p));
+
+  // 줄 높이 = 그 줄 칸들에 매달린 조건 중 가장 긴 것 — 아래 줄과 겹치지 않게 위에서부터 쌓는다.
+  const bodyLanes = [...new Set(bodyStages.map((s) => STAGE_LANE[s]))].sort((a, b) => a - b);
+  // 백테스트는 갈래들의 가운데 줄에 놓아 위·아래 갈래가 같은 거리로 합쳐지게 한다.
+  const laneOf = (stage: PipelineStage) => (stage === "output" ? bodyLanes[Math.floor((bodyLanes.length - 1) / 2)] : STAGE_LANE[stage]);
+  const usedLanes = bodyLanes;
+  const laneTop = new Map<number, number>();
+  let cursor = 0;
+  for (const lane of usedLanes) {
+    laneTop.set(lane, cursor);
+    const tallest = Math.max(
+      0,
+      ...stages.filter((s) => laneOf(s) === lane).map((s) => (present.get(s)!.leaves.length > 0 ? CHILD_OFFSET_Y + present.get(s)!.leaves.length * CHILD_GAP_Y : 0)),
+    );
+    cursor += Math.max(LANE_MIN_HEIGHT, tallest);
+  }
+
   const nodes: LabNode[] = [];
   const edges: Edge[] = [];
-  let column = 0;
-  let previous: { id: string; itemCount: number } | null = null;
 
-  for (const stage of PIPELINE_ORDER) {
+  for (const stage of stages) {
+    const { section, leaves, logic } = present.get(stage)!;
     const family = STAGE_FAMILY[stage];
-    const x = column * STAGE_GAP_X;
-    let pipelineData: PipelineNodeData;
+    const x = (stage === "output" ? outputColumn : depthOf(stage)) * STAGE_GAP_X;
+    const y = laneTop.get(laneOf(stage)) ?? 0;
     const id = `stage:${stage}`;
+    let pipelineData: PipelineNodeData;
 
-    if (stage === "output") {
+    if (stage === "output" || !section) {
       pipelineData = { stage, family, label: t("백테스트"), itemCount: 0, logic: null, status: "ok" };
     } else {
-      const section = graph.nodes.find((n) => n.kind === "section" && n.section === stage);
-      if (!section) continue;
-      const { leaves, logic } = sectionLeaves(graph, section.id);
       const leafStatuses = leaves.map((leaf) => labStatus(leaf.status));
       pipelineData = {
         stage,
@@ -140,7 +213,7 @@ export function buildLabGraph(graph: StrategyGraph | null): LabGraph {
         nodes.push({
           id: childId,
           type: "condition",
-          position: { x: x + 10, y: CHILD_OFFSET_Y + index * CHILD_GAP_Y },
+          position: { x: x + 10, y: y + CHILD_OFFSET_Y + index * CHILD_GAP_Y },
           data: { stage, family, label: leaf.label, status: leafStatuses[index], graphNode: leaf },
           connectable: false,
         });
@@ -152,28 +225,33 @@ export function buildLabGraph(graph: StrategyGraph | null): LabGraph {
           targetHandle: "top",
           type: "smoothstep",
           className: "lab-edge-aux",
+          // 항목 수는 칸 아래 항목으로 이어지는 선에 단다 — 칸 사이 흐름 선에 달면 항목이 다음 칸으로 넘어가는 것처럼 읽힌다.
+          label: index === 0 ? t("{0}개 항목", leaves.length) : undefined,
           selectable: false,
         });
       });
     }
 
-    nodes.push({ id, type: "pipeline", position: { x, y: 0 }, data: pipelineData, connectable: false });
-    if (previous) {
-      edges.push({
-        id: `flow:${previous.id}->${id}`,
-        source: previous.id,
-        sourceHandle: "out",
-        target: id,
-        targetHandle: "in",
-        type: "default",
-        label: previous.itemCount > 0 ? t("{0}개 항목", previous.itemCount) : undefined,
-        className: "lab-edge-flow",
-        selectable: false,
-      });
-    }
-    previous = { id, itemCount: pipelineData.itemCount };
-    column += 1;
+    nodes.push({ id, type: "pipeline", position: { x, y }, data: pipelineData, connectable: false });
   }
+
+  // 흐름 선: 칸 → 부모 칸, 그리고 갈래의 끝(자식 없는 칸) → 백테스트.
+  const link = (from: PipelineStage, to: PipelineStage) =>
+    edges.push({
+      id: `flow:stage:${from}->stage:${to}`,
+      source: `stage:${from}`,
+      sourceHandle: "out",
+      target: `stage:${to}`,
+      targetHandle: "in",
+      type: "default",
+      className: "lab-edge-flow",
+      selectable: false,
+    });
+  for (const stage of bodyStages) {
+    const p = parentOf(stage);
+    if (p) link(p, stage);
+  }
+  for (const stage of bodyStages) if (!hasChild.has(stage)) link(stage, "output");
   return { nodes, edges };
 }
 

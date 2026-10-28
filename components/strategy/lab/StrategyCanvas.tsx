@@ -294,11 +294,6 @@ function CanvasInner({ graph, loading, metaError, onRetryMeta, runState, items, 
             <p className="mt-3 text-sm font-black text-white">
               {loading ? t("전략 구조를 준비하는 중입니다.") : t("아래 채팅창에 전략을 설명해 보세요")}
             </p>
-            {!loading && (
-              <p className="mt-1.5 text-xs font-bold leading-relaxed text-[var(--text-label)]">
-                {t("설명한 전략이 종목 범위부터 백테스트까지 단계별 노드로 표시됩니다.")}
-              </p>
-            )}
           </div>
         </div>
       )}

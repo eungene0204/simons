@@ -656,7 +656,7 @@ const CLARIFICATION_CARD_CLASS =
 // --chat-accent 하나뿐이고(§2), 파랑은 하락 의미색이다(2026-09-08). 세 자리(입력 바·도킹 카드·
 // 탈출 버튼)가 모두 이 한 클래스를 쓴다.
 const END_CHAT_CONTROL_CLASS =
-  "inline-flex items-center gap-1.5 rounded-lg border border-white/[0.14] bg-white/[0.05] px-3 py-1.5 text-xs font-bold text-gray-200 transition-colors duration-200 hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]";
+  "inline-flex items-center gap-1.5 rounded-md px-1 py-1 text-xs font-bold text-gray-200 transition-colors duration-200 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]";
 // 선택 칩은 담긴 면이 그대로 비치고(--chat-chip-surface: transparent) 테두리로만
 // 구분한다. 칩이 카드 안(되묻기)과 카드 밖(빌더 안내) 양쪽에 나오므로 값을 박으면
 // 한쪽에서 어긋난다 — 카드 위에서는 알파가 겹쳐 칩만 밝아진다(2026-08-05 반려).

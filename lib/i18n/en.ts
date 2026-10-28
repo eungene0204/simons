@@ -4063,7 +4063,6 @@ export const en: Record<string, string> = {
   "화면 맞춤": "Fit view",
   "배치 되돌리기": "Undo layout",
   "아래 채팅창에 전략을 설명해 보세요": "Describe a strategy in the chat below",
-  "설명한 전략이 종목 범위부터 백테스트까지 단계별 노드로 표시됩니다.": "Your strategy appears as step-by-step nodes, from the universe to the backtest.",
   "{0}에서 지울 항목": "Items to remove from {0}",
   "이 단계는 캔버스에서 지울 수 있는 항목이 없습니다. 채팅으로 바꿀 내용을 알려 주세요.": "Nothing in this step can be removed on the canvas. Tell the chat what to change.",
   "'{0}'를 지울까요?": "Remove '{0}'?",
