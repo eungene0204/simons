@@ -66,6 +66,8 @@ type MenuItem = {
   prefetch?: true;
   // 한국 전략만 다루는 메뉴 — /us(미국 지역)에서는 숨긴다.
   krOnly?: true;
+  // 비로그인도 열 수 있는 메뉴 — 로그인 모달 대신 그대로 이동한다.
+  openToAnonymous?: true;
 };
 
 const menuItems: MenuItem[] = [
@@ -111,6 +113,7 @@ const menuItems: MenuItem[] = [
     id: "strategy-simulation",
     Icon: ChartLine,
     krOnly: true,
+    openToAnonymous: true,
   },
   // 대시보드 메뉴는 숨김(2026-10-20, 페이지·API 코드는 유지) — 그 자리에 전략공유를 둔다. 다시 켜려면 아래 항목을 복원한다.
   // {
@@ -556,7 +559,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
   ) => {
     setIsMobileMenuOpen(false);
 
-    if (authState === "anonymous" && item.id !== "analytics") {
+    if (authState === "anonymous" && item.id !== "analytics" && !item.openToAnonymous) {
       e.preventDefault();
       setIsLoginModalOpen(true);
       return;

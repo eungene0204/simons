@@ -302,3 +302,27 @@ describe("TopNavigation plan modal", () => {
     expect(screen.queryByText(/사용 가능 자산/)).not.toBeInTheDocument();
   });
 });
+
+describe("TopNavigation 비로그인 메뉴", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    navState.pathname = "/";
+    isSupabaseConfiguredMock.mockReturnValue(true);
+    getSessionMock.mockResolvedValue({ data: { session: null } });
+    fetchMock.mockImplementation(() =>
+      Promise.resolve({ ok: true, json: async () => ({ user: null }) })
+    );
+  });
+
+  it("전략 시뮬레이션 메뉴는 로그인 모달 없이 열리고, 다른 메뉴는 로그인 모달이 뜬다", async () => {
+    renderWithQueryClient(<TopNavigation />);
+    const simulation = (await screen.findAllByRole("link", { name: /전략 시뮬레이션/ }))[0];
+    await screen.findAllByRole("button", { name: "로그인" });
+
+    fireEvent.click(simulation);
+    expect(screen.queryByText("로그인 후 이용할 수 있습니다")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("link", { name: /모의투자/ })[0]);
+    expect(await screen.findByText("로그인 후 이용할 수 있습니다")).toBeInTheDocument();
+  });
+});

@@ -26,6 +26,14 @@ describe("AuthSessionGuard (QueryProvider)", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
+  it("비로그인이 전략 시뮬레이션을 열어도 홈으로 보내지 않는다", async () => {
+    pathname = "/strategy-simulation";
+    render(<QueryProvider>x</QueryProvider>);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
   it("공개가 아닌 앱 화면은 비로그인이면 홈으로 보낸다", async () => {
     pathname = "/virtual-account/acc-1";
     render(<QueryProvider>x</QueryProvider>);
