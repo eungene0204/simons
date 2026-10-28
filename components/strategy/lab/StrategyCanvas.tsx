@@ -10,6 +10,7 @@ import {
   ReactFlowProvider,
   useNodesState,
   useReactFlow,
+  type NodeChange,
   type NodeMouseHandler,
 } from "@xyflow/react";
 import {
@@ -30,6 +31,7 @@ import { visibleRows } from "@/lib/strategy-graph/layout";
 import {
   buildLabGraph,
   changedNodeIds,
+  followStageDrag,
   itemsForStage,
   PIPELINE_ORDER,
   type ConditionNodeData,
@@ -167,6 +169,18 @@ function CanvasInner({ graph, loading, metaError, onRetryMeta, runState, items, 
     movedRef.current.set(node.id, { ...node.position });
   }, []);
 
+  // 칸을 끌면 매달린 조건도 함께 옮기고, 그 자리도 그래프가 바뀔 때 지킨다.
+  const handleNodesChange = useCallback(
+    (changes: NodeChange<LabNode>[]) => {
+      const withChildren = followStageDrag(changes, nodes);
+      for (const c of withChildren.slice(changes.length)) {
+        if (c.type === "position" && c.position) movedRef.current.set(c.id, { ...c.position });
+      }
+      onNodesChange(withChildren);
+    },
+    [nodes, onNodesChange],
+  );
+
   const undo = () => {
     const last = historyRef.current.pop();
     if (!last) return;
@@ -211,7 +225,7 @@ function CanvasInner({ graph, loading, metaError, onRetryMeta, runState, items, 
         nodes={decorated}
         edges={base.edges}
         nodeTypes={LAB_NODE_TYPES}
-        onNodesChange={onNodesChange}
+        onNodesChange={handleNodesChange}
         onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         onNodeDoubleClick={(_e, node) => setDialog({ kind: "details", node: node as LabNode })}

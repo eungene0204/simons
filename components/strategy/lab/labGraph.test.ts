@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { confirmedInput, META } from "@/lib/strategy-graph/fixtures";
 import { buildStrategyGraph } from "@/lib/strategy-graph/transform";
-import { buildLabGraph, changedNodeIds, itemsForStage, PIPELINE_ORDER, type LabNode } from "./labGraph";
+import { buildLabGraph, changedNodeIds, followStageDrag, itemsForStage, PIPELINE_ORDER, type LabNode } from "./labGraph";
 
 const lab = () => buildLabGraph(buildStrategyGraph(confirmedInput("goldenCrossRsiAnd"), META));
 const pipeline = (nodes: LabNode[]) => nodes.filter((n) => n.type === "pipeline");
@@ -106,5 +106,31 @@ describe("itemsForStage — 캔버스 지우기 후보", () => {
 
   it("해석 결과에 항목이 없는 칸(순위 선정)은 후보가 없다", () => {
     expect(ids("ranking")).toEqual([]);
+  });
+});
+
+describe("followStageDrag — 칸을 끌면 매달린 조건도 따라 움직인다", () => {
+  it("칸 노드의 이동량만큼 같은 칸의 조건 노드만 옮긴다", () => {
+    const { nodes } = lab();
+    const parent = nodes.find((n) => n.type === "pipeline" && nodes.some((c) => c.type === "condition" && c.data.stage === n.data.stage))!;
+    const children = nodes.filter((n) => n.type === "condition" && n.data.stage === parent.data.stage);
+    const others = nodes.filter((n) => n.type === "condition" && n.data.stage !== parent.data.stage);
+    const changes = followStageDrag(
+      [{ id: parent.id, type: "position", position: { x: parent.position.x + 30, y: parent.position.y - 20 }, dragging: true }],
+      nodes,
+    );
+    const moved = new Map(changes.flatMap((c) => (c.type === "position" && c.position ? [[c.id, c.position] as const] : [])));
+    for (const child of children) expect(moved.get(child.id)).toEqual({ x: child.position.x + 30, y: child.position.y - 20 });
+    for (const other of others) expect(moved.has(other.id)).toBe(false);
+  });
+
+  it("조건 노드를 끌거나 함께 끌리는 조건은 따로 옮기지 않는다", () => {
+    const { nodes } = lab();
+    const child = nodes.find((n) => n.type === "condition")!;
+    const parent = nodes.find((n) => n.id === `stage:${child.data.stage}`)!;
+    const own = [{ id: child.id, type: "position" as const, position: { x: 1, y: 1 } }];
+    expect(followStageDrag(own, nodes)).toBe(own);
+    const both = [{ id: parent.id, type: "position" as const, position: { x: parent.position.x + 5, y: parent.position.y } }, ...own];
+    expect(followStageDrag(both, nodes).filter((c) => c.type === "position" && c.id === child.id)).toHaveLength(1);
   });
 });

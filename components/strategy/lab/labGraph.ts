@@ -1,4 +1,4 @@
-import type { Edge, Node } from "@xyflow/react";
+import type { Edge, Node, NodeChange } from "@xyflow/react";
 import { t } from "@/lib/i18n";
 import type { GraphNode, NodeStatus, SectionKey, StrategyGraph } from "@/lib/strategy-graph/types";
 
@@ -267,6 +267,34 @@ export function nodeSignature(node: LabNode): string {
 export function changedNodeIds(previous: readonly LabNode[], next: readonly LabNode[]): string[] {
   const before = new Map(previous.map((n) => [n.id, nodeSignature(n)]));
   return next.filter((n) => before.get(n.id) !== nodeSignature(n)).map((n) => n.id);
+}
+
+/**
+ * 칸 노드를 끌면 그 칸에 매달린 조건 노드도 같은 만큼 따라 움직인다. 칸 노드의 위치 변경마다
+ * 자식 조건의 위치 변경을 덧붙인다 — 자식이 이미 함께 끌리는 중(다중 선택)이면 두 번 옮기지 않는다.
+ */
+export function followStageDrag(changes: NodeChange<LabNode>[], nodes: readonly LabNode[]): NodeChange<LabNode>[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const moving = new Set(changes.filter((c) => c.type === "position").map((c) => (c as { id: string }).id));
+  const extra: NodeChange<LabNode>[] = [];
+  for (const change of changes) {
+    if (change.type !== "position" || !change.position) continue;
+    const parent = byId.get(change.id);
+    if (parent?.type !== "pipeline") continue;
+    const dx = change.position.x - parent.position.x;
+    const dy = change.position.y - parent.position.y;
+    if (dx === 0 && dy === 0) continue;
+    for (const child of nodes) {
+      if (child.type !== "condition" || child.data.stage !== parent.data.stage || moving.has(child.id)) continue;
+      extra.push({
+        id: child.id,
+        type: "position",
+        position: { x: child.position.x + dx, y: child.position.y + dy },
+        dragging: change.dragging,
+      });
+    }
+  }
+  return extra.length > 0 ? [...changes, ...extra] : changes;
 }
 
 // ── 캔버스 삭제 → 전략 항목 ─────────────────────────────────────────────────────────────────
