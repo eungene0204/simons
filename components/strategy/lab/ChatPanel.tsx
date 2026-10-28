@@ -95,7 +95,7 @@ export default function ChatPanel({ open, onToggle, height, onHeightChange, scro
           </div>
           {aside && (
             <div
-              className="flex min-h-0 w-[min(46%,560px)] flex-shrink-0 flex-col overflow-y-auto border-l border-[var(--lab-border)] p-3 [&>*]:flex-1"
+              className="flex min-h-0 w-[min(46%,560px)] flex-shrink-0 flex-col overflow-y-auto border-l border-[var(--lab-border)] [&>*]:flex-1"
               data-testid="lab-chat-aside"
             >
               {aside}

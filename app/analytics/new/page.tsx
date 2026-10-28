@@ -5157,7 +5157,7 @@ function StrategyLabContent() {
     <div
       data-testid="clarification-card"
       data-docked={docked ? "true" : "false"}
-      className={`flex flex-col gap-2.5 p-4 ${CLARIFICATION_CARD_CLASS} ${MESSAGE_ENTER_LATE_CLASS}`}
+      className={`flex flex-col gap-2.5 p-4 ${CLARIFICATION_CARD_CLASS} ${docked ? "!rounded-none !border-0" : ""} ${MESSAGE_ENTER_LATE_CLASS}`}
     >
       <div className="flex items-start justify-between gap-2.5">
         <p className="text-[13px] font-bold leading-relaxed text-gray-200 whitespace-pre-line">
