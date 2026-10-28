@@ -18,27 +18,27 @@ describe("HomeLanding", () => {
     expect(LANDING_START_HREF).toBe("/analytics");
   });
 
-  it("has no standalone video above the steps (the design video is step 01 only)", () => {
+  it("replaces the three-step section with one graph video under the hero", () => {
     const { container } = render(<HomeLanding />);
+    expect(container.textContent).not.toContain("설계에서 모의투자까지, 세 단계");
+    expect(container.querySelector("#how-it-works")).toBeNull();
     const videos = Array.from(container.querySelectorAll("video"));
     expect(videos).toHaveLength(3);
-    videos.forEach((video) => expect(video.closest("#how-it-works")).not.toBeNull());
+    expect(videos[0]).toHaveAttribute("poster", "/videos/landing-graph-poster.jpg");
+    expect(videos[0].closest("section")!.querySelector("h1")).not.toBeNull();
   });
 
-  it("puts the strategy examples below step 03", () => {
+  it("puts the validation video, then the paper-trading video, right above the audience section", () => {
     const { container } = render(<HomeLanding />);
-    const lastStep = container.querySelector("#how-it-works ol > li:last-child")!;
-    const examples = container.querySelector('[data-testid="example-flow"]')!;
-    expect(lastStep.compareDocumentPosition(examples) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(container.querySelector("#how-it-works")!.contains(examples)).toBe(true);
+    const validate = container.querySelector('video[poster="/videos/landing-validate-poster.jpg"]')!.closest("section")!;
+    const paper = container.querySelector('video[poster="/videos/landing-paper-poster.jpg"]')!.closest("section")!;
+    const audience = screen.getByRole("heading", { name: "널스탁은 누구를 위한 서비스인가요?" }).closest("section")!;
+    expect(validate.nextElementSibling).toBe(paper);
+    expect(paper.nextElementSibling).toBe(audience);
   });
 
   it("ships the video files the page points to", () => {
-    for (const name of [
-      "landing-hero.webm", "landing-hero.mp4", "landing-hero-poster.jpg",
-      "landing-validate.webm", "landing-validate.mp4", "landing-validate-poster.jpg",
-      "landing-paper.webm", "landing-paper.mp4", "landing-paper-poster.jpg",
-    ]) {
+    for (const name of ["landing-graph.webm", "landing-graph.mp4", "landing-graph-poster.jpg", "landing-validate.webm", "landing-validate.mp4", "landing-validate-poster.jpg", "landing-paper.webm", "landing-paper.mp4", "landing-paper-poster.jpg"]) {
       expect(existsSync(path.join(process.cwd(), "public/videos", name))).toBe(true);
     }
   });

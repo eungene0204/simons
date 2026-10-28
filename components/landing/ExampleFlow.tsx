@@ -26,7 +26,7 @@ function ExampleCard({ example, hidden }: { example: Example; hidden: boolean })
       tabIndex={hidden ? -1 : undefined}
       aria-hidden={hidden || undefined}
       data-example-card
-      className="flex h-full w-[300px] shrink-0 flex-col gap-3 rounded-2xl border border-white/[0.09] bg-[var(--card-bg)] p-5 text-left transition-colors hover:border-white/[0.2] hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)]/50"
+      className="flex h-full w-[300px] shrink-0 flex-col gap-3 rounded-2xl bg-[var(--card-bg)] p-5 text-left transition-colors hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)]/50"
     >
       <span className="w-fit rounded-md bg-white/[0.06] px-2 py-0.5 text-[11px] font-bold text-gray-300">
         {CATEGORY_LABEL[example.category]}

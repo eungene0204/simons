@@ -2,10 +2,11 @@
 
 import { useEffect, useRef } from "react";
 
-// 소개 페이지 '세 단계' 영상 — 화면에 보일 때만 재생하고 벗어나면 멈춘다(세 편이 동시에 돌지 않게).
-// 원본은 scripts/landing_hero/(hero·validate·paper.html, 렌더: render.mjs). 소리가 없어 자동 재생이 허용된다.
+// 소개 페이지 영상 — 화면에 보일 때만 재생하고 벗어나면 멈춘다.
+// 원본은 Remotion 프로젝트(graph: ~/nullstock-cf/landing-graph-1028, validate: ~/nullstock-cf/landing-validate-1028, paper: ~/nullstock-cf/landing-paper-1028)에서 렌더한다. 소리가 없어 자동 재생이 허용된다.
+// 영상 자체가 8:3(2880×1080)이라 화면 좌우를 꽉 채워도 높이가 낮다.
 // '움직임 줄이기'를 켠 사용자에게는 재생하지 않고 대표 장면(포스터)만 보여 준다.
-export type StepVideoName = "hero" | "validate" | "paper";
+export type StepVideoName = "graph" | "validate" | "paper";
 
 export function StepVideo({ name, label }: { name: StepVideoName; label: string }) {
   const ref = useRef<HTMLVideoElement>(null);
@@ -48,7 +49,7 @@ export function StepVideo({ name, label }: { name: StepVideoName; label: string 
   return (
     <video
       ref={ref}
-      className="aspect-video w-full rounded-2xl border border-white/[0.09] bg-[var(--card-bg)]"
+      className="block aspect-[8/3] w-full bg-[var(--background)]"
       muted
       loop
       playsInline

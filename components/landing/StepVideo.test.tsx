@@ -6,14 +6,14 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("StepVideo", () => {
   it("points at the step's own files and is muted and looped", () => {
-    const { container } = render(<StepVideo name="validate" label="검증 영상" />);
+    const { container } = render(<StepVideo name="graph" label="그래프 영상" />);
     const video = container.querySelector("video")!;
     expect(video.muted).toBe(true);
     expect(video).toHaveAttribute("loop");
-    expect(video).toHaveAttribute("poster", "/videos/landing-validate-poster.jpg");
+    expect(video).toHaveAttribute("poster", "/videos/landing-graph-poster.jpg");
     expect(Array.from(video.querySelectorAll("source")).map((s) => s.getAttribute("src"))).toEqual([
-      "/videos/landing-validate.webm",
-      "/videos/landing-validate.mp4",
+      "/videos/landing-graph.webm",
+      "/videos/landing-graph.mp4",
     ]);
   });
 
@@ -29,7 +29,7 @@ describe("StepVideo", () => {
     );
     const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
     const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
-    render(<StepVideo name="paper" label="모의투자 영상" />);
+    render(<StepVideo name="graph" label="그래프 영상" />);
 
     notify([{ isIntersecting: true }]);
     expect(play).toHaveBeenCalledTimes(1);

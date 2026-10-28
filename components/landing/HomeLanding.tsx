@@ -13,30 +13,13 @@ import { PLANS, PLAN_ORDER, type Plan } from "@/lib/plans";
 export const LANDING_START_HREF = "/analytics";
 
 
-// '설계 → 검증 → 모의투자' 세 단계. 영상은 scripts/landing_hero/의 장면에서 렌더한다(StepVideo).
-const STEPS = [
-  {
-    no: "01",
-    title: "설계",
-    video: "hero",
-    label: "전략 문장을 입력하면 조건이 그래프로 정리되고, 빠진 정보를 질문한 뒤 백테스트 결과 화면이 나오는 과정을 보여 주는 영상",
-    body: "떠오른 아이디어를 평소 말투로 적으면 매수·매도 조건, 종목 수, 손절 같은 항목으로 정리해 보여줍니다. 빠진 값은 임의로 채우지 않고 되묻습니다.",
-  },
-  {
-    no: "02",
-    title: "검증",
-    video: "validate",
-    label: "워크포워드 분석이 학습 구간과 검증 구간을 번갈아 나누고, 몬테카를로 시뮬레이션이 결과를 다시 섞어 만든 가상 경로와 분포를 보여 주는 영상",
-    body: "과거 데이터로 백테스트하고, 워크포워드와 몬테카를로로 결과가 한 구간·한 경로에만 기댄 것은 아닌지 점검합니다.",
-  },
-  {
-    no: "03",
-    title: "모의투자",
-    video: "paper",
-    label: "가상계좌를 만들고 저장된 전략을 연결하면 전략 시뮬레이션이 시작되고, 보유 종목과 거래 내역, 성과 분석을 확인하는 과정을 보여 주는 영상",
-    body: "저장된 전략을 가상계좌에 연결하면 실제 돈 없이 가상 체결로 시뮬레이션이 이어집니다. 가상 체결과 포트폴리오, 거래 내역을 그대로 확인할 수 있습니다.",
-  },
-] as const;
+// 첫 화면 영상 — 전략 문장을 입력하면 전략 연구소 캔버스에 그래프가 만들어지는 과정(원본: ~/nullstock-cf/landing-graph-1028, Remotion).
+const VALIDATE_VIDEO_LABEL =
+  "과거에만 맞춘 설정은 아닌지 확인하는 워크포워드 분석과, 운 좋은 순서 덕분은 아닌지 확인하는 몬테카를로 시뮬레이션을 설명하는 영상. 워크포워드 분석이 과거를 학습 구간과 검증 구간으로 번갈아 나눠 한 칸씩 밀어 가며 적용해 보고, 몬테카를로 시뮬레이션이 같은 거래 기록을 다시 섞어 만든 가상 경로와 연평균 수익률 분포를 보여 주는 영상";
+const PAPER_VIDEO_LABEL =
+  "실제 돈 없이 지금 시장에서 전략을 돌려 보는 가상계좌 모의투자를 설명하는 영상. 저장한 전략을 골라 가상계좌를 만들면 전략 시뮬레이션이 시작되고, 시장 시세로 전략 조건을 확인해 가상 체결된 거래 내역과 보유 종목을 확인하는 과정을 보여 준다. 실제 주문은 발생하지 않는다.";
+const GRAPH_VIDEO_LABEL =
+  "전략 문장을 입력하면 투자 대상, 종목 선정 필터, 매수·매도 규칙, 자금 배분, 위험 관리가 노드로 하나씩 만들어지고, 빠진 리밸런싱 주기를 질문한 뒤 그래프에 더해지는 과정을 보여 주는 영상";
 
 // 누구를 위한 서비스인가 — 나이·자산·성향이 아니라 '하고 싶은 일'로 나눈다(개인 맞춤형 조언 표현 회피).
 const AUDIENCES: readonly { icon: LandingIconName; title: string; body: string }[] = [
@@ -96,7 +79,7 @@ function planLines(plan: Plan): string[] {
 const PRIMARY_BUTTON =
   "inline-flex items-center justify-center rounded-xl bg-[var(--chat-accent)] px-6 py-3.5 text-sm font-black text-[var(--chat-accent-ink)] transition-opacity hover:opacity-90";
 const SECONDARY_BUTTON =
-  "inline-flex items-center justify-center rounded-xl border border-white/[0.12] px-6 py-3.5 text-sm font-bold text-white transition-colors hover:bg-white/[0.06]";
+  "inline-flex items-center justify-center rounded-xl bg-white/[0.06] px-6 py-3.5 text-sm font-bold text-white transition-colors hover:bg-white/[0.1]";
 const SECTION = "px-4 py-16 sm:px-6 sm:py-24";
 const SECTION_TITLE = "font-serif text-3xl font-bold tracking-normal text-white sm:text-4xl";
 
@@ -131,47 +114,41 @@ export function HomeLanding() {
             Free 플랜으로 월 {PLANS.FREE.monthlyBacktestLimit}회 백테스트를 바로 해볼 수 있습니다.
           </p>
         </div>
+        {/* 영상은 화면 좌우 끝까지 — 섹션 좌우 여백만큼 바깥으로 뺀다. */}
+        <div className="-mx-4 mt-12 sm:-mx-6 sm:mt-16">
+          <StepVideo name="graph" label={GRAPH_VIDEO_LABEL} />
+        </div>
       </section>
 
-      <section id="how-it-works" className={`${SECTION} border-t border-white/[0.08]`}>
+      <section className={`${SECTION}`} aria-labelledby="landing-examples">
         <div className="mx-auto max-w-5xl">
-          <h2 className={`${SECTION_TITLE} text-center`}>설계에서 모의투자까지, 세 단계</h2>
-          <ol className="mt-12 flex flex-col gap-16 sm:gap-24">
-            {STEPS.map((step) => (
-              <li key={step.no}>
-                <div className="max-w-2xl">
-                  <span className="text-sm font-black text-[var(--chat-accent)]">{step.no}</span>
-                  <h3 className="mt-3 text-2xl font-black text-white sm:text-3xl">{step.title}</h3>
-                  <p className="mt-3 text-sm font-medium leading-7 text-gray-400 sm:text-base sm:leading-8">{step.body}</p>
-                </div>
-                {/* 세 단계 영상은 같은 폭으로 크게 보여 준다(설계 영상과 같은 크기). */}
-                <div className="mt-6 sm:mt-8">
-                  <StepVideo name={step.video} label={step.label} />
-                </div>
-              </li>
-            ))}
-          </ol>
-
-          {/* 전략 예시들 — 세 단계를 본 뒤 바로 해볼 수 있도록 03 모의투자 아래에 둔다. */}
-          <div className="mt-20 sm:mt-28">
-            <h3 className="text-center text-2xl font-black text-white sm:text-3xl">
-              전략 예시들
-            </h3>
-            <div className="mt-6">
-              <ExampleFlow />
-            </div>
+          <h2 id="landing-examples" className={`${SECTION_TITLE} text-center`}>
+            전략 예시들
+          </h2>
+          <div className="mt-8">
+            <ExampleFlow />
           </div>
         </div>
       </section>
 
-      <section className={`${SECTION} border-t border-white/[0.08]`} aria-labelledby="landing-audience">
+      {/* 검증 영상 — 워크포워드·몬테카를로. 대상 섹션 바로 위, 화면 좌우 끝까지. */}
+      <section aria-label="워크포워드·몬테카를로 검증 영상" className="pb-16 sm:pb-24">
+        <StepVideo name="validate" label={VALIDATE_VIDEO_LABEL} />
+      </section>
+
+      {/* 가상계좌 모의투자 영상 — 검증 영상 바로 아래 */}
+      <section aria-label="가상계좌 모의투자 영상" className="pb-16 sm:pb-24">
+        <StepVideo name="paper" label={PAPER_VIDEO_LABEL} />
+      </section>
+
+      <section className={`${SECTION}`} aria-labelledby="landing-audience">
         <div className="mx-auto max-w-5xl">
           <h2 id="landing-audience" className={`${SECTION_TITLE} text-center`}>
             널스탁은 누구를 위한 서비스인가요?
           </h2>
           <ul className="mt-10 grid gap-4 sm:grid-cols-2">
             {AUDIENCES.map(({ icon, title, body }) => (
-              <li key={title} className="flat-card rounded-2xl border border-white/[0.09] bg-[var(--card-bg)] p-6">
+              <li key={title} className="flat-card rounded-2xl bg-[var(--card-bg)] p-6">
                 <LandingIcon name={icon} className="text-gray-300" />
                 <h3 className="mt-4 text-base font-black text-white">{title}</h3>
                 <p className="mt-2 text-sm font-medium leading-7 text-gray-400">{body}</p>
@@ -181,7 +158,7 @@ export function HomeLanding() {
         </div>
       </section>
 
-      <section className={`${SECTION} border-t border-white/[0.08]`} aria-labelledby="landing-plans">
+      <section className={`${SECTION}`} aria-labelledby="landing-plans">
         <div className="mx-auto max-w-5xl">
           <h2 id="landing-plans" className={`${SECTION_TITLE} text-center`}>
             요금제
@@ -190,7 +167,7 @@ export function HomeLanding() {
             {PLAN_ORDER.map((planId) => {
               const plan = PLANS[planId];
               return (
-                <li key={planId} className="flat-card rounded-2xl border border-white/[0.09] bg-[var(--card-bg)] p-6">
+                <li key={planId} className="flat-card rounded-2xl bg-[var(--card-bg)] p-6">
                   <h3 className="text-lg font-black text-white">{plan.name}</h3>
                   <p className="mt-1 text-sm font-medium text-gray-400">{plan.description}</p>
                   <p className="mt-5 text-3xl font-black text-white">
@@ -211,10 +188,10 @@ export function HomeLanding() {
         </div>
       </section>
 
-      <section className={`${SECTION} border-t border-white/[0.08]`}>
+      <section className={`${SECTION}`}>
         <div className="mx-auto max-w-3xl">
           <h2 className={`${SECTION_TITLE} text-center`}>자주 묻는 질문</h2>
-          <div className="mt-8 divide-y divide-white/[0.08] border-y border-white/[0.08]">
+          <div className="mt-8">
             {FAQ.map((item) => (
               <details key={item.q} className="group py-5">
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-base font-black text-white [&::-webkit-details-marker]:hidden">
@@ -230,7 +207,7 @@ export function HomeLanding() {
         </div>
       </section>
 
-      <section className="border-t border-white/[0.08] px-4 py-16 sm:px-6 sm:py-24">
+      <section className="px-4 py-16 sm:px-6 sm:py-24">
         <div className="mx-auto max-w-3xl text-center">
           <LandingIcon name="Funnel" size={28} className="mx-auto text-gray-300" />
           <h2 className="mt-5 font-serif text-3xl font-bold tracking-normal text-white sm:text-4xl">
@@ -250,7 +227,7 @@ export function HomeLanding() {
         </div>
       </section>
 
-      <footer className="border-t border-white/[0.08] px-4 py-10 sm:px-6">
+      <footer className="px-4 py-10 sm:px-6">
         <div className="mx-auto max-w-5xl">
           <p className="text-xs font-bold leading-relaxed text-[var(--text-label)]">
             널스탁은 투자 자문·투자 추천을 제공하지 않는 투자 연구 및 시뮬레이션 플랫폼입니다. 모든 결과는 과거 데이터
