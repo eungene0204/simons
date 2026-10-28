@@ -1623,6 +1623,21 @@ def _shape_example_quotes() -> frozenset:
     )
 
 
+def _setting_slot_filled(strategy: Any, kind: Optional[str]) -> bool:
+    """설정 종류(quote_check.SETTING_KINDS — LLM enum)의 칸이 채워졌는가 — 출력 필드의 값 존재만 본다."""
+    portfolio, risk, backtest = strategy.portfolio, strategy.risk_management, strategy.backtest
+    values = {
+        "hold_period": (portfolio.hold_period_days, portfolio.min_hold_period_days),
+        "stop_loss": (risk.stop_loss, risk.trailing_stop),
+        "take_profit": (risk.take_profit, risk.partial_take_profits or None),
+        "selection_count": (portfolio.selection_count, portfolio.selection_percent),
+        "rebalance": (portfolio.rebalance_frequency,),
+        "backtest_period": (backtest.period, backtest.start_date),
+        "initial_capital": (backtest.initial_capital,),
+    }.get(kind or "", ())
+    return any(v is not None for v in values)
+
+
 def _drop_fabricated_conditions(
     intent: StrategyIntent, user_input: str,
     quote_verdicts: Optional[Any] = None,
@@ -1713,6 +1728,13 @@ def _drop_fabricated_conditions(
                 # wording, not the user's phrase; do not echo it as a notice.
                 if quote not in compact_input:
                     continue
+                # 값 없는 시가총액 조건을 시장 이름("KOSPI 종목")으로 지어낸 것 — 그 구절은
+                # universe.markets로 이미 반영됐으므로 "근거로 확인되지 않아" 안내는 거짓 딱지다
+                # (2026-10-28 속설 #29). 기록은 Trace에만 남긴다.
+                if quote_check._canonical_factor(cond.factor) == quote_check.MARKET_CAP_FACTOR:
+                    shape_copies.append({"role": role, "factor": cond.factor,
+                                         "quote": cond.source_text, "market_size": False})
+                    continue
                 # 인용이 순위 선정 구절이고 전략에 랭킹이 있으면 그 구절은 랭킹으로 반영됐다 —
                 # "매수 신호의 근거로 확인되지 않아"는 반영된 구절에 붙는 거짓 딱지다(2026-10-07
                 # 예시 57·70, 120B 3/6). 판정은 LLM(describes=ranking), 반영 확인은 랭킹 칸 구조.
@@ -1734,6 +1756,13 @@ def _drop_fabricated_conditions(
                                   + list(strategy.exit_conditions))
                 )
                 if represented_elsewhere:
+                    continue
+                # 인용이 설정 문구이고 그 설정 칸이 채워졌으면 구절은 거기 반영됐다 — "신호의 근거로
+                # 확인되지 않아" 안내는 거짓 딱지다(2026-10-28 "120거래일 보유한 뒤 매도"). 칸이
+                # 비어 있으면 사용자의 말이 어디에도 안 들어간 것이라 안내를 낸다.
+                if _setting_slot_filled(strategy, quote_check.quote_setting_kind(quote_verdicts, cond)):
+                    shape_copies.append({"role": role, "factor": cond.factor,
+                                         "quote": cond.source_text, "setting_phrase": True})
                     continue
                 action = "매수" if role == "entry_conditions" else "매도"
                 if len(source) <= _QUOTED_FEATURE_MAX_LEN:
@@ -1932,7 +1961,7 @@ def _check_condition_quotes(
     targets = quote_check.targets_for_intent(intent, user_input, only)
     if not targets:
         return None
-    verdicts = quote_check.check_quotes(user_input, targets, chat)
+    verdicts = quote_check.check_quotes(user_input, targets, chat, classify_settings=only is None)
     if verdicts is None:
         _log_llm("△ 조건 인용 대조 실패", f"{len(targets)}개 조건 — 판정 없음으로 진행(교정·제거 안 함)")
     else:

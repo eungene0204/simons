@@ -56,9 +56,14 @@ BOLLINGER_BAND_NAMES = {
 BOLLINGER_MIDDLE_RECOVERY = "technical.bollinger_middle_recovery"
 BOLLINGER_FACTORS = (BOLLINGER_FACTOR, *BOLLINGER_BAND_NAMES, BOLLINGER_MIDDLE_RECOVERY)
 CHECKED_FACTORS = MA_FACTORS + BOLLINGER_FACTORS
+# 값 없는 시가총액 조건(2026-10-28): 인터프리터가 "KOSPI 종목"을 인용으로 달아 시총 조건을 지어내고
+# (nemotron-3.5-super-vl 3회 중 2회) 사용자에게 시총 기준값을 되물었다. 값이 있으면 사용자가 수치를
+# 말한 것이라 묻지 않는다.
+MARKET_CAP_FACTOR = "fundamental.market_cap"
 
 EXPRESSES = frozenset({"yes", "no", "unclear"})
-DESCRIBES = frozenset({"moving_average", "bollinger", "new_high_breakout", "ranking", "other"})
+DESCRIBES = frozenset({"moving_average", "bollinger", "new_high_breakout", "ranking",
+                       "market_size", "other"})
 
 _SYSTEM = """당신은 **대조기**입니다. 전략 문장에서 뽑은 조건마다, 함께 적힌 인용 조각이 그 조건을 말하는지 답하세요.
 
@@ -66,7 +71,8 @@ _SYSTEM = """당신은 **대조기**입니다. 전략 문장에서 뽑은 조건
 expresses — [전략 문장]이 실제로 그 조건을 요청하고 인용 조각도 같은 조건을 말하면 "yes".
 인용이 다른 설정(종목 수·손절·기간 등)이거나 [전략 문장]에 없는 조건을 지어낸 것이면 "no",
 판단이 어려우면 "unclear". 인용만 따로 읽어 원문에 없는 매도 규칙을 추론하지 마세요.
-describes — 실제 요청과 인용이 함께 가리키는 신호: 이동평균선·골든크로스·데드크로스면 "moving_average", 볼린저 밴드면 "bollinger", 신고가·N일 고점 돌파·N일 저가 이탈·박스권 돌파면 "new_high_breakout", 수익률·상대강도 순위로 상위 종목을 고르는 말이면 "ranking", 그 밖이거나 원문에 없는 조작 인용이면 "other".
+describes — 실제 요청과 인용이 함께 가리키는 신호: 이동평균선·골든크로스·데드크로스면 "moving_average", 볼린저 밴드면 "bollinger", 신고가·N일 고점 돌파·N일 저가 이탈·박스권 돌파면 "new_high_breakout", 수익률·상대강도 순위로 상위 종목을 고르는 말이면 "ranking", 소형주·중형주·시가총액처럼 회사 규모로 대상을 좁히는 말이면 "market_size", 그 밖이거나 원문에 없는 조작 인용이면 "other".
+'KOSPI 종목'·'코스닥 종목'처럼 시장 이름만 말한 인용은 회사 규모가 아니므로 시가총액 조건에 대해 no/other입니다.
 인용 자체가 '최근 60거래일 수익률 상위'처럼 수익률 순위로 종목을 고르는 말이면 조건과 맞지 않아도 describes는 "ranking"입니다(expresses는 "no").
 
 N일선은 N일 이동평균선의 줄임말입니다. '20일선 이탈 시 청산'은 종가가 20일 이동평균선을
@@ -89,6 +95,7 @@ _CONFIRM_SYSTEM = _SYSTEM + """
 이 검사는 조건을 제거하기 전의 독립 재확인입니다. 각 인용이 가리키는 지표와 조건을 다시 대조하세요.
 매도·청산·손절이라는 동사 자체는 신호 종류가 아닙니다. 청산을 유발하는 기준으로 판단하세요.
 이동평균 신호의 기간이나 연산자만 다르면 describes는 moving_average이며 other가 아닙니다.
+시가총액 조건은 인용이 회사 규모(소형·중형·대형·시가총액)를 말하면 yes/market_size입니다.
 인용이 이동평균과 무관한 다른 설정이거나 원문에 없는 조작 인용임이 명확할 때만
 no/other로 답하세요. 매수 조건의 역방향 청산을 원문에 없는데 만들어낸 것은 조작 인용입니다."""
 
@@ -114,6 +121,20 @@ _SIDE_CONFIRM_SYSTEM = _SIDE_SYSTEM + """
 
 SIDES = frozenset({"buy", "sell", "unclear"})
 
+# 제거가 확정된 조건의 인용이 설정 문구인지(2026-10-28 속설 #29): "120거래일 보유한 뒤 매도"로 지어낸
+# 이동평균 매수 조건은 빼는 것이 맞지만, 그 구절은 보유 기간으로 이미 반영됐는데 "매수 신호의 근거로
+# 확인되지 않아…" 안내가 나갔다. 어느 설정인지 enum만 받고, 그 칸이 채워졌는지는 호출부가 구조로 본다.
+_KIND_SYSTEM = """당신은 전략 문장 속 인용 조각이 무엇을 정하는 말인지 가리는 대조기입니다.
+[전략 문장]에서 각 인용 조각이 언제 사고팔지를 정하는 지표·가격 신호면 "signal",
+보유 기간이면 "hold_period", 손절이면 "stop_loss", 익절이면 "take_profit", 종목 수면 "selection_count",
+리밸런싱 주기면 "rebalance", 백테스트 기간이면 "backtest_period", 투자금이면 "initial_capital",
+판단이 어려우면 "unclear"입니다.
+출력 형식(JSON만, 항목 순서대로): {"items": [{"kind": "hold_period"}]}"""
+
+SETTING_KINDS = frozenset({"hold_period", "stop_loss", "take_profit", "selection_count",
+                           "rebalance", "backtest_period", "initial_capital"})
+KINDS = SETTING_KINDS | {"signal", "unclear"}
+
 
 def build_system_prompt() -> str:
     return _SYSTEM
@@ -126,6 +147,8 @@ class Verdict:
     # 반대 칸 교정(2026-10-22): 인용이 같은 신호의 반대 역할(매수 칸의 매도 문구 등)이라고 두 판정이
     # 일치하면 옮길 칸("entry_conditions"/"exit_conditions"). 그 밖은 None.
     move_to: Optional[str] = None
+    # 제거 확정 조건의 인용이 설정 문구라고 판정되면 그 설정 종류(SETTING_KINDS). 그 밖은 None.
+    setting: Optional[str] = None
 
 
 class QuoteVerdicts:
@@ -187,6 +210,9 @@ def render_condition(cond: Any, role: str) -> str:
     if factor in ("concept.golden_cross", "concept.dead_cross"):
         name = "골든크로스" if factor == "concept.golden_cross" else "데드크로스"
         return f"{side} — {name}(단기 이동평균선이 장기 이동평균선을 교차)가 나오면"
+    if factor == MARKET_CAP_FACTOR:
+        bound = "이하" if op in ("<", "<=") else "이상"
+        return f"{side} 대상 — 시가총액(회사 규모)이 기준값 {bound}인 종목만"
     line = "지수이동평균선(EMA)" if factor == "technical.ema" else "이동평균선"
     short, long_ = _period(params.get("short_period")), _period(params.get("long_period"))
     subject = "종가가" if short in (None, 1) else f"{short}일 {line}이"
@@ -198,14 +224,16 @@ def conditions_to_check(
     strategy: Any, only: Optional[List[Any]] = None,
     skip: Callable[[Any], bool] = lambda _c: False,
 ) -> List[Tuple[Any, str]]:
-    """물어볼 (조건, 역할) 목록 — 이동평균 계열·볼린저이고 인용이 있는 조건만."""
+    """물어볼 (조건, 역할) 목록 — 이동평균 계열·볼린저·값 없는 시가총액이고 인용이 있는 조건만."""
     targets: List[Tuple[Any, str]] = []
     for role in ("entry_conditions", "exit_conditions"):
         for cond in getattr(strategy, role):
             if only is not None and not any(cond is c for c in only):
                 continue
-            if (_canonical_factor(cond.factor) in CHECKED_FACTORS and cond.source_text
-                    and not skip(cond)):
+            factor = _canonical_factor(cond.factor)
+            checked = (factor in CHECKED_FACTORS
+                       or (factor == MARKET_CAP_FACTOR and cond.value is None))
+            if checked and cond.source_text and not skip(cond):
                 targets.append((cond, role))
     return targets
 
@@ -234,8 +262,37 @@ def build_request(user_input, targets):
 @observed_verdict("quote")
 def check_quotes(
     user_input: str, targets: List[Tuple[Any, str]], chat: Callable[..., str],
+    classify_settings: bool = False,
 ) -> Optional[QuoteVerdicts]:
-    """Confirm destructive verdicts once; disagreement or failure preserves the condition."""
+    """Confirm destructive verdicts once; disagreement or failure preserves the condition.
+
+    classify_settings: 제거가 확정된 이동평균 조건의 인용이 설정 문구인지 한 번 더 묻는다(생성 턴만 —
+    수정 턴은 그 칸의 값이 이번 문구로 채워졌는지 이전 값인지 구조로 가릴 수 없다)."""
+    verdicts = _check_quotes(user_input, targets, chat)
+    if not classify_settings or verdicts is None:
+        return verdicts
+    from engine.nl_parser import _compact
+
+    compact_input = _compact(user_input)
+    removed = [(c, role) for c, role in targets
+               if quote_does_not_express(verdicts, c)
+               and _canonical_factor(c.factor) in MA_FACTORS
+               and _compact(c.source_text or "") in compact_input]
+    kinds = _request_kinds(user_input, removed, chat) if removed else None
+    if not kinds:
+        return verdicts
+    from dataclasses import replace
+
+    return QuoteVerdicts([
+        (cond, replace(verdict, setting=kinds.get(id(cond)))
+         if kinds.get(id(cond)) in SETTING_KINDS else verdict)
+        for cond, verdict in verdicts._pairs
+    ])
+
+
+def _check_quotes(
+    user_input: str, targets: List[Tuple[Any, str]], chat: Callable[..., str],
+) -> Optional[QuoteVerdicts]:
     from engine.nl_parser import _compact
 
     verdicts = _request_verdicts(user_input, targets, chat)
@@ -373,6 +430,39 @@ def _request_sides(user_input, targets, chat, system):
         return sides
 
 
+def _request_kinds(user_input, targets, chat):
+    """인용 조각마다 설정 종류 판정. 실패는 None(fail-open — 안내를 종전대로 낸다)."""
+    from observability import span
+    from strategy_conversation.interpreter.output_repair import extract_json_object
+
+    rows = "\n".join(f'{i}. "{cond.source_text}"' for i, (cond, _r) in enumerate(targets, 1))
+    with span("Quote Check · 인용 설정 종류", "chain",
+              inputs={"quotes": [c.source_text for c, _ in targets]}) as trace:
+        try:
+            raw = chat(_KIND_SYSTEM, f"[전략 문장]\n{user_input}\n\n[인용 조각]\n{rows}",
+                       max_tokens=48 + 16 * len(targets))
+            payload = json.loads(extract_json_object(raw))
+            items = payload.get("items") if isinstance(payload, dict) else None
+            if not isinstance(items, list) or len(items) != len(targets):
+                raise ValueError(f"항목 수 불일치: {len(targets)}개 요청")
+        except Exception as exc:  # noqa: BLE001 — 보조 판정이 턴을 깨지 않는다(fail-open)
+            logger.warning("quote kind pass failed — notice kept | err=%s", str(exc)[:200])
+            trace.output(failed=True, error=str(exc)[:300])
+            return None
+        kinds = {}
+        for (cond, _r), item in zip(targets, items):
+            kind = item.get("kind") if isinstance(item, dict) else None
+            kinds[id(cond)] = kind if kind in KINDS else None
+        trace.output(kinds=[kinds[id(c)] for c, _ in targets])
+        return kinds
+
+
+def quote_setting_kind(verdicts: Optional[QuoteVerdicts], cond: Any) -> Optional[str]:
+    """제거 확정 조건의 인용이 가리키는 설정 종류(SETTING_KINDS), 판정이 없으면 None."""
+    verdict = _verdict(verdicts, cond)
+    return verdict.setting if verdict is not None else None
+
+
 def quote_move_target(verdicts: Optional[QuoteVerdicts], cond: Any) -> Optional[str]:
     """두 역할 판정이 일치해 옮겨야 할 칸(entry_conditions/exit_conditions), 아니면 None."""
     verdict = _verdict(verdicts, cond)
@@ -394,12 +484,13 @@ def quote_does_not_express(verdicts: Optional[QuoteVerdicts], cond: Any) -> bool
     9B 거짓 제거 2/106 → 0/106, 조작 제거 12/12 → 8/12(9B가 '5종목'·'-15% 손절' 인용에
     moving_average를 답한다). 낱말 옮겨 적기 형태(signal_words)는 9B가 설정 문구를 통째로
     옮겨 적어 조작 제거 0/12라 기각했다. unclear·enum 밖·판정 없음은 False(남긴다). 신고가
-    돌파는 제거가 아니라 교정 대상이다(quote_describes_breakout).
+    돌파는 제거가 아니라 교정 대상이다(quote_describes_breakout). 값 없는 시가총액 조건도
+    같은 규칙으로 뺀다(인용이 회사 규모가 아닌 시장 이름일 때 — MARKET_CAP_FACTOR).
     """
     verdict = _verdict(verdicts, cond)
     return (verdict is not None and verdict.expresses == "no"
             and verdict.describes in ("other", "ranking")
-            and _canonical_factor(cond.factor) in MA_FACTORS)
+            and _canonical_factor(cond.factor) in (*MA_FACTORS, MARKET_CAP_FACTOR))
 
 
 def quote_describes_ranking(verdicts: Optional[QuoteVerdicts], cond: Any) -> bool:
