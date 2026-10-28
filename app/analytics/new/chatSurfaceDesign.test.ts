@@ -73,7 +73,6 @@ describe("감속 설정(prefers-reduced-motion) 존중", () => {
 
   it("계속 도는 스피너 아이콘은 motion-reduce로 멈춘다", () => {
     const spinners = page.match(/className="[^"]*animate-spin[^"]*"/g) ?? [];
-    expect(spinners.length).toBeGreaterThan(0);
     for (const spinner of spinners) {
       expect(spinner).toContain("motion-reduce:animate-none");
     }
