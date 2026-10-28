@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { StrategyExampleTabs } from "./StrategyExampleTabs";
+import { StrategyLabLegalFooter } from "./StrategyLabLegalFooter";
 
 vi.mock("next/link", () => ({
   default: ({ href, children, ...props }: { href: string; children: ReactNode }) => (
@@ -23,9 +23,9 @@ beforeEach(() => {
   pathnameRef.current = "/";
 });
 
-describe("StrategyExampleTabs legal links", () => {
+describe("StrategyLabLegalFooter legal links", () => {
   it("renders terms and privacy policy links in the usage notice", () => {
-    render(<StrategyExampleTabs onSelectExample={vi.fn()} />);
+    render(<StrategyLabLegalFooter />);
 
     const usageNotice = screen.getByRole("contentinfo", { name: "전략연구소 이용 안내" });
     expect(within(usageNotice).getByRole("link", { name: "백테스트 가이드" })).toHaveAttribute(
@@ -57,9 +57,26 @@ describe("StrategyExampleTabs legal links", () => {
     ).toHaveAttribute("href", "mailto:support@nullstock.im");
   });
 
+  it("푸터 링크 줄은 가이드 → 연구노트 → 자유게시판 → 이용약관 순으로 안내 문구보다 앞에 온다", () => {
+    render(<StrategyLabLegalFooter />);
+
+    const usageNotice = screen.getByRole("contentinfo", { name: "전략연구소 이용 안내" });
+    const guideLink = within(usageNotice).getByRole("link", { name: "백테스트 가이드" });
+    const notesLink = within(usageNotice).getByRole("link", { name: "연구노트" });
+    const boardLink = within(usageNotice).getByRole("link", { name: "자유게시판" });
+    const termsLink = within(usageNotice).getByRole("link", { name: "이용약관" });
+    expect(usageNotice.firstElementChild).toBe(guideLink);
+    expect(guideLink.nextElementSibling).toBe(notesLink);
+    expect(notesLink.nextElementSibling).toBe(boardLink);
+    expect(boardLink.nextElementSibling).toBe(termsLink);
+    expect(
+      within(usageNotice).getByText("모든 투자 판단과 그에 따른 책임은 이용자 본인에게 있습니다")
+    ).toBeInTheDocument();
+  });
+
   it("글로벌(/us) 푸터에는 연락처(이메일)만 남기고 사업자 정보를 표시하지 않는다", () => {
     pathnameRef.current = "/us";
-    render(<StrategyExampleTabs onSelectExample={vi.fn()} />);
+    render(<StrategyLabLegalFooter />);
 
     const usageNotice = screen.getByRole("contentinfo", { name: "전략연구소 이용 안내" });
     expect(

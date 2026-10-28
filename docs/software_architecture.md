@@ -488,28 +488,28 @@ KR/EN 언어 토글을 폐지하고 **URL 경로 기반의 지역 서비스**로
 
 ### 3.2 전략 Lab 컴포넌트 구조 (`/analytics/new`)
 
+**캔버스 레이아웃(2026-10-28)** — 화면은 4영역이다(툴바·왼쪽 서랍·캔버스·하단 채팅). 대화·되묻기·확정·실행 로직(상태·핸들러)은 그대로
+`page.tsx`에 있고, 렌더만 `components/strategy/lab/`의 레이아웃이 맡는다.
+
 ```
-StrategyLabPage (app/analytics/new/page.tsx)
-├── StrategyExampleTabs          — 초보/중급/고급별 예시 프롬프트 제공 (가치투자·기술분석·모멘텀·복합전략 4개 카테고리; AI 모델 예시·"AI 전략" 카테고리는 2026-06-09 제거)
-├── Run All Tests CTA            — 독립형 배치 테스트 모달 오픈
-├── 채팅 입력창
-│   └── handleSend()             — POST SSE via /api/strategy/parse/stream
-├── Strategy Skeleton UI         — accepted/skeleton 이벤트로 즉시 임시 전략 표시
-├── Strategy Summary Card        — 노란 테두리 카드로 파싱 결과 요약 표시
-├── AdvisorResultBubble          — /api/advisor/review 결과를 핵심 조언 말풍선으로 압축 표시
-├── AI Runtime Metrics Panel     — parse/coach/summary latency 표시
-├── RunAllTestsModal
-│   ├── startBatchRun()          — POST /api/strategy/batch-runs
-│   ├── fetchBatchRunDetail()    — GET /api/strategy/batch-runs?runId=...
-│   ├── fetchBatchRunHistory()   — GET /api/strategy/batch-runs
-│   └── cancelBatchRun()         — POST /api/strategy/batch-runs { action: "cancel" }
-└── BacktestDashboard (dynamic import)
-    ├── BacktestConfig
-    ├── BacktestStatsSummary
-    ├── BacktestChart
-    ├── WalkForwardModal
-    └── XAIModal                 — SHAP 설명
+StrategyLabPage (app/analytics/new/page.tsx — 상태·대화 턴·백테스트 실행)
+└── StrategyLabLayout (components/strategy/lab/)
+    ├── [A] TopToolbar            — 전략 이름(화면 한정 이름 바꾸기, TODO 저장), 상태, ▶ 백테스트 실행(대기→실행 중/중지→완료·실패),
+    │                               실행 불가 이유(getNextMissingBacktestCondition 준비 판정), 확대 비율, 공유 자리
+    ├── [B] SideDrawer(left) — 탭 2개(기본 "대화 기록")
+    │       ├── ConversationDrawer   — 계정별 대화 로그(/api/strategy-chat-log) 목록·검색·새 전략·삭제
+    │       └── ExampleCardsDrawer   — "전략 예시" 20장(분류 필터, 클릭=입력창 채우기·자동 전송 없음),
+    │                                  끝에 StrategyLabLegalFooter(약관·사업자 정보·투자 유의 — 시작 화면과 공유)
+    ├── [C] StrategyCanvas        — React Flow(@xyflow/react 12.8.4), 점 그리드, 고정 파이프라인 칸
+    │       ├── labGraph.ts       — 전략 그래프(lib/strategy-graph) → 칸 노드·조건 노드·엣지(순수). 칸 순서 고정 = 순환 불가
+    │       ├── StrategyNode.tsx  — 칸 노드(아이콘·이름·좌/우/하단 포트·＋) / 조건 노드(보조 포트에 매달림)
+    │       └── useLabGraph.ts    — 입력: 마지막 확정 스냅샷이 지금 parsed와 같으면 그것, 아니면 초안 컴파일(X-Graph-Draft)
+    └── [D] ChatPanel             — 대화 스크롤 영역 + 입력창(또는 칩 전용 되묻기 카드), 높이 조절·숨기기
+BacktestDashboard (결과 화면 — 기존과 같이 전체 화면 전환)
 ```
+
+- 캔버스 편집 계약: 노드 이동·배치 되돌리기는 화면 상태다. **값 바꾸기(2026-10-28)**: 노드를 더블클릭한 상세 패널(설정만, 입력·출력 칸 없음)에 편집 칸이 나온다 — 조건 노드는 그 조건에서 온 전략 항목 하나만(노드 경로 `request.entry.conditions[i]`와 지표 id·값 구조 대조, 엔진이 덧붙인 조건은 편집 칸 없음), 칸 노드는 칸 전체(`app/analytics/new/canvasEdits.ts` — 숫자는 그 필드에 그대로·범위 검사, 정해진 선택지는 칩=값 결속 표). 적용하면 블록과 같은 로컬 레인(`commitLocalChoice`)으로 즉시 전략에 반영되고 채팅이 다시 확정을 묻는다(원문 해석 없음). **지우기**는 칸의 후보 항목(`itemsForStage` ← `listStrategyItems`)을 사용자가 골라 기존 '다시 정하기' 경로(`submitKeepSelection` → 항목 비우기 → 되묻기)로 보낸다 — 엔진 요청 조건과 해석 항목이 1:1이 아니라 짐작으로 하나를 고르지 않는다. **추가(＋)**는 캔버스 위에서 **블록 트레이**(`BlockTray.tsx`)를 내린다(트레이 밖을 누르거나 Esc로 접힘). **채팅 + 캔버스 공동 편집(2026-10-28 결정)**: 블록 = 값이 정해진 되묻기 칩이다(`app/analytics/new/canvasBlocks.ts` — 칸별로 그 슬롯의 정본 칩을 모으고 매수 칩은 `entryChoiceKind`로 진입 신호·종목 필터·순위 선정을 가른다, '안 함' 거부 칩 제외). 사용자가 직접 올린 블록은 **그 즉시 전략에 포함**된다 — 칩 답변과 같은 로컬 레인(`commitLocalChoice`: 칩=값 결속 표 `applyDeterministicConditionChoice`로 화면의 전략을 바꾸고 명시 필드를 기록한 뒤 다음에 정할 조건을 채팅 되묻기 카드로 낸다, 백엔드 왕복·원문 해석 없음). 목록 칸(매수·매도·필터)은 기존 조건 뒤에 잇고 값 칸은 바꾼다. 캔버스는 바뀐 전략의 초안 컴파일로 다시 그려진다. 다음 채팅 턴은 화면의 전략을 `previous_parsed`로 보내므로 백엔드도 이어받는다. 연결 편집은 고정 파이프라인이라 없다.
+- 노드별 입력/출력(단계별 통과 종목 수)은 백엔드가 아직 내주지 않아 설정 패널에 "제공하지 않음"으로 표시한다(TODO).
 
 전략 Lab의 코치 UX는 오른쪽 고정 패널을 사용하지 않는다. 파싱 완료 후 `/api/advisor/review` 결과를 같은 대화 흐름의 말풍선으로 표시하며, 사용자에게 RAG/Experience Memory/유사 사례 출처를 설명하지 않고 성과 신호, 비교 후보, 리스크 조치만 노출한다. 조언은 우선순위 상위 3개만 표시하고 나머지는 백테스트 결과 확인 후 이어서 볼 수 있다는 짧은 안내로 접는다. advisor learning evidence는 내부 참고용이며, "백테스트 학습 사례 N건", 성과 중앙값, 복수 파라미터 후보를 나열하는 옛 템플릿 문장은 코치 입력 압축 단계와 최종 응답 파싱 단계에서 차단한다.
 
@@ -562,8 +562,8 @@ StrategyLabPage (app/analytics/new/page.tsx)
 뒤에 되살아나지 않도록 `builderPresentation`과 칸을 나눴고, 카드는 되묻기·확정을 통틀어 가장
 새 것 한 장만 그린다. `page.tsx`의 `generateCoachResponse`는 확정 직후 검증 agent를
 로딩 메시지 없이 뒤에서 부르고, `validationIssueMessage`가 알릴 문제를 돌려줄 때만 검증을
-시작한 확정 메시지(인덱스 고정)에 `coachText`를 붙인다 — 그때 `runButtonPlacement`가 버튼을
-검증 카드 아래로 옮긴다. 호출 실패는 표시하지 않는다(버튼 게이트는 `isBacktestReady`).
+시작한 확정 메시지(인덱스 고정)에 `coachText`를 붙인다 (2026-10-28: 대화 안 '백테스트 시작하기' 버튼과 확정 요약 카드는 삭제되어
+실행은 툴바 버튼 하나다). 호출 실패는 표시하지 않는다(실행 게이트는 `getNextMissingBacktestCondition`).
 검증 결과 자체는 `coachConversationRef`에 계속 남아 후속 질문·진행 확인 판정의 맥락이 된다.
 후속 질문(`answer_follow_up`)의 검증 말풍선 경로는 바뀌지 않았다.
 

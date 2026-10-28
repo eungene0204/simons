@@ -55,6 +55,16 @@
      #141413 대비 4:1 미만으로 본문 기준(4.5:1) 미달이라 대체한다. */
   --text-label: #a8a49a;         /* 7.4:1 */
   --text-placeholder: #918d84;   /* 5.6:1 */
+
+  /* 전략 연구소 캔버스 레이아웃(2026-10-28) — 영역은 면 두 단(캔버스=페이지 배경, 패널=카드 면)과
+     1px 경계로 나눈다. 노드는 패널보다 한 단 밝은 면. 강조색은 늘리지 않는다. */
+  --lab-canvas: var(--background);
+  --lab-panel: var(--card-bg);
+  --lab-node: #262521;
+  --lab-border: rgba(244, 241, 234, 0.1);
+  --lab-border-strong: rgba(244, 241, 234, 0.2);
+  --lab-border-focus: #a8a29e;
+  --lab-dot: rgba(244, 241, 234, 0.16);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -515,28 +525,6 @@ input[type=number] {
   animation: chatChoiceRise 560ms cubic-bezier(0.19, 1, 0.22, 1) both;
 }
 
-/* 인트로 헤드라인 글자 연출 — 이전에는 38ms setInterval로 글자마다 React
-   상태를 갱신했다(글자당 전체 리렌더). CSS animation-delay 캐스케이드로 대체. */
-@keyframes chatHeadlineCharIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-    filter: blur(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-    filter: blur(0);
-  }
-}
-
-.chat-headline-char {
-  display: inline-block;
-  opacity: 0;
-  animation: chatHeadlineCharIn 300ms ease-out both;
-  animation-delay: calc(var(--char-index) * 38ms);
-}
-
 /* 소프트 키보드·홈 인디케이터 위에 머무는 하단 고정 요소(대화 입력 바·되묻기 카드).
    --kb-inset은 components/layout/VisualViewportInset.tsx가 기록한다. */
 .dock-bottom {
@@ -568,12 +556,69 @@ input[type=number] {
   .chat-card-enter,
   .chat-card-enter-late,
   .chat-choice-rise,
-  .shimmer::after {
+  .shimmer::after,
+  .lab-node-pulse,
+  .lab-node-running {
     animation: none;
   }
+}
 
-  .chat-headline-char {
-    animation: none;
-    opacity: 1;
-  }
+/* ── 전략 연구소 캔버스 ── */
+.lab-icon-button {
+  display: flex;
+  height: 28px;
+  width: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--text-label);
+}
+.lab-icon-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--foreground);
+}
+.lab-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.lab-flow {
+  background: var(--lab-canvas);
+}
+.lab-flow .react-flow__edge-path {
+  stroke: var(--lab-border-strong);
+  stroke-width: 1.5;
+}
+.lab-flow .lab-edge-aux .react-flow__edge-path {
+  stroke-dasharray: 4 4;
+}
+.lab-flow .react-flow__edge-textbg {
+  fill: var(--lab-panel);
+}
+.lab-flow .react-flow__edge-text {
+  fill: var(--text-label);
+  font-size: 11px;
+  font-weight: 700;
+}
+.lab-flow .react-flow__node:focus-visible {
+  outline: none;
+}
+
+/* AI 응답이 바꾼 노드 — 짧게 한 번 강조 */
+@keyframes labNodePulse {
+  0% { box-shadow: 0 0 0 0 var(--chat-accent-ring); }
+  100% { box-shadow: 0 0 0 10px rgba(224, 128, 92, 0); }
+}
+.lab-node-pulse {
+  animation: labNodePulse 0.7s ease-out 2;
+}
+
+/* 백테스트 실행 중 — 칸이 순서대로 켜진다 */
+@keyframes labNodeRunning {
+  0%, 100% { border-color: var(--lab-border-strong); }
+  50% { border-color: var(--chat-accent); }
+}
+.lab-node-running {
+  animation: labNodeRunning 1.6s ease-in-out infinite;
+  animation-delay: var(--lab-run-delay, 0ms);
 }

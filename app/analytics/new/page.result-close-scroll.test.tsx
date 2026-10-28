@@ -8,6 +8,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import StrategyLabPage from "./page";
 import { requestStrategyLabChatView } from "@/components/strategy/strategyTemplateSession";
 
+// 실행은 상단 툴바 버튼 하나다 — 준비가 끝나(활성) 누를 수 있을 때까지 기다린다.
+const findRunButton = async (timeout = 5_000) => {
+  await waitFor(() => expect(screen.getByTestId("lab-run-button")).toBeEnabled(), { timeout });
+  return screen.getByTestId("lab-run-button");
+};
+
 const push = vi.fn();
 const back = vi.fn();
 const fetchMock = vi.fn();
@@ -227,7 +233,7 @@ describe("결과 화면 복귀 스크롤", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
-    fireEvent.click(await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5_000 }));
+    fireEvent.click(await findRunButton(5_000));
     expect(await screen.findByText("백테스트 진행 중")).toBeInTheDocument();
     run.finish();
     expect(await screen.findByTestId("backtest-dashboard")).toBeInTheDocument();

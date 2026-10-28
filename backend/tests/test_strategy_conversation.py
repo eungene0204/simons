@@ -6215,6 +6215,78 @@ def test_bare_unsupported_request_on_modify_turn_is_not_regenerated():
     assert len(calls) == 1 and result.repair_attempts == 0
 
 
+# 2026-10-28 사고 원출력 그대로 — 캔버스 블록 문장을 첫 턴으로 보냈더니 초안 없이 수정 패치만 냈다.
+_DRAFTLESS_PATCH_SENTENCE = "투자 대상을 KOSPI로 해줘"
+_DRAFTLESS_PATCH_RAW = json.dumps({
+    "intent": "MODIFY_STRATEGY",
+    "strategy": None,
+    "patches": [{"op": "replace", "path": "/universe/markets", "value": ["KOSPI"],
+                 "source_text": "투자 대상을 KOSPI로 해줘"}],
+    "unsupported_features": [],
+    "clarification_questions": [],
+    "confidence": 0.95,
+}, ensure_ascii=False)
+_DRAFTLESS_PATCH_REGENERATED = json.dumps({
+    "intent": "CREATE_STRATEGY",
+    "strategy": {"universe": {"markets": ["KOSPI"], "source_text": "투자 대상을 KOSPI로"}},
+    "patches": [],
+    "unsupported_features": [],
+    "clarification_questions": [],
+    "confidence": 0.9,
+}, ensure_ascii=False)
+
+
+def test_draftless_patch_on_create_turn_regenerates_once_as_create():
+    """초안 없는 턴의 MODIFY+patches(strategy 없음)는 오류를 LLM에 되돌려 1회 재생성한다."""
+    chat, calls = _bare_label_chat(_DRAFTLESS_PATCH_RAW, _DRAFTLESS_PATCH_REGENERATED)
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(_DRAFTLESS_PATCH_SENTENCE)
+
+    assert len(calls) == 2 and result.repair_attempts == 1
+    assert "현재 전략 초안'이 없습니다" in calls[1]
+    assert result.intent.intent == "CREATE_STRATEGY"
+    assert result.intent.strategy is not None
+    assert result.intent.strategy.universe.markets == ["KOSPI"]
+
+
+def test_draftless_patch_regeneration_turn_is_not_interpretation_failure(monkeypatch):
+    """재생성본으로 턴이 이어진다 — "해석하지 못했어요"(None) 대신 투자 대상이 반영된 결과가 나온다."""
+    import llm_backend
+    from strategy_conversation import primary
+
+    monkeypatch.setattr(llm_backend, "is_openrouter", lambda: False)
+    chat, calls = _bare_label_chat(_DRAFTLESS_PATCH_RAW, _DRAFTLESS_PATCH_REGENERATED)
+    monkeypatch.setattr(primary, "_interpreter_singleton",
+                        StrategyInterpreter(chat_fn=chat, model="stub"))
+
+    result = primary.run_primary_parse(_DRAFTLESS_PATCH_SENTENCE)
+
+    assert len(calls) == 2
+    assert result is not None
+    assert result["parsed"].universe == ["KOSPI"]
+
+
+def test_draftless_patch_still_draftless_after_regeneration_is_returned_as_is():
+    """재생성본도 같은 모양이면 더 요청하지 않는다(기존 해석 실패 안내 경로)."""
+    chat, calls = _bare_label_chat(_DRAFTLESS_PATCH_RAW, _DRAFTLESS_PATCH_RAW)
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(_DRAFTLESS_PATCH_SENTENCE)
+
+    assert len(calls) == 2 and result.repair_attempts == 1
+    assert result.intent.intent == "MODIFY_STRATEGY" and result.intent.strategy is None
+
+
+def test_patches_on_modify_turn_with_draft_are_not_regenerated():
+    """초안이 있는 수정 턴의 patches는 정상 출력이다."""
+    chat, calls = _bare_label_chat(_DRAFTLESS_PATCH_RAW, _DRAFTLESS_PATCH_REGENERATED)
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(
+        _DRAFTLESS_PATCH_SENTENCE, draft={"universe": {"markets": ["KOSDAQ"]}})
+
+    assert len(calls) == 1 and result.repair_attempts == 0
+    assert result.intent.intent == "MODIFY_STRATEGY"
+
+
 def test_fabrication_guard_drops_whole_input_quote_silently():
     """가드 단독: 입력 전체 인용 조건은 안내 없이 빠지고, 정상 인용 조건은 남는다."""
     from strategy_conversation.primary import _drop_fabricated_conditions

@@ -7,6 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import StrategyLabPage from "./page";
 
+// 실행은 상단 툴바 버튼 하나다 — 준비가 끝나(활성) 누를 수 있을 때까지 기다린다.
+const findRunButton = async (timeout = 5_000) => {
+  await waitFor(() => expect(screen.getByTestId("lab-run-button")).toBeEnabled(), { timeout });
+  return screen.getByTestId("lab-run-button");
+};
+
 const push = vi.fn();
 const fetchMock = vi.fn();
 
@@ -145,7 +151,7 @@ describe("유지/변경 체크박스 선택", () => {
       target: { value: "KOSPI에서 ROE 10% 이상 골든크로스 매수" },
     });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
-    await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5000 });
+    await findRunButton(5000);
 
     fireEvent.change(await screen.findByRole("textbox"), {
       target: { value: "조건을 바꾸고 싶어" },

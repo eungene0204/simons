@@ -184,6 +184,15 @@ function parseFirstNumber(choice: string): number | null {
   return match ? Number(match[0]) : null;
 }
 
+/** 매수 칸 칩이 무엇을 정하는가 — 진입 신호·종목 필터·순위 선정. 칩=값 결속 표에 있는 칩만 답한다
+ *  (캔버스 블록을 칸별로 가를 때 쓴다 — 칩 문자열을 표에서 찾을 뿐 의미를 읽지 않는다). */
+export function entryChoiceKind(choice: string): "signal" | "filter" | "ranking" | null {
+  if (ENTRY_SIGNAL_BY_CHOICE[choice]) return "signal";
+  if (ENTRY_FILTER_BY_CHOICE[choice]) return "filter";
+  if (ENTRY_RANKING_BY_CHOICE[choice]) return "ranking";
+  return null;
+}
+
 export function applyDeterministicConditionChoice({
   parsed,
   condition,

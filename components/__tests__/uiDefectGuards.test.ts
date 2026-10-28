@@ -110,10 +110,11 @@ describe("UI 결함 회귀 가드(2026-09-08)", () => {
     expect(css).toMatch(/\.dock-bottom \{\s*bottom: calc\(1rem \+ env\(safe-area-inset-bottom, 0px\) \+ var\(--kb-inset, 0px\)\);/);
   });
 
+  // 캔버스 레이아웃(2026-10-28)부터 입력창·되묻기 카드·'대화 종료'는 하단 채팅 패널 안에 놓여
+  // 화면에 고정(fixed)된 하단 요소가 없다. 다시 생기면 bottom-4 대신 dock-bottom을 써야 한다.
   it("대화 화면의 하단 고정 요소는 bottom-4 대신 dock-bottom을 쓴다", () => {
     const src = readFileSync(path.join(ROOT, "app/analytics/new/page.tsx"), "utf8");
     expect(src).not.toMatch(/fixed bottom-4/);
-    expect((src.match(/fixed dock-bottom/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 
   it("루트 레이아웃은 viewport-fit=cover와 키보드 인셋 추적기를 갖는다", () => {

@@ -9,6 +9,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import StrategyLabPage from "./page";
 
+// 실행은 상단 툴바 버튼 하나다 — 준비가 끝나(활성) 누를 수 있을 때까지 기다린다.
+const findRunButton = async (timeout = 5_000) => {
+  await waitFor(() => expect(screen.getByTestId("lab-run-button")).toBeEnabled(), { timeout });
+  return screen.getByTestId("lab-run-button");
+};
+
 const push = vi.fn();
 const fetchMock = vi.fn();
 
@@ -216,7 +222,7 @@ describe("deterministic strategy confirmation", () => {
 });
 
 // ── 확정 직후 전략 그래프 자동 표시 ─────────────────────────────────────────────
-describe("confirmed strategy graph card", () => {
+describe("confirmed strategy graph on the canvas", () => {
   const META = { version: "t", indicators: {}, bindings: {}, classes: [], concepts: [] };
   const PROMPT =
     "영업이익 흑자인 기업을 코스피에서 최대 5종목, 매월 리밸런싱, 손절 10%, " +
@@ -286,82 +292,87 @@ describe("confirmed strategy graph card", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("shows the graph automatically after a successful confirm, using only the public metadata endpoint", async () => {
+  // 캔버스 레이아웃(2026-10-28): 전략 구조 그래프는 대화 카드가 아니라 가운데 캔버스가 그린다. 입력 규칙은
+  // 같다 — 확정 뒤에는 확정 응답의 스냅샷, 확정 전에는 이 턴 parsed의 초안 컴파일 한 쌍.
+  const canvas = () => screen.getByTestId("lab-canvas");
+  const waitOrigin = (origin: string) => waitFor(() => expect(canvas()).toHaveAttribute("data-origin", origin));
+
+  // 캔버스 블록은 올리는 즉시 전략에 포함된다 — 해석 요청 없이 화면의 전략이 바뀌고, 캔버스가 그 전략으로 다시 그려진다.
+  it("includes a picked canvas block directly in the strategy and redraws the canvas without a parse call", async () => {
+    install();
+    resetGraphMetaForTests();
+    render(<StrategyLabPage />);
+    await screen.findByRole("textbox");
+
+    fireEvent.click(screen.getByRole("button", { name: "블록 추가" }));
+    const tray = screen.getByTestId("lab-block-tray");
+    fireEvent.click(within(tray).getByRole("tab", { name: "투자 대상" }));
+    fireEvent.click(within(tray).getByRole("button", { name: "코스닥" }));
+
+    // 초안 컴파일(LLM 없음)이 바뀐 전략을 받아 캔버스를 그린다.
+    await waitFor(() => expect(calls.draftCompile).toBeGreaterThan(0));
+    const draftCall = fetchMock.mock.calls.find(([input, init]) => String(input) === "/api/strategy/compile" && isDraftPreview(init as RequestInit));
+    expect(JSON.parse(String((draftCall?.[1] as RequestInit).body)).parsed.universe).toEqual(["KOSDAQ"]);
+    await waitOrigin("draft");
+    expect(calls.parse).toBe(0);
+    expect(await screen.findByTestId("clarification-card")).toBeInTheDocument();
+  });
+
+  it("shows the confirmed snapshot on the canvas after a successful confirm, using only the public metadata endpoint", async () => {
     install();
     resetGraphMetaForTests();
     render(<StrategyLabPage />);
     const confirm = await reachConfirmation();
-    // Nothing is shown before the confirm succeeds.
-    expect(screen.queryByTestId("confirmed-strategy-graph")).not.toBeInTheDocument();
+    // Before the confirm succeeds the canvas shows the draft, never a confirmed graph.
+    expect(canvas()).not.toHaveAttribute("data-origin", "confirmed");
     fireEvent.click(confirm);
 
-    const card = await screen.findByTestId("confirmed-strategy-graph");
-    expect(within(card).getByRole("heading", { name: "확정된 전략" })).toBeInTheDocument();
-    expect(await within(card).findByTestId("strategy-graph-canvas")).toBeInTheDocument();
+    await waitOrigin("confirmed");
+    expect(await within(canvas()).findByTestId("lab-node-risk")).toBeInTheDocument();
     expect(calls.compile).toBe(1);
     expect(calls.urls.filter((u) => u.includes("ontology") || u.includes("admin"))).toEqual([]);
     // The graph adds exactly one request (public metadata); the existing post-confirm coach call is unchanged.
     expect(calls.urls.filter((u) => u.includes("graph"))).toEqual(["/api/strategy/graph-meta"]);
     expect(calls.urls.filter((u) => u === "/api/strategy/parse/stream")).toHaveLength(1);
-    // The existing run button still follows the confirmed card.
-    expect(screen.getByRole("button", { name: "백테스트 시작하기" })).toBeEnabled();
+    // Both run entry points are ready: the chat button after the confirmed card and the toolbar button.
+    expect(screen.getByTestId("lab-run-button")).toBeEnabled();
+    expect(screen.getByTestId("lab-run-button")).toBeEnabled();
   });
 
-  it("draws the understood-so-far strategy as a graph instead of the text summary while questions are open", async () => {
+  it("draws the understood-so-far strategy on the canvas while questions are open", async () => {
     install();
     resetGraphMetaForTests();
     render(<StrategyLabPage />);
     fireEvent.change(await screen.findByRole("textbox"), { target: { value: PROMPT } });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
-    // The take-profit question is still open: the card is a draft graph, not the text list.
-    const draft = await screen.findByTestId("draft-strategy-graph");
-    expect(within(draft).getByRole("heading", { name: "현재까지 이해한 전략입니다" })).toBeInTheDocument();
-    expect(await within(draft).findByTestId("strategy-graph-canvas")).toBeInTheDocument();
-    expect(screen.queryByTestId("builder-strategy-summary")).not.toBeInTheDocument();
-    // The graph is built from this turn's structured data only (no confirmed graph yet).
-    expect(screen.queryByTestId("confirmed-strategy-graph")).not.toBeInTheDocument();
+    // The take-profit question is still open: the canvas shows the draft structure.
+    await waitOrigin("draft");
+    expect(await within(canvas()).findByTestId("lab-node-universe")).toBeInTheDocument();
+    // An open question blocks the toolbar run button and says why.
+    expect(screen.getByTestId("lab-run-button")).toBeDisabled();
+    expect(screen.getByText("채팅의 질문에 먼저 답해 주세요.")).toBeInTheDocument();
     // Only the draft preview compile ran — the real confirm call has not been made.
     expect(calls.compile).toBe(0);
     expect(calls.draftCompile).toBeGreaterThan(0);
-    // Next step: answering moves the same flow forward and the confirmed graph appears.
+    // Next step: answering moves the same flow forward and the canvas switches to the confirmed snapshot.
     fireEvent.click(await screen.findByRole("button", { name: "익절 30%" }));
     fireEvent.click(await screen.findByRole("button", { name: "이 전략으로 확정" }));
-    const confirmed = await screen.findByTestId("confirmed-strategy-graph");
-    await within(confirmed).findByTestId("strategy-graph-canvas");
-    // The confirmed graph continues the draft: the root the draft already drew is not replayed.
-    expect(confirmed.querySelector('[data-item-key="node:strategy"] .sg-enter')).toBeNull();
+    await waitOrigin("confirmed");
   });
 
-  it("shows the confirmed summary as horizontal chips instead of a vertical list", async () => {
+  it("does not draw a summary card or a chat start button after confirm — the toolbar runs the backtest", async () => {
     install();
     resetGraphMetaForTests();
     render(<StrategyLabPage />);
     fireEvent.click(await reachConfirmation());
-    const summary = await screen.findByTestId("confirmed-strategy-summary");
-    const chips = within(summary).getByTestId("builder-strategy-chips");
-    expect(chips.tagName).toBe("UL");
-    expect(chips.className).toContain("flex-wrap");
-    expect(chips.querySelectorAll("li").length).toBeGreaterThan(3);
-    expect(summary.querySelector("dl")).toBeNull();
-    // each chip carries its label and its value together
-    expect(within(chips).getByText("유니버스").closest("li")).toHaveTextContent("KOSPI");
-  });
-
-  it("titles the confirmed block '확정된 전략' with the view menu beside the title and no draft heading", async () => {
-    install();
-    resetGraphMetaForTests();
-    render(<StrategyLabPage />);
-    fireEvent.click(await reachConfirmation());
-    const card = await screen.findByTestId("confirmed-strategy-graph");
-    await within(card).findByTestId("strategy-graph-canvas");
-    const header = within(card).getByRole("heading", { name: "확정된 전략" }).parentElement as HTMLElement;
-    // the graph/text menu sits in the same header row as the title
-    expect(within(header).getByRole("button", { name: /그래프/ })).toBeInTheDocument();
-    expect(within(header).getByRole("button", { name: /텍스트로 보기/ })).toBeInTheDocument();
-    // the summary chips live inside the same block, and the draft heading is gone
-    expect(within(card).getByTestId("builder-strategy-chips")).toBeInTheDocument();
-    expect(within(card).queryByText("현재까지 이해한 전략입니다")).not.toBeInTheDocument();
-    expect(screen.getAllByTestId("confirmed-strategy-summary")).toHaveLength(1);
+    await waitOrigin("confirmed");
+    expect(screen.queryByTestId("confirmed-strategy-summary")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("backtest-action")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "백테스트 시작하기" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("lab-run-button")).toBeEnabled();
+    // 확정 뒤에도 지난 대화(사용자 말풍선)는 그대로 남는다 — 확정 응답 말풍선만 그리지 않는다.
+    expect(screen.getByTestId("lab-chat-scroll")).toBeInTheDocument();
+    expect(screen.getAllByTestId("user-chat-bubble").length).toBeGreaterThan(0);
   });
 
   it("shows the normalized values of the confirm response, not the draft the user clicked on", async () => {
@@ -372,10 +383,10 @@ describe("confirmed strategy graph card", () => {
     resetGraphMetaForTests();
     render(<StrategyLabPage />);
     fireEvent.click(await reachConfirmation("익절 30%"));
-    const card = await screen.findByTestId("confirmed-strategy-graph");
-    await within(card).findByTestId("strategy-graph-canvas");
-    expect(within(card).getByText("익절 +25%")).toBeInTheDocument();
-    expect(within(card).queryByText("익절 +30%")).not.toBeInTheDocument();
+    await waitOrigin("confirmed");
+    // 노드 내용은 그래프 계산 다음 effect에서 갱신된다 — 값이 그려질 때까지 기다린다.
+    expect(await within(canvas()).findByText("익절 +25%")).toBeInTheDocument();
+    expect(within(canvas()).queryByText("익절 +30%")).not.toBeInTheDocument();
   });
 
   it("shows no confirmed graph when the confirm fails", async () => {
@@ -385,7 +396,7 @@ describe("confirmed strategy graph card", () => {
     fireEvent.click(await reachConfirmation());
     await waitFor(() => expect(calls.compile).toBe(1));
     await screen.findByText(/검증 실패/);
-    expect(screen.queryByTestId("confirmed-strategy-graph")).not.toBeInTheDocument();
+    expect(canvas()).not.toHaveAttribute("data-origin", "confirmed");
   });
 
   it("does not show a confirmed graph when the confirm response still needs an answer", async () => {
@@ -397,10 +408,10 @@ describe("confirmed strategy graph card", () => {
     fireEvent.click(await reachConfirmation());
     await waitFor(() => expect(calls.compile).toBe(1));
     await waitFor(() => expect(screen.queryByRole("button", { name: "이 전략으로 확정" })).not.toBeInTheDocument());
-    expect(screen.queryByTestId("confirmed-strategy-graph")).not.toBeInTheDocument();
+    expect(canvas()).not.toHaveAttribute("data-origin", "confirmed");
   });
 
-  it("creates one graph for rapid repeated clicks", async () => {
+  it("confirms once for rapid repeated clicks", async () => {
     install();
     resetGraphMetaForTests();
     render(<StrategyLabPage />);
@@ -408,9 +419,9 @@ describe("confirmed strategy graph card", () => {
     fireEvent.click(confirm);
     fireEvent.click(confirm);
     fireEvent.click(confirm);
-    await screen.findByTestId("confirmed-strategy-graph");
+    await waitOrigin("confirmed");
     await waitFor(() => expect(calls.compile).toBe(1));
-    expect(screen.getAllByTestId("confirmed-strategy-graph")).toHaveLength(1);
+    expect(screen.queryByTestId("confirmed-strategy-summary")).not.toBeInTheDocument();
   });
 
   it("retries only the metadata after a graph failure and never repeats confirm or parse", async () => {
@@ -423,8 +434,9 @@ describe("confirmed strategy graph card", () => {
     fireEvent.click(await reachConfirmation());
     const banner = await screen.findByTestId("graph-meta-error");
     // The confirmation itself stays successful: structure is shown and the run button remains.
-    expect(screen.getByTestId("strategy-graph-canvas")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "백테스트 시작하기" })).toBeEnabled();
+    await waitOrigin("confirmed");
+    expect(await within(canvas()).findByTestId("lab-node-universe")).toBeInTheDocument();
+    expect(screen.getByTestId("lab-run-button")).toBeEnabled();
     const parseBefore = calls.parse;
     metaOk = true;
     fireEvent.click(within(banner).getByRole("button", { name: "다시 시도" }));
@@ -433,14 +445,13 @@ describe("confirmed strategy graph card", () => {
     expect(calls.parse).toBe(parseBefore);
   });
 
-  it("keeps the confirmed graph unchanged when the strategy is later confirmed again as B", async () => {
+  it("switches the canvas to the new snapshot when the strategy is later confirmed again as B", async () => {
     install();
     resetGraphMetaForTests();
     render(<StrategyLabPage />);
     fireEvent.click(await reachConfirmation("익절 30%"));
-    const first = await screen.findByTestId("confirmed-strategy-graph");
-    await within(first).findByTestId("strategy-graph-canvas");
-    expect(within(first).getByText("익절 +30%")).toBeInTheDocument();
+    await waitOrigin("confirmed");
+    expect(await within(canvas()).findByText("익절 +30%")).toBeInTheDocument();
 
     // A modified draft B (take profit 20) arrives through the normal conversation, then is confirmed.
     fireEvent.change(await screen.findByRole("textbox"), { target: { value: "익절 20%로 바꿔줘" } });
@@ -448,13 +459,94 @@ describe("confirmed strategy graph card", () => {
     fireEvent.click(await screen.findByRole("button", { name: "익절 20%" }));
     fireEvent.click(await screen.findByRole("button", { name: "이 전략으로 확정" }));
 
-    await waitFor(() => expect(screen.getAllByTestId("confirmed-strategy-graph")).toHaveLength(2));
-    const [a, b] = screen.getAllByTestId("confirmed-strategy-graph");
-    await within(b).findByTestId("strategy-graph-canvas");
-    expect(within(a).getByText("익절 +30%")).toBeInTheDocument();
-    expect(within(a).queryByText("익절 +20%")).not.toBeInTheDocument();
-    expect(within(b).getByText("익절 +20%")).toBeInTheDocument();
-    expect(calls.compile).toBe(2);
+    await waitFor(() => expect(calls.compile).toBe(2));
+    await waitFor(() => expect(within(canvas()).getByText("익절 +20%")).toBeInTheDocument());
+    expect(canvas()).toHaveAttribute("data-origin", "confirmed");
+    expect(within(canvas()).queryByText("익절 +30%")).not.toBeInTheDocument();
+  });
+
+  it("runs the backtest from the toolbar button", async () => {
+    install();
+    resetGraphMetaForTests();
+    render(<StrategyLabPage />);
+    fireEvent.click(await reachConfirmation("익절 30%"));
+    await waitOrigin("confirmed");
+    const run = screen.getByTestId("lab-run-button");
+    expect(run).toHaveTextContent("백테스트 실행");
+    fireEvent.click(run);
+    expect(await screen.findByTestId("backtest-dashboard")).toBeInTheDocument();
+    expect(calls.backtest).toBe(1);
+  });
+
+  // 캔버스의 지우기는 화면 상태만 지우지 않는다 — 대화의 '다시 정하기'와 같은 경로(항목 비우기 → 되묻기)다.
+  it("removes a strategy item from the canvas through the re-decide conversation flow", async () => {
+    install();
+    resetGraphMetaForTests();
+    render(<StrategyLabPage />);
+    fireEvent.click(await reachConfirmation("익절 30%"));
+    await waitOrigin("confirmed");
+
+    fireEvent.doubleClick(await within(canvas()).findByTestId("lab-node-risk"));
+    fireEvent.click(await screen.findByRole("button", { name: "지우기" }));
+    const dialog = await screen.findByRole("dialog", { name: "위험 관리에서 지울 항목" });
+    const takeProfit = within(dialog).getByText("+30%").closest("li") as HTMLElement;
+    fireEvent.click(within(takeProfit).getByRole("button", { name: "지우기" }));
+
+    expect(await screen.findByText(/익절 \+30% 다시 정하기/)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "익절 20%" })).toBeInTheDocument();
+    expect(calls.parse).toBe(1);
+  });
+
+  // 조건 노드를 선택하고 Backspace를 누르면 "지울까요?" 확인을 받고, 확인하면 대화의 '다시 정하기' 경로로 지운다.
+  it("asks for confirmation when Backspace is pressed on a selected condition node, then removes it", async () => {
+    install();
+    resetGraphMetaForTests();
+    render(<StrategyLabPage />);
+    fireEvent.click(await reachConfirmation("익절 30%"));
+    await waitOrigin("confirmed");
+
+    const nodes = await within(canvas()).findAllByTestId("lab-condition-node");
+    const takeProfit = nodes.find((n) => n.textContent?.includes("익절"))!;
+    fireEvent.click(takeProfit);
+    fireEvent.keyDown(canvas(), { key: "Backspace" });
+
+    const alert = await screen.findByRole("alertdialog");
+    expect(within(alert).getByText(/지울까요\?/)).toBeInTheDocument();
+    fireEvent.click(within(alert).getByRole("button", { name: "확인" }));
+
+    expect(await screen.findByText(/익절 \+30% 다시 정하기/)).toBeInTheDocument();
+  });
+
+  // 노드를 더블클릭하면 상세 패널에서 그 칸의 값을 바로 바꾼다 — 해석 요청 없이 전략에 반영되고 다시 확정을 묻는다.
+  it("edits a condition value from the double-click panel and applies it to the strategy without a parse call", async () => {
+    install();
+    resetGraphMetaForTests();
+    render(<StrategyLabPage />);
+    fireEvent.click(await reachConfirmation("익절 30%"));
+    await waitOrigin("confirmed");
+
+    fireEvent.doubleClick(await within(canvas()).findByTestId("lab-node-risk"));
+    const editors = await screen.findAllByTestId("lab-item-editor");
+    // 상세 패널은 설정만 보여 준다 — 입력·출력 칸은 없다.
+    expect(screen.queryByText("입력")).not.toBeInTheDocument();
+    expect(screen.queryByText("출력")).not.toBeInTheDocument();
+    const stopLoss = editors.find((e) => e.textContent?.includes("손절"))!;
+    const input = within(stopLoss).getByRole("spinbutton");
+    expect(input).toHaveValue(10);
+    const apply = within(stopLoss).getByRole("button", { name: "적용" });
+    expect(apply).toBeDisabled();
+    // 범위를 벗어난 값은 적용할 수 없다.
+    fireEvent.change(input, { target: { value: "150" } });
+    expect(apply).toBeDisabled();
+    fireEvent.change(input, { target: { value: "7" } });
+    fireEvent.click(apply);
+
+    // 바뀐 전략은 초안 컴파일로 다시 그려지고(확정 스냅샷과 달라짐), 채팅은 다시 확정을 묻는다.
+    await waitOrigin("draft");
+    const draftCall = [...fetchMock.mock.calls].reverse().find(([u, init]) => String(u) === "/api/strategy/compile" && isDraftPreview(init as RequestInit));
+    expect(JSON.parse(String((draftCall?.[1] as RequestInit).body)).parsed.stop_loss_pct).toBe(7);
+    expect(await screen.findByRole("button", { name: "이 전략으로 확정" })).toBeInTheDocument();
+    expect(calls.parse).toBe(1);
   });
 
   it("gives the result screen the executed request, separate from the confirmed snapshot", async () => {
@@ -462,8 +554,8 @@ describe("confirmed strategy graph card", () => {
     resetGraphMetaForTests();
     render(<StrategyLabPage />);
     fireEvent.click(await reachConfirmation("익절 30%"));
-    await screen.findByTestId("confirmed-strategy-graph");
-    fireEvent.click(await screen.findByRole("button", { name: "백테스트 시작하기" }));
+    await waitOrigin("confirmed");
+    fireEvent.click(await findRunButton());
     expect(await screen.findByTestId("backtest-dashboard")).toBeInTheDocument();
     expect(calls.backtest).toBe(1);
     expect(screen.getByTestId("dash-graph-origin")).toHaveTextContent("executed");

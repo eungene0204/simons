@@ -15,6 +15,12 @@ import {
 } from "./backtestReadiness";
 import { applyDeterministicConditionChoice } from "./deterministicConditionFlow";
 
+// 실행은 상단 툴바 버튼 하나다 — 준비가 끝나(활성) 누를 수 있을 때까지 기다린다.
+const findRunButton = async (timeout = 5_000) => {
+  await waitFor(() => expect(screen.getByTestId("lab-run-button")).toBeEnabled(), { timeout });
+  return screen.getByTestId("lab-run-button");
+};
+
 const push = vi.fn();
 const fetchMock = vi.fn();
 const scrollToMock = vi.fn();
@@ -504,9 +510,11 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(screen.getByRole("button", { name: "코스닥" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "코스피·코스닥 전체" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "ETF" })).toBeInTheDocument();
-    // 유니버스는 제시한 다섯 개가 선택지의 전부다 — '직접 입력'을 붙이면 없는 여지를 만든다.
+    // 유니버스는 제시한 다섯 개가 선택지의 전부다 — '직접 입력'을 붙이면 없는 여지를 만든다(카드 안 입력칸도 없다).
+    // 왼쪽 채팅 입력창은 칩이 떠 있어도 남는다(2026-10-28).
     expect(screen.queryByRole("button", { name: "직접 입력" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("clarification-card").every((card) => card.querySelector("input, textarea") === null)).toBe(true);
+    expect(screen.getByTestId("lab-chat-input")).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/builder/step")).toBe(false);
     expect(
       fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/coach")
@@ -605,7 +613,7 @@ describe("StrategyLabPage scroll behavior", () => {
       expect(compileBodies).toHaveLength(1);
     });
     expect(parseCallCount).toBe(1);
-    expect(screen.queryByRole("button", { name: "백테스트 시작하기" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("lab-run-button")).toBeDisabled();
 
     compileResponse.resolve(createJsonResponse({
       parsed: compileBodies[0].parsed,
@@ -799,16 +807,23 @@ describe("StrategyLabPage scroll behavior", () => {
         "다음으로 포트폴리오를 얼마나 자주 다시 구성할지 정해볼까요?",
       ),
     ).toBeInTheDocument();
-    // 칩으로만 답하는 동안 되묻기 카드가 화면 하단을 차지하고, '대화 종료'는 카드 안에 있다.
+    // 칩으로만 답하는 동안 되묻기 카드가 채팅 패널 오른쪽 칸(대화는 왼쪽 칸)을 차지하고, '대화 종료'는
+    // 채팅 패널 머리줄에 하나만 있다(캔버스 레이아웃 2026-10-28).
     const clarificationCard = screen.getByTestId("clarification-card");
     expect(clarificationCard.dataset.docked).toBe("true");
-    expect(clarificationCard.className).toContain("fixed dock-bottom");
+    expect(screen.getByTestId("lab-chat-scroll")).not.toContainElement(clarificationCard);
+    expect(screen.getByTestId("lab-chat-aside")).toContainElement(clarificationCard);
+    // 채팅 입력창은 카드가 오른쪽 칸에 떠 있어도 왼쪽 칸에 남는다(2026-10-28) — 무엇이든 입력할 수 있다.
+    expect(screen.getByTestId("lab-chat-input")).toBeInTheDocument();
+    expect(clarificationCard).not.toContainElement(screen.getByTestId("lab-chat-input"));
     const endChatButtons = screen.getAllByRole("button", { name: "대화 종료" });
     expect(endChatButtons).toHaveLength(1);
-    expect(clarificationCard).toContainElement(endChatButtons[0]);
+    expect(clarificationCard).not.toContainElement(endChatButtons[0]);
 
     const userBubblesBeforeChip = screen.getAllByTestId("user-chat-bubble").length;
     fireEvent.click(screen.getByRole("button", { name: "리밸런싱 안 함" }));
+    // 칩을 누른 직후 응답을 기다리는 동안에도 오른쪽 칸이 그대로다(좌우가 접혔다 펴지지 않는다).
+    expect(screen.getByTestId("lab-chat-aside")).toBeInTheDocument();
 
     expect(
       await screen.findByText(
@@ -829,7 +844,7 @@ describe("StrategyLabPage scroll behavior", () => {
     ).toHaveLength(1);
   });
 
-  it("단일 종목 빌더를 재파싱하지 않고 없음 답변 뒤 완성해 실행 버튼을 한 번 표시한다", async () => {
+  it("단일 종목 빌더를 재파싱하지 않고 없음 답변 뒤 완성해 툴바 실행 버튼을 켠다", async () => {
     let parseCallCount = 0;
     let builderCallCount = 0;
     const filterQuestion = "매수에 추가 필터를 넣을까요?";
@@ -947,14 +962,15 @@ describe("StrategyLabPage scroll behavior", () => {
     fireEvent.click(screen.getByRole("button", { name: "없음" }));
 
     // 확정 즉시 실행 버튼 — 요약 카드·'완료' 검증 카드 없이(2026-09-28 지시).
-    const runButton = await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5_000 });
+    const runButton = await findRunButton(5_000);
     // 되묻기 카드는 **지금 답할 질문 하나만** 보여준다(빌더 질문도 같은 카드로 나가면서
     // 이 규칙을 함께 따른다, 2026-08-16) — 답이 끝난 질문은 카드째 사라진다.
     // 같은 질문이 두 번 남는 일도 그래서 없다.
     expect(screen.queryAllByText(filterQuestion)).toHaveLength(0);
-    expect(screen.getAllByRole("button", { name: "백테스트 시작하기" })).toHaveLength(1);
+    expect(screen.getAllByTestId("lab-run-button")).toHaveLength(1);
     expect(screen.queryByTestId("strategy-coach-bubble")).not.toBeInTheDocument();
-    expect(screen.getByTestId("backtest-action")).toContainElement(runButton);
+    expect(runButton).toBeEnabled();
+    expect(screen.queryByTestId("backtest-action")).not.toBeInTheDocument();
     expect(parseCallCount).toBe(1);
     expect(builderCallCount).toBe(4);
   });
@@ -1181,10 +1197,10 @@ describe("StrategyLabPage scroll behavior", () => {
     fireEvent.click(await screen.findByRole("button", { name: "EMA200 위에서만" }));
     fireEvent.click(await screen.findByRole("button", { name: "10% 손절·20% 익절" }));
 
-    await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5_000 });
+    await findRunButton(5_000);
     expect(screen.queryByText("어떤 이동평균을 쓸까요?")).not.toBeInTheDocument();
     expect(
-      screen.getAllByRole("button", { name: "백테스트 시작하기" })
+      screen.getAllByTestId("lab-run-button")
     ).toHaveLength(1);
     expect(builderCalls).toHaveLength(2);
   });
@@ -1284,9 +1300,9 @@ describe("StrategyLabPage scroll behavior", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "10% 손절·20% 익절" }));
 
-    await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5_000 });
+    await findRunButton(5_000);
     expect(screen.queryByText("어떤 이동평균을 쓸까요?")).not.toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "백테스트 시작하기" })).toHaveLength(1);
+    expect(screen.getAllByTestId("lab-run-button")).toHaveLength(1);
     expect(builderCalls).toHaveLength(2);
   });
 
@@ -1455,7 +1471,7 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(screen.queryByRole("button", { name: "전 단계" })).not.toBeInTheDocument();
   });
 
-  it("scrolls to the bottom when a follow-up coach reply updates the existing assistant message", async () => {
+  it("scrolls the chat panel to the end when a follow-up coach reply updates the existing assistant message", async () => {
     const followUpResponse = createDeferred<Response>();
     let classifyCalls = 0;
 
@@ -1514,16 +1530,19 @@ describe("StrategyLabPage scroll behavior", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
-    await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5000 });
+    await findRunButton(5000);
     expect(
-      screen.getAllByRole("button", { name: "백테스트 시작하기" })
+      screen.getAllByTestId("lab-run-button")
     ).toHaveLength(1);
 
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "어떻게 개선할까?" } });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
     expect(await screen.findByText("검증 중...")).toBeInTheDocument();
-    scrollToMock.mockClear();
+    // 대화는 하단 채팅 패널 안에서 스크롤된다 — 패널 요소를 대화 끝으로 맞추는지 본다.
+    const panelScrollTo = vi.fn();
+    const chatScroll = screen.getByTestId("lab-chat-scroll");
+    chatScroll.scrollTo = panelScrollTo as unknown as typeof chatScroll.scrollTo;
 
     followUpResponse.resolve(
       createJsonResponse({ message: "후속 코치 응답입니다. 손절 기준을 더 명확히 해보세요." })
@@ -1536,7 +1555,7 @@ describe("StrategyLabPage scroll behavior", () => {
     ).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(scrollToMock).toHaveBeenCalled();
+      expect(panelScrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: chatScroll.scrollHeight }));
     });
   });
 
@@ -1592,7 +1611,7 @@ describe("StrategyLabPage scroll behavior", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
-    await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5000 });
+    await findRunButton(5000);
 
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "익절을 추가해 볼까?" } });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
@@ -1658,7 +1677,7 @@ describe("StrategyLabPage scroll behavior", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
 
-    await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5000 });
+    await findRunButton(5000);
     const parseCallsBeforeFollowUp = fetchMock.mock.calls.filter(
       ([input]) => String(input) === "/api/strategy/parse/stream",
     ).length;

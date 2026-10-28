@@ -58,7 +58,6 @@ describe("감속 설정(prefers-reduced-motion) 존중", () => {
       ".animate-dot-fill",
       ".chat-enter",
       ".chat-card-enter",
-      ".chat-headline-char",
       ".shimmer::after",
     ]) {
       expect(covered).toContain(selector);

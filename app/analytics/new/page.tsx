@@ -12,7 +12,6 @@ import {
   forwardRef,
   memo,
   Suspense,
-  Fragment,
   type ReactNode,
 } from "react";
 import { createPortal, flushSync } from "react-dom";
@@ -24,7 +23,6 @@ import { useEmailLoginEnabled } from "@/components/providers/EmailLoginOptionPro
 import { backtestRunParamsFromRequest, trackEvent } from "@/lib/analytics";
 import { stripRegionPrefix, type Region } from "@/lib/geo/region";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import { StrategyExampleTabs } from "@/components/strategy/StrategyExampleTabs";
 import {
   PENDING_STRATEGY_PROMPT_KEY,
   STRATEGY_CHAT_STATE_KEY,
@@ -33,7 +31,8 @@ import {
 import { BacktestResult, type OptimizationResponse } from "@/types/strategy";
 import { mapRawBacktestResult } from "./backtestResultMapper";
 import { buildBacktestResultFacts } from "./backtestResultFacts";
-import { ChatLogPanel } from "./ChatLogPanel";
+import StrategyLabLayout from "@/components/strategy/lab/StrategyLabLayout";
+import { useLabGraph } from "@/components/strategy/lab/useLabGraph";
 import { readStrategyPromptParam, withoutStrategyPromptParam } from "@/lib/strategy/strategyOpenLink";
 import {
   chatStorageOwnerOf,
@@ -49,13 +48,11 @@ import {
 } from "./chatLog";
 import {
   ArrowUp,
-  ArrowRight,
   ArrowLeft,
   ArrowsClockwise,
   CaretDown,
   CheckCircle,
   Warning,
-  ChartLineUp,
   Question,
   Info,
   EnvelopeSimple,
@@ -77,7 +74,7 @@ import {
   type AdvisorWalkForwardSettings,
   type StrategyBacktestRequest,
 } from "./parsedStrategyMerge";
-import { computeChatScrollDelta, scrollChatViewToEnd, scrollChatViewToTop } from "./chatScroll";
+import { scrollChatViewToTop } from "./chatScroll";
 import {
   appendChangeLog,
   applyRollback,
@@ -109,10 +106,11 @@ import {
 } from "./strategyItems";
 import {
   getNextMissingBacktestCondition,
-  isBacktestReady,
   isClosedChoiceSlot,
   promptForSlot,
   SINGLE_ASSET_ENTRY_CHIPS,
+  SLOT_LABELS,
+  type MissingBacktestCondition,
 } from "./backtestReadiness";
 import { applyRunWindow, backtestConfigOptions,
   applyRunCosts,
@@ -125,7 +123,6 @@ import { choiceOptionHelp, helpBubbleWidth, placeHelpBubble } from "./choiceOpti
 import { groupChoiceOptions } from "./choiceOptionGroups";
 import { buildCoachSessionBody, normalizeCoachMessage, validationIssueMessage } from "./coachMessage";
 import { parseCoachSegments } from "./coachText";
-import { runButtonPlacement } from "./runButtonPlacement";
 import { parseSseBlocks } from "./sseEvents";
 import { runWalkForwardStream, type WalkForwardProgressHandler } from "./walkForwardStream";
 import { installBacktestResultBackHandler } from "./backtestResultHistory";
@@ -158,13 +155,14 @@ import {
 import {
   applyDeterministicConditionChoice,
   chipAnswersGateSlot,
+  type DeterministicConditionChoice,
 } from "./deterministicConditionFlow";
+import { applyCanvasBlock, canvasBlocksForStage, EMPTY_PARSED, type CanvasBlock } from "./canvasBlocks";
+import { applyItemEdit, editableItemsForNode } from "./canvasEdits";
+import type { PipelineStage } from "@/components/strategy/lab/labGraph";
 import { t } from "@/lib/i18n";
-import { computeDockScrollDelta } from "./dockScroll";
-import StrategyGraphCard from "@/components/strategy/graph/StrategyGraphCard";
-import { createGraphSeen, type GraphSeen } from "@/components/strategy/graph/StrategyGraphView";
-import { fromConfirmed, fromDraft, fromExecuted } from "@/lib/strategy-graph/snapshot";
-import type { StrategyGraphInput } from "@/lib/strategy-graph/types";
+import { fromConfirmed, fromExecuted } from "@/lib/strategy-graph/snapshot";
+import type { SectionKey, StrategyGraphInput } from "@/lib/strategy-graph/types";
 import { parseResultOwner, RESULT_OWNER_HEADER } from "@/lib/resultOwner";
 
 // 되묻기 게이트가 provenance(사용자가 실제로 말했나)를 요구하는 설정 필드.
@@ -1318,46 +1316,9 @@ function getSupabaseBrowserClient() {
   return analyticsSupabaseClient;
 }
 
-// 글자별 진입 연출. 순서는 CSS animation-delay 캐스케이드가 만든다 —
-// 이전 구현은 38ms마다 React 상태를 갱신해 글자 수만큼 전체 리렌더를 냈고,
-// prefers-reduced-motion도 존중할 수 없었다(인라인 style 연출).
-function buildAnimatedHeadline(lines: string[]) {
-  let charOffset = 0;
-
-  return lines.map((line, lineIndex) => {
-    const startIndex = charOffset;
-    charOffset += line.length;
-
-    return (
-      <Fragment key={`${line}-${lineIndex}`}>
-        {/* 줄 사이 공백 — 줄바꿈은 block 스팬이 화면에서만 만들어서, 이게 없으면 h1 텍스트가
-            '백테스트하고모의투자로'처럼 한 단어로 붙어 검색엔진에 읽힌다. block 사이라 화면엔 안 보인다. */}
-        {lineIndex > 0 && " "}
-        <span className="block min-h-[1em] whitespace-normal lg:whitespace-nowrap">
-          {line.split("").map((char, charIndex) => (
-            <span
-              key={`${line}-${lineIndex}-${charIndex}`}
-              className="chat-headline-char"
-              style={{ "--char-index": String(startIndex + charIndex) } as React.CSSProperties}
-            >
-              {char === " " ? "\u00A0" : char}
-            </span>
-          ))}
-        </span>
-      </Fragment>
-    );
-  });
-}
-
-const HEADLINE_LINES = ["퀀트 전략을 입력하세요"];
-
-// 플레이스홀더는 첫 입력에서만 보여준다 — inline 입력창은 대화 시작 전(messages 0건)에만
-// 렌더되므로, 대화가 시작된 뒤의 하단 고정(fixed) 입력창에서는 노출하지 않는다.
+// 플레이스홀더는 첫 입력에서만 보여준다 — 대화 시작 전(messages 0건)에는 inline, 대화가 시작된
+// 뒤에는 panel 입력창이라 노출하지 않는다.
 const FIRST_INPUT_PLACEHOLDER = "어떤 투자 전략을 만들어 볼까요?";
-
-function AnimatedHeadline({ lines }: { lines: string[] }) {
-  return <>{buildAnimatedHeadline(lines)}</>;
-}
 
 type ChatInputHandle = {
   focus: () => void;
@@ -1366,8 +1327,11 @@ type ChatInputHandle = {
 };
 
 type ChatInputBoxProps = {
-  variant: "inline" | "fixed";
+  /** inline = 첫 입력(안내 placeholder 노출), panel = 대화 중 입력. 둘 다 하단 채팅 패널 안에 놓인다. */
+  variant: "inline" | "panel";
   containerClassName?: string;
+  /** 부모 높이를 다 채운다(대화가 없는 첫 화면의 채팅 패널). */
+  fill?: boolean;
   running: boolean;
   canSend: boolean;
   isLlmWorking: boolean;
@@ -1376,14 +1340,13 @@ type ChatInputBoxProps = {
   isStrategyInput: boolean;
   preserveOnSend: boolean;
   onSend: (text: string) => void;
-  onReset?: () => void;
 };
 
 // 채팅 입력창을 격리한 메모 컴포넌트 — 키 입력마다 페이지 전체(메시지 목록 포함)가
 // 리렌더링되지 않도록 입력 상태를 내부에서만 관리한다(모바일 입력 버벅임의 핵심 원인).
 const ChatInputBox = memo(
   forwardRef<ChatInputHandle, ChatInputBoxProps>(function ChatInputBox(
-    { variant, containerClassName = "", running, canSend, isLlmWorking, isStrategyInput, preserveOnSend, onSend, onReset, onStop },
+    { variant, containerClassName = "", fill = false, running, canSend, isLlmWorking, isStrategyInput, preserveOnSend, onSend, onStop },
     ref,
   ) {
     const [value, setValue] = useState("");
@@ -1431,8 +1394,9 @@ const ChatInputBox = memo(
         onKeyDown={handleKeyDown}
         disabled={running}
         rows={2}
+        data-testid="lab-chat-input"
         placeholder={variant === "inline" ? t(FIRST_INPUT_PLACEHOLDER) : undefined}
-        className="w-full resize-none bg-transparent px-5 pt-4 pb-12 text-sm font-bold leading-relaxed text-white outline-none placeholder:text-[var(--text-placeholder)] focus:outline-none focus:ring-0"
+        className={`w-full resize-none bg-transparent px-5 pt-4 pb-12 text-sm font-bold leading-relaxed text-white outline-none placeholder:text-[var(--text-placeholder)] focus:outline-none focus:ring-0 ${fill ? "min-h-0 flex-1" : ""}`}
       />
     );
 
@@ -1460,30 +1424,11 @@ const ChatInputBox = memo(
       </div>
     );
 
-    if (variant === "inline") {
-      return (
-        <div
-          className={`relative w-full rounded-[28px] border border-[var(--glass-border)] bg-[#101010] ${containerClassName}`}
-        >
-          {textarea}
-          {sendButton}
-        </div>
-      );
-    }
-
     return (
       <div
-        className={`fixed dock-bottom left-4 right-4 z-40 mx-auto max-w-4xl rounded-[28px] border border-[var(--glass-border)] bg-[#101010] ${containerClassName}`}
+        className={`relative w-full rounded-2xl border border-[var(--glass-border)] bg-[var(--background)] ${fill ? "flex h-full min-h-0" : ""} ${containerClassName}`}
       >
         {textarea}
-        <button
-          type="button"
-          onClick={onReset}
-          className={`absolute bottom-3 left-3 ${END_CHAT_CONTROL_CLASS}`}
-        >
-          <X size={12} weight="bold" />
-          {t("대화 종료")}
-        </button>
         {sendButton}
       </div>
     );
@@ -1705,85 +1650,6 @@ function CollapsibleSummaryValue({
   );
 }
 
-// 사용자가 입력한 전략을 이 턴까지 이해한 만큼 그래프로 보여준다. 그래프 입력은 이 카드가 표시하는
-// 바로 그 parsed를 기존 결정론 컴파일(/api/strategy/compile, LLM 없음)에 보내 얻은 한 쌍(parsed+요청)이다
-// — 칩 답변 턴은 parsed만 갱신되고 요청은 낡을 수 있어 둘을 섞지 않는다. 컴파일이 안 되는 초안은
-// 기존 텍스트 요약으로 대신한다.
-function loadDraftGraph(parsed: ParsedSummary, explicitFields: readonly string[]): Promise<StrategyGraphInput> {
-  return fetch("/api/strategy/compile", {
-    method: "POST",
-    // The marker header only tells draft previews apart from the real confirm call (tests, logs).
-    headers: { "Content-Type": "application/json", "X-Graph-Draft": "1", ...regionRequestHeaders() },
-    body: JSON.stringify({ parsed }),
-  })
-    .then(async (res) => {
-      if (!res.ok) throw new Error(String(res.status));
-      const data = await res.json();
-      return fromDraft({ sourceRef: "draft:turn", parsed: data.parsed, request: data.backtest_request, notices: data.notices, explicitFields });
-    })
-    .then((input) => {
-      if (input.origin === "none") throw new Error("empty");
-      return input;
-    });
-}
-
-type DraftGraphMemory = { input?: StrategyGraphInput; seen: GraphSeen };
-
-function DraftStrategyView({
-  parsed,
-  summaryItems,
-  memory,
-  explicitFields,
-}: {
-  parsed?: ParsedSummary;
-  summaryItems: BuilderSummaryItem[];
-  memory: DraftGraphMemory;
-  explicitFields: readonly string[];
-}) {
-  // Start from the previous graph of this conversation, so a new turn extends it instead of
-  // blanking and redrawing everything.
-  // Without a parsed result there is nothing to draw, so the text summary shows at once.
-  const [state, setState] = useState<{ status: "loading" | "ready" | "failed"; input?: StrategyGraphInput }>(
-    memory.input ? { status: "ready", input: memory.input } : parsed ? { status: "loading" } : { status: "failed" },
-  );
-  const key = parsed ? JSON.stringify([parsed, explicitFields]) : "";
-  useEffect(() => {
-    if (!parsed) {
-      setState({ status: "failed" });
-      return;
-    }
-    let cancelled = false;
-    // Keep showing the previous graph while the new one is prepared.
-    setState((prev) => (prev.status === "ready" ? prev : { status: "loading" }));
-    loadDraftGraph(parsed, explicitFields)
-      .then((input) => {
-        memory.input = input;
-        if (!cancelled) setState({ status: "ready", input });
-      })
-      .catch(() => !cancelled && setState({ status: "failed" }));
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- key is the serialized parsed
-  }, [key]);
-
-  if (state.status === "ready" && state.input) {
-    return (
-      <div data-testid="draft-strategy-graph">
-        <StrategyGraphCard input={state.input} title={t("현재까지 이해한 전략입니다")} testId="draft-strategy-graph-card" seen={memory.seen} />
-      </div>
-    );
-  }
-  if (state.status === "loading") {
-    return (
-      <p className="text-sm font-bold text-[var(--text-label)]" role="status" data-testid="draft-strategy-graph-loading">
-        {t("전략 구조를 준비하는 중입니다.")}
-      </p>
-    );
-  }
-  return <BuilderStrategyOverview summaryItems={summaryItems} />;
-}
-
 function BuilderStrategyOverview({
   summaryItems,
   heading = "현재까지 이해한 전략입니다",
@@ -1967,8 +1833,7 @@ function StrategyLabContent() {
   const [isSending, setIsSending] = useState(false);
   // 확정 그래프: 확정 건 일련번호(카드 키)와 확정 요청 단일 비행 가드, 접힌 카드 목록.
   const confirmSeqRef = useRef(0);
-  // 같은 대화의 앞 초안 카드가 이미 그린 것(+마지막 입력) — 다음 턴에는 새로 생긴 부분만 애니메이션한다.
-  const draftGraphMemoryRef = useRef<DraftGraphMemory>({ seen: createGraphSeen() });
+  const heldAsideCardRef = useRef<ReactNode>(null);
   const confirmInFlightRef = useRef(false);
   const [authState, setAuthState] = useState<AuthState>("loading");
   const [isStartingGoogleLogin, setIsStartingGoogleLogin] = useState(false);
@@ -1979,7 +1844,6 @@ function StrategyLabContent() {
     onClose: () => setIsAuthModalOpen(false),
     containerRef: authModalRef,
   });
-  const [isStrategyPreviewModalOpen, setIsStrategyPreviewModalOpen] = useState(false);
   const [stage, setStage] = useState<Stage>("idle");
   // SSE 스트림 처리 중(오래된 클로저)에도 현재 stage를 읽기 위한 ref — 후행 검증 교정
   // (parsed_updated)이 백테스트 실행 시작 이후 도착하면 무시하는 판정에 쓴다.
@@ -1989,6 +1853,9 @@ function StrategyLabContent() {
   const [backtestReq, setBacktestReq] = useState<any>(null);
   const [currentOptions, setCurrentOptions] = useState<any>(null);
   const [result, setResult] = useState<BacktestResult | null>(null);
+  // 캔버스 레이아웃 — 툴바의 전략 이름(사용자가 고친 값), 캔버스 "+"가 정한 입력 안내, 직전 실행 실패 여부.
+  const [customStrategyName, setCustomStrategyName] = useState<string | null>(null);
+  const [backtestRunFailed, setBacktestRunFailed] = useState(false);
   const [metricOptimizationProgress, setMetricOptimizationProgress] =
     useState<MetricOptimizationProgressState | null>(null);
   // 현재 표시 중인 result를 만들어낸 '실행된 요청' 스냅샷. 화면 상태(backtestReq)는
@@ -2006,6 +1873,7 @@ function StrategyLabContent() {
   // '돌아가기'로 최초 파싱 전까지 되돌릴 때 입력창에 되돌려 줄 원문(아래 useEffect가 소비).
   const restoredDraftRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
   const resultScrollRef = useRef<HTMLDivElement>(null);
   // 대화를 복원하거나 결과 화면에서 돌아온 직후 대화 끝까지 스크롤을 올린다.
   const pendingScrollToEndRef = useRef(false);
@@ -2476,42 +2344,30 @@ function StrategyLabContent() {
   useEffect(() => {
     if (messages.length === 0) return;
 
+    // 대화는 하단 채팅 패널 안에서 스크롤된다(입력창은 스크롤 영역 밖) — 패널을 대화 끝으로 맞춘다.
+    const scrollPanelToEnd = (behavior: ScrollBehavior) => {
+      const panel = chatScrollRef.current;
+      if (!panel) return;
+      if (typeof panel.scrollTo === "function") panel.scrollTo({ top: panel.scrollHeight, behavior });
+      else panel.scrollTop = panel.scrollHeight;
+    };
     const animationFrame = window.requestAnimationFrame(() => {
       // 복원·복귀 화면은 대화 끝(최대 스크롤)에서 시작한다.
       if (pendingScrollToEndRef.current) {
         pendingScrollToEndRef.current = false;
-        scrollChatViewToEnd();
-        // 요약 카드·버튼이 한 박자 늦게 렌더돼 문서가 길어지면 방금 위치가 끝이 아니게 된다.
+        scrollPanelToEnd("auto");
+        // 요약 카드·버튼이 한 박자 늦게 렌더돼 대화가 길어지면 방금 위치가 끝이 아니게 된다.
         // 레이아웃이 자리를 잡은 뒤 한 번 더 끝으로 맞춘다.
-        settleScrollTimerRef.current = window.setTimeout(scrollChatViewToEnd, 300);
+        settleScrollTimerRef.current = window.setTimeout(() => scrollPanelToEnd("auto"), 300);
         return;
       }
-      // 사용자가 다음 메시지를 보내기 전까지는 입력창 회피 자동 스크롤을 돌리지 않는다
-      // — 위치는 위 pendingScrollToEnd(최대 스크롤)가 정한다.
       if (!chatAutoScrollEnabledRef.current) return;
-      if (!messagesEndRef.current) return;
-      const main = document.querySelector("main");
-      const endRect = messagesEndRef.current.getBoundingClientRect();
-
-      // 메시지 끝이 고정 입력창에 가리면 그만큼만 아래로 스크롤한다(과스크롤로 상단이
-      // 잘리지 않도록 현재 위치 기준 상대 스크롤).
-      if (main && main.scrollHeight > main.clientHeight) {
-        const delta = computeChatScrollDelta(endRect.bottom, main.getBoundingClientRect().bottom);
-        if (delta > 0) {
-          main.scrollTo({ top: main.scrollTop + delta, behavior: "smooth" });
-        }
-      } else {
-        const delta = computeChatScrollDelta(endRect.bottom, window.innerHeight);
-        if (delta > 0) {
-          window.scrollTo({ top: window.scrollY + delta, behavior: "smooth" });
-        }
-      }
+      scrollPanelToEnd("smooth");
     });
 
     return () => window.cancelAnimationFrame(animationFrame);
     // messages 외의 의존성 — 마지막 버블 아래에 붙는 요소('백테스트 시작하기' 버튼 등)는
-    // 메시지가 아니라 isSending/backtestReq/stage가 바뀔 때 뒤늦게 렌더된다. 그때 다시
-    // 여유를 확인하지 않으면 새로 생긴 버튼이 고정 입력창 뒤에 걸린 채로 남는다.
+    // 메시지가 아니라 isSending/backtestReq/stage가 바뀔 때 뒤늦게 렌더된다.
   }, [messages, isSending, backtestReq, stage]);
 
   useEffect(() => {
@@ -2536,63 +2392,18 @@ function StrategyLabContent() {
   // "직접 입력" 칩을 눌러야 하는 이유가 불분명해지고, 열린 입력창이 마치 선택을
   // 무시한 채 또 물어보는 것처럼 오인되기 쉽다. "직접 입력"을 고르면 입력창이 나타난다.
   const shouldShowChatInput = shouldShowChatInputBox(messages, isIdle, builderFreeTextRequested);
-  // 되묻기 카드를 하단 '대화 종료' 버튼 바로 위에 고정할지. 칩으로만 답할 수 있는
+  // 캔버스 화면의 입력창은 칩이 떠 있어도 숨기지 않는다(2026-10-28 지시) — 칩은 오른쪽 칸에 두고 왼쪽에서는
+  // 무엇이든 입력할 수 있다. 입력은 열린 질문(pending_question)과 함께 해석 레인으로 가서 답인지 다른 요청인지
+  // LLM이 가린다. 칩 대기 중 숨김 규칙(shouldShowChatInputBox)은 되묻기 카드를 오른쪽 칸에 둘지 정하는 데만 쓴다.
+  const showLabChatInput = shouldShowChatInputBox(messages, isIdle, true);
+  // 되묻기 카드를 채팅 패널 하단(입력창 자리)에 고정할지. 칩으로만 답할 수 있는
   // 동안(=입력 바가 숨는 동안)에만 고정한다 — 입력 바가 보이면 같은 자리를 두고 겹친다.
-  // 고정하면 카드가 흐름에서 빠지므로 대화 아래 여백을 그만큼 더 잡아야 마지막 메시지가
-  // 카드 뒤로 숨지 않는다.
   const lastAssistantMessage = [...messages].reverse().find((m) => m.role === "assistant");
   const isClarificationDocked =
     !shouldShowChatInput &&
     !lastAssistantMessage?.coachLoading &&
     Boolean(lastAssistantMessage?.clarification) &&
     (lastAssistantMessage?.clarificationSuggestions?.length ?? 0) > 0;
-
-  // 하단 고정 카드가 초안 그래프를 가리지 않게 — 카드 높이를 재서 아래 여백에 반영하고, 카드가 뜨거나
-  // 바뀔 때 그래프 아랫변이 카드 윗변 위에 오도록 스크롤한다(그래프가 보이는 영역보다 크면 윗변 우선).
-  const [dockHeight, setDockHeight] = useState(0);
-  const dockSignature = isClarificationDocked ? `${messages.length}:${lastAssistantMessage?.clarification ?? ""}` : "";
-  useEffect(() => {
-    if (!isClarificationDocked) {
-      setDockHeight(0);
-      return;
-    }
-    const card = document.querySelector<HTMLElement>('[data-testid="clarification-card"][data-docked="true"]');
-    if (!card) return;
-    const measure = () => setDockHeight(Math.ceil(card.getBoundingClientRect().height));
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(card);
-    return () => observer.disconnect();
-  }, [isClarificationDocked, dockSignature]);
-  useEffect(() => {
-    if (!isClarificationDocked) return;
-    const fitGraphAboveDock = () => {
-      const card = document.querySelector<HTMLElement>('[data-testid="clarification-card"][data-docked="true"]');
-      const graph = document.querySelector<HTMLElement>('[data-testid="draft-strategy-graph"]');
-      if (!card || !graph) return;
-      const cardRect = card.getBoundingClientRect();
-      if (cardRect.height === 0) return;
-      // 처음 그릴 때는 전체가 새 항목이라 그래프 전체가, 조건을 추가한 턴에는 방금 붙은 노드가 기준이다.
-      const fresh = Array.from(graph.querySelectorAll<SVGGElement>('[data-fresh="true"]')).map((el) => el.getBoundingClientRect());
-      const graphRect = fresh.length
-        ? { top: Math.min(...fresh.map((r) => r.top)), bottom: Math.max(...fresh.map((r) => r.bottom)) }
-        : graph.getBoundingClientRect();
-      const navHeight = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--top-menu-bar-height")) || 76;
-      const delta = computeDockScrollDelta({ graphTop: graphRect.top, graphBottom: graphRect.bottom, cardTop: cardRect.top, navHeight });
-      if (Math.abs(delta) < 2) return;
-      const main = document.querySelector("main");
-      if (main && main.scrollHeight > main.clientHeight) main.scrollTo({ top: main.scrollTop + delta, behavior: "smooth" });
-      else window.scrollTo({ top: window.scrollY + delta, behavior: "smooth" });
-    };
-    const frame = window.requestAnimationFrame(fitGraphAboveDock);
-    // 그래프는 컴파일 응답 뒤에 그려지고 카드 높이도 늦게 정해진다 — 몇 초 동안 다시 맞춘다.
-    const timers = [400, 1200, 2500].map((ms) => window.setTimeout(fitGraphAboveDock, ms));
-    return () => {
-      window.cancelAnimationFrame(frame);
-      timers.forEach((timer) => window.clearTimeout(timer));
-    };
-  }, [isClarificationDocked, dockSignature, dockHeight]);
 
   useEffect(() => {
     if (!shouldShowChatInput || stage === "running" || result) return;
@@ -2652,6 +2463,18 @@ function StrategyLabContent() {
       return;
     }
 
+    commitLocalChoice(currentParsed, missingCondition.field, text, deterministicChoice);
+  };
+
+  /** 칩 답변·캔버스 블록처럼 정해진 선택지 하나를 화면의 전략에 바로 적용하고(백엔드 왕복 없음)
+   *  다음에 정할 조건을 채팅으로 묻는다. 선택지는 칩=값 결속 표(applyDeterministicConditionChoice)로
+   *  값이 정해진 것만 온다 — 사용자 원문을 읽지 않는다. */
+  const commitLocalChoice = (
+    currentParsed: ParsedSummary,
+    field: MissingBacktestCondition["field"],
+    text: string,
+    deterministicChoice: DeterministicConditionChoice,
+  ) => {
     // '안 함' 칩은 문구만으로는 어느 설정을 거부한 것인지 알 수 없다 — 누적 프롬프트에
     // 남을 문장은 슬롯 이름을 붙여 자기완결로 만든다(백엔드 정본 표기와 같은 문구).
     const declineLabel: Record<string, string> = {
@@ -2660,16 +2483,15 @@ function StrategyLabContent() {
       take_profit: "익절 안 함",
     };
     const userChoice =
-      (missingCondition.field === "rebalancing" && text === NO_REBALANCING_CHIP) ||
+      (field === "rebalancing" && text === NO_REBALANCING_CHIP) ||
       deterministicChoice.declinedField
-        ? declineLabel[missingCondition.field] ?? text
+        ? declineLabel[field] ?? text
         : text;
-    const nextPromptContext = [promptContext, userChoice].filter(Boolean).join("\n");
     const previousAllowNoRebalancing = explicitNoRebalancingRef.current;
     const previousExplicitFields = [...explicitFieldsRef.current];
     const previousDeclinedFields = [...declinedFieldsRef.current];
     const previousFieldStates = fieldStatesRef.current;
-    const allowNoRebalancing = missingCondition.field === "rebalancing"
+    const allowNoRebalancing = field === "rebalancing"
       ? deterministicChoice.allowNoRebalancing === true
       : previousAllowNoRebalancing;
     explicitNoRebalancingRef.current = allowNoRebalancing;
@@ -2684,9 +2506,9 @@ function StrategyLabContent() {
     // 칩 답변은 백엔드 왕복 없이 여기서 State에 적용된다 — 사용자가 바로 그 질문에
     // 답했으므로 그 필드를 명시로 기록하지 않으면 게이트가 같은 질문을 무한 반복한다.
     // (자유 서술은 파스 응답의 explicit_fields가 담당한다.)
-    if (EXPLICIT_GATE_FIELDS.includes(missingCondition.field)) {
+    if (EXPLICIT_GATE_FIELDS.includes(field)) {
       explicitFieldsRef.current = Array.from(
-        new Set([...explicitFieldsRef.current, missingCondition.field]),
+        new Set([...explicitFieldsRef.current, field]),
       );
     }
     latestParsedRef.current = deterministicChoice.parsed;
@@ -2695,7 +2517,7 @@ function StrategyLabContent() {
     // 판정을 걷어내 진행률이 새 State를 따르게 한다(2026-09-14 '해당 없음' 잔존 사고).
     fieldStatesRef.current = refreshFieldStatesAfterChoice(
       fieldStatesRef.current,
-      missingCondition.field,
+      field,
       deterministicChoice.parsed,
     );
 
@@ -4922,6 +4744,7 @@ function StrategyLabContent() {
     }
 
     setStage("running");
+    setBacktestRunFailed(false);
     setStatusMessage(t("백테스트 준비 중..."));
 
     try {
@@ -4999,6 +4822,7 @@ function StrategyLabContent() {
       // '대화 종료'로 끊긴 실행은 뒤처리하지 않는다(상태는 handleReset이 이미 비웠다).
       if (isChatAbort(e)) return;
       setStage("ready");
+      setBacktestRunFailed(true);
       setMessages(prev => [
         ...prev,
         { role: "assistant", error: e.message ?? "백테스트 오류" },
@@ -5030,7 +4854,8 @@ function StrategyLabContent() {
 
   // 화면·참조의 대화 상태를 모두 비운다 — '대화 종료'와 대화 로그의 '지난 대화 열기'가 공유한다.
   const clearConversationState = () => {
-    draftGraphMemoryRef.current = { seen: createGraphSeen() };
+    setCustomStrategyName(null);
+    setBacktestRunFailed(false);
     // 진행 중인 요청부터 끊는다 — 이후 뒤늦게 도착할 응답·오류가 새 대화에 섞이지 않게.
     // (컨트롤러는 끊긴 채로 둔다 — 다음 턴 진입점이 새것으로 바꾼다. 위 chatAbortRef 주석)
     chatAbortRef.current?.abort();
@@ -5096,12 +4921,13 @@ function StrategyLabContent() {
     if (id === qaSessionIdRef.current) handleReset();
   };
 
-  const shouldShowIntro = isIdle && !isChatPage;
-  const strategyPreviewBackgroundClass = isStrategyPreviewModalOpen
-    ? "pointer-events-none select-none blur-[6px] transition-[filter,opacity] duration-200"
-    : "transition-[filter,opacity] duration-200";
-  const softEnterClass = SURFACE_ENTER_CLASS;
-  const softEnterLateClass = SURFACE_ENTER_LATE_CLASS;
+  // 캔버스 그래프 — 지금 대화가 이해한 전략의 초안(결과 화면 분기보다 먼저 부른다: 훅 순서 고정).
+  const latestConfirmedGraph = useMemo(
+    () => [...messages].reverse().find((m) => m.confirmedGraph)?.confirmedGraph ?? null,
+    [messages],
+  );
+  const labGraph = useLabGraph(latestParsed, explicitFieldsRef.current, latestConfirmedGraph);
+  const labItems = useMemo(() => listStrategyItems(latestParsed), [latestParsed]);
 
   // ── 결과 화면
   const isRunning = stage === "running";
@@ -5158,6 +4984,26 @@ function StrategyLabContent() {
     window.scrollTo({ top: 0, behavior: "auto" });
   }, [showingBacktestResult, stage]);
 
+  // 캔버스 상세 패널의 편집 칸 — 결과 화면 분기 전에 둔다(훅 순서).
+  const labEditableItems = useCallback(
+    (stage: PipelineStage, sourceRef: string | null) =>
+      editableItemsForNode(stage, sourceRef, latestParsed, labGraph.input?.request),
+    [latestParsed, labGraph.input],
+  );
+  // 캔버스 블록 목록(칸별) — 결과 화면 분기 전에 둔다(훅 순서).
+  const labBlocks = useMemo(
+    () => new Map(
+      (["universe", "filters", "ranking", "entry", "exit", "allocation", "rebalance", "risk"] as const).map((stage) => [
+        stage,
+        canvasBlocksForStage(stage, latestParsed),
+      ]),
+    ),
+    [latestParsed],
+  );
+  const labBlockOptions = useCallback(
+    (stage: SectionKey) => (labBlocks.get(stage) ?? []).map((b) => ({ key: `${b.slot}|${b.choice}`, label: b.choice })),
+    [labBlocks],
+  );
   if (showingBacktestResult) {
     return (
       <DashboardLayout userName="">
@@ -5195,8 +5041,8 @@ function StrategyLabContent() {
   const isLlmWorking = isSending;
   const canSendInput = !isSending && stage !== "running";
   const hasChatStarted = messages.length > 0;
-  // 대화 로그는 채팅 화면에서만, 지금 지역의 대화만 보인다(KR/US 대화를 섞어 열지 않는다).
-  const regionChatLog = hasChatStarted ? chatLog.filter((e) => e.region === region) : [];
+  // 대화 로그는 왼쪽 서랍에 늘 있고, 지금 지역의 대화만 보인다(KR/US 대화를 섞어 열지 않는다).
+  const regionChatLog = chatLog.filter((e) => e.region === region);
   const isLastAssistant = (i: number) => i === messages.length - 1 && messages[i].role === "assistant";
   const latestAssistantMessage = [...messages]
     .reverse()
@@ -5207,10 +5053,6 @@ function StrategyLabContent() {
   // 대화에 쌓인다 — 가장 아래(최신) 것 하나만 그린다(2026-08-23 사용자 지시).
   const latestBuilderPresentationIndex = messages.reduce(
     (last, message, index) => (message.builderPresentation ? index : last),
-    -1,
-  );
-  const latestConfirmedSummaryIndex = messages.reduce(
-    (last, message, index) => (message.confirmedSummaryItems ? index : last),
     -1,
   );
   const latestBuilderPresentation =
@@ -5224,18 +5066,89 @@ function StrategyLabContent() {
       ? latestBuilderPresentation.progressItems
       : null;
 
+  // ── 캔버스 레이아웃(툴바·캔버스·예시) 연결
+  const labMissingCondition = latestParsed
+    ? getNextMissingBacktestCondition(latestParsed, {
+        allowNoRebalancing: explicitNoRebalancing,
+        explicitFields: explicitFieldsRef.current,
+        declinedFields: declinedFieldsRef.current,
+        requireExplicitConfiguration: true,
+      })
+    : null;
+  // 툴바 실행 버튼을 막는 이유 — 실행 준비 판정(getNextMissingBacktestCondition)을 그대로 쓴다.
+  const labRunDisabledReason =
+    stage === "running"
+      ? null
+      : !latestParsed || !backtestReq
+        ? t("먼저 채팅으로 전략을 설명해 주세요.")
+        : isSending
+          ? t("응답을 기다리는 중입니다.")
+          : lastAssistantMessage?.clarification
+            ? t("채팅의 질문에 먼저 답해 주세요.")
+            : labMissingCondition
+              ? t("{0} 설정이 필요합니다.", t(SLOT_LABELS[labMissingCondition.field]))
+              : null;
+  const labRunState = stage === "running" ? "running" : backtestRunFailed ? "error" : result ? "done" : "idle";
+  const labStatusLabel = !latestParsed
+    ? t("전략 없음")
+    : labRunDisabledReason === null
+      ? t("실행 준비됨")
+      : t("작성 중");
+  // TODO(strategy-lab): 이름 바꾸기는 지금 화면에만 남는다 — 대화 로그 제목 갱신 API가 생기면 연결한다.
+  const labStrategyName =
+    customStrategyName ??
+    (hasChatStarted ? chatLog.find((e) => e.id === qaSessionIdRef.current)?.title : undefined) ??
+    t("새 전략");
+  const canEditStrategyFromCanvas = !isSending && stage !== "running";
+  // 보여 줄 대화가 없다(시작 전). 전략을 확정한 뒤에도 지난 대화는 그대로 남긴다.
+  const chatMessagesHidden = !hasChatStarted && !activeStrategyProgressItems && modelStatus?.status !== "failed";
+
+  // 캔버스에서 고른 항목 지우기 — 대화의 '다시 정하기'와 같은 경로(항목 비우기 → 되묻기)로 보낸다.
+  const handleDeleteItemFromCanvas = (id: string) => {
+    const items = listStrategyItems(latestParsedRef.current ?? latestParsed);
+    void submitKeepSelection(items, items.filter((item) => item.id !== id).map((item) => item.id));
+  };
+  // 캔버스 "+" — 조건의 의미는 사용자가 채팅으로 설명하고 해석 레인이 정한다. 입력창 안내만 바꾼다.
+  // 캔버스 블록 — 사용자가 직접 올린 블록은 그 즉시 전략에 포함한다(칩 답변과 같은 로컬 레인, 백엔드 왕복 없음).
+  // 블록은 값이 정해진 되묻기 칩이라 원문 해석이 없다. 다음에 정할 조건은 채팅이 이어서 묻는다.
+  // 캔버스 상세 패널의 값 편집 — 사용자가 직접 넣은 값이라 그 즉시 전략에 반영한다(블록과 같은 로컬 레인).
+  const handleEditItem = (itemId: string, changes: Record<string, number | string>) => {
+    const currentParsed = latestParsedRef.current ?? latestParsed;
+    if (!currentParsed) return;
+    const edit = applyItemEdit(currentParsed, itemId, changes);
+    if (!edit) return;
+    chatAutoScrollEnabledRef.current = true;
+    commitLocalChoice(currentParsed, edit.slot, edit.text, edit.choice);
+  };
+  const handleAddBlock = (stage: SectionKey, key: string) => {
+    const block: CanvasBlock | undefined = labBlocks.get(stage)?.find((b) => `${b.slot}|${b.choice}` === key);
+    if (!block) return;
+    const currentParsed = latestParsedRef.current ?? latestParsed;
+    const applied = applyCanvasBlock(currentParsed, block);
+    if (!applied) return;
+    chatAutoScrollEnabledRef.current = true;
+    commitLocalChoice(currentParsed ?? EMPTY_PARSED, block.slot, block.choice, applied);
+  };
+  // 툴바 '실행 중' 버튼 — 진행 중인 백테스트 스트림을 끊고 실행 전 화면으로 돌아간다.
+  const handleStopBacktest = () => {
+    chatAbortRef.current?.abort();
+    setStage("ready");
+    setStatusMessage("");
+  };
+  // 예시 카드 — 문장을 입력창에 채우기만 한다(자동 전송하지 않는다).
+  const handlePickExample = (prompt: string) => {
+    chatInputRef.current?.set(prompt);
+    window.setTimeout(() => chatInputRef.current?.focus(), 0);
+  };
+
   // ── 메인 채팅 화면
-  /** 되묻기(옵션) 카드. 흐름 안(`docked=false`)과 화면 하단 고정(`docked=true`) 두 자리에서
-   *  같은 카드를 그린다 — 고정본은 대화 트리 바깥에서 호출해야 viewport 기준으로 붙는다. */
+  /** 되묻기(옵션) 카드. 대화 흐름 안(`docked=false`)과 채팅 패널 하단 입력창 자리(`docked=true`)
+   *  두 곳에서 같은 카드를 그린다. */
   const renderClarificationCard = (msg: ChatMessage, docked: boolean) => (
     <div
       data-testid="clarification-card"
       data-docked={docked ? "true" : "false"}
-      className={`flex flex-col gap-2.5 p-4 ${CLARIFICATION_CARD_CLASS} ${MESSAGE_ENTER_LATE_CLASS} ${
-        docked
-          ? "fixed dock-bottom left-4 right-4 z-40 mx-auto max-h-[80dvh] max-w-4xl overflow-y-auto"
-          : ""
-      }`}
+      className={`flex flex-col gap-2.5 p-4 ${CLARIFICATION_CARD_CLASS} ${MESSAGE_ENTER_LATE_CLASS}`}
     >
       <div className="flex items-start justify-between gap-2.5">
         <p className="text-[13px] font-bold leading-relaxed text-gray-200 whitespace-pre-line">
@@ -5261,7 +5174,7 @@ function StrategyLabContent() {
         )}
       </div>
       {msg.clarificationSuggestions && msg.clarificationSuggestions.length > 0 && (
-        <div className="flex items-end justify-between gap-3">
+        <div className={`flex items-end justify-between gap-3 ${docked ? "mt-auto" : ""}`}>
           <div className="space-y-1.5">
             <ChoiceOptionList
               caption={msg.strategyConfirmation ? "전략 확인" : "선택 예시"}
@@ -5282,23 +5195,18 @@ function StrategyLabContent() {
               trailing={shouldShowMovingAverageHelp(msg) ? <MovingAverageTypeHelp /> : undefined}
             />
           </div>
-          {/* 하단 고정 버튼을 카드 안으로 옮겼다(밖에 두면 카드가 가린다). 마지막 칩과 같은
-              줄에 서도록 칩 목록과 밑선을 맞춘다 — 칩과 세로 여백(py-1.5)이 같아 높이가 겹친다.
-              docked면 칩이 반드시 있으므로(isClarificationDocked) 이 안에 둬도 사라지지 않는다. */}
-          {docked && (
-            <button
-              type="button"
-              onClick={handleReset}
-              className={`${END_CHAT_CONTROL_CLASS} flex-shrink-0`}
-            >
-              <X size={12} weight="bold" />
-              {t("대화 종료")}
-            </button>
-          )}
         </div>
       )}
     </div>
   );
+
+  // 칩을 눌러 다음 응답을 기다리는 동안에도 오른쪽 칸을 그대로 둔다 — 카드가 잠깐 사라졌다 다시
+  // 나타나며 채팅이 좌우로 접혔다 펴지는 변화를 없앤다(눌린 카드는 조작만 막는다).
+  const dockedCardNow = isClarificationDocked && lastAssistantMessage ? renderClarificationCard(lastAssistantMessage, true) : null;
+  if (dockedCardNow) heldAsideCardRef.current = dockedCardNow;
+  else if (!isSending) heldAsideCardRef.current = null;
+  const heldAside = !dockedCardNow && isSending ? heldAsideCardRef.current : null;
+  const asideNode = dockedCardNow ?? (heldAside ? <div className="pointer-events-none flex flex-1 flex-col" aria-busy="true">{heldAside}</div> : undefined);
 
   return (
     <DashboardLayout userName="">
@@ -5320,462 +5228,337 @@ function StrategyLabContent() {
           }
         }
       `}</style>
-      <div
-        className={`relative flex flex-col items-center gap-4 overflow-x-hidden px-4 pt-10 sm:pt-14 lg:pt-20 ${
-          hasChatStarted ? (isClarificationDocked ? "pb-[26rem]" : "pb-56") : "pb-12"
-        } ${strategyPreviewBackgroundClass}`}
-        data-testid="strategy-lab-background"
-        style={{
-          minHeight: "calc(100dvh - var(--top-menu-bar-height, 76px))",
-          // 고정 카드가 클래스 여백(26rem)보다 크면 그 높이만큼 더 비운다 — 그래프를 카드 위까지 올릴 수 있게.
-          ...(isClarificationDocked && dockHeight > 416 ? { paddingBottom: dockHeight + 64 } : {}),
+      <StrategyLabLayout
+        toolbar={{
+          name: labStrategyName,
+          onRename: setCustomStrategyName,
+          statusLabel: labStatusLabel,
+          runState: labRunState,
+          runDisabledReason: labRunDisabledReason,
+          onRun: () => void handleRunBacktest(),
+          onStop: handleStopBacktest,
         }}
-      >
-        {activeStrategyProgressItems && (
-          // 상태 축은 렌더 직전에 붙인다 — buildBuilderTurnPresentation 호출부 8곳에
-          // 같은 인자를 늘리는 대신, 표시 전용 정보를 표시하는 곳에서 합친다.
-          <StrategyProgressPanel
-            items={attachFieldStates(activeStrategyProgressItems, fieldStatesRef.current)}
-          />
-        )}
-
-        {/* 대화 로그 — 왼쪽 고정 레일(오른쪽은 진행률 패널 자리). 1280px 미만은 서랍 버튼. */}
-        {regionChatLog.length > 0 && (
-          <ChatLogPanel
-            entries={regionChatLog}
-            activeId={qaSessionIdRef.current}
-            onSelect={handleOpenLoggedChat}
-            onDelete={handleDeleteLoggedChat}
-          />
-        )}
-
-        {/* ── 채팅 영역 ── */}
-        <div
-          key={isChatPage ? "strategy-chat-page" : "strategy-intro-page"}
-          className={`relative z-10 flex min-h-[calc(100dvh-var(--top-menu-bar-height,76px)-5rem)] w-full flex-col items-center justify-start transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${softEnterClass}`}
-        >
-        <div className={`w-full max-w-4xl flex flex-col items-center gap-6 ${
-          hasChatStarted
-            ? "min-h-[calc(100dvh-var(--top-menu-bar-height,76px)-5rem)]"
-            : "min-h-[calc(100dvh-var(--top-menu-bar-height,76px)-5rem)] justify-end pb-10"
-        }`}>
-
-          {/* 헤더 */}
-          {shouldShowIntro && (
-          <div className="w-full max-w-3xl">
-            <div className="flex flex-col items-center gap-3 text-center">
-              <div
-                className="w-full space-y-4 lg:w-auto"
-                data-testid="strategy-lab-headline-stack"
-              >
-                {/* 페이지 유일 h1 — 검색엔진이 '퀀트 전략 … 시뮬레이션'을 본문 제목으로 읽게 한다. */}
-                <h1
-                  data-testid="strategy-lab-headline"
-                  className="max-w-5xl text-[27px] leading-none tracking-tight text-white sm:text-5xl lg:text-7xl [font-weight:950]"
-                >
-                  <AnimatedHeadline lines={HEADLINE_LINES.map((line) => t(line))} />
-                </h1>
-                <p className="text-sm font-bold leading-relaxed text-gray-400 sm:text-base">
-                  {t("AI와 함께 전략을 설계하고, 과거 데이터로 검증하세요")}
-                </p>
-              </div>
-            </div>
-            {modelStatus?.status === "failed" && (
-              <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-[var(--error-red-line)] bg-[var(--chat-artifact-surface)] px-3 py-1 text-xs font-bold text-[var(--error-red)] chat-glass">
-                <Warning size={12} weight="fill" />
-                {t("AI 모델 로드 실패 — 전략 생성을 사용할 수 없습니다")}
-              </div>
-            )}
-          </div>
-          )}
-
-          {/* 채팅창 */}
-          <div className="w-full flex flex-col gap-2.5">
-
-            {/* 대화 히스토리 */}
+        conversations={{
+          entries: regionChatLog,
+          activeId: hasChatStarted ? qaSessionIdRef.current : null,
+          onSelect: handleOpenLoggedChat,
+          onDelete: handleDeleteLoggedChat,
+          onNew: handleReset,
+        }}
+        canvas={{
+          graph: labGraph.graph,
+          loading: labGraph.loading,
+          metaError: labGraph.metaError,
+          onRetryMeta: labGraph.retryMeta,
+          runState: labRunState,
+          items: labItems,
+          onDeleteItem: canEditStrategyFromCanvas ? handleDeleteItemFromCanvas : undefined,
+          blockOptions: labBlockOptions,
+          onAddBlock: canEditStrategyFromCanvas ? handleAddBlock : undefined,
+          editableItems: labEditableItems,
+          onEditItem: canEditStrategyFromCanvas ? handleEditItem : undefined,
+        }}
+        chat={{
+          scrollRef: chatScrollRef,
+          aside: asideNode,
+          empty: chatMessagesHidden,
+          actions: hasChatStarted ? (
+            <button type="button" onClick={handleReset} className={END_CHAT_CONTROL_CLASS}>
+              <X size={12} weight="bold" />
+              {t("대화 종료")}
+            </button>
+          ) : undefined,
+          messages: (
+            <>
+              {activeStrategyProgressItems && (
+                // 상태 축은 렌더 직전에 붙인다 — 표시 전용 정보를 표시하는 곳에서 합친다.
+                <StrategyProgressPanel
+                  items={attachFieldStates(activeStrategyProgressItems, fieldStatesRef.current)}
+                />
+              )}
+              {modelStatus?.status === "failed" && (
+                <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-[var(--error-red-line)] bg-[var(--chat-artifact-surface)] px-3 py-1 text-xs font-bold text-[var(--error-red)] chat-glass">
+                  <Warning size={12} weight="fill" />
+                  {t("AI 모델 로드 실패 — 전략 생성을 사용할 수 없습니다")}
+                </div>
+              )}
             {messages.length > 0 && (
-              <div className={`w-full space-y-4 px-1 py-2 ${softEnterClass}`}>
-                {messages.map((msg, i) => (
-                  <div key={i}>
-                    {msg.role === "user" && !msg.chipAnswer && (
-                      <div
-                        data-testid="user-chat-bubble"
-                        className={`flex justify-end ${MESSAGE_ENTER_CLASS}`}
-                      >
-                        <div className={`max-w-[80%] px-4 py-2.5 ${USER_CHAT_BUBBLE_CLASS}`}>
-                          <p className="text-sm font-bold text-white leading-relaxed">{tParagraphs(msg.content ?? "")}</p>
+                <div className={`w-full space-y-4 ${SURFACE_ENTER_CLASS}`}>
+                  {messages.map((msg, i) =>
+                    // 확정 응답 말풍선은 대화에 그리지 않는다 — 확정 결과는 캔버스·툴바가 보여 준다
+                    // (구조 스냅샷 msg.confirmedGraph는 상태로만 남는다). 되묻기·오류가 함께 오면 그린다.
+                    msg.role === "assistant" && msg.confirmedGraph && !msg.infoText && !msg.error && !msg.clarification ? null : (
+                    <div key={i}>
+                      {msg.role === "user" && !msg.chipAnswer && (
+                        <div
+                          data-testid="user-chat-bubble"
+                          className={`flex justify-end ${MESSAGE_ENTER_CLASS}`}
+                        >
+                          <div className={`max-w-[80%] px-4 py-2.5 ${USER_CHAT_BUBBLE_CLASS}`}>
+                            <p className="text-sm font-bold text-white leading-relaxed">{tParagraphs(msg.content ?? "")}</p>
+                          </div>
                         </div>
-                      </div>
-                    )}
-                    {msg.role === "assistant" && (
-                      <div className="space-y-3">
-                        {msg.isLoading && (
-                          <AnalysisStatusBubble stage={msg.loadingStage} />
-                        )}
-                        {msg.infoText && (
-                          <>
-                            {msg.builderPresentation &&
-                              !msg.builderPresentation.interpretationFailed &&
-                              i === latestBuilderPresentationIndex && (
-                              <div
-                                className={`max-w-[88%] py-0.5 ${MESSAGE_ENTER_CLASS}`}
-                              >
-                                <DraftStrategyView parsed={msg.parsed} summaryItems={msg.builderPresentation.summaryItems} memory={draftGraphMemoryRef.current} explicitFields={explicitFieldsRef.current} />
-                              </div>
-                            )}
-                            <div
-                              className={`max-w-[88%] space-y-2 py-0.5 ${MESSAGE_ENTER_CLASS}`}
-                            >
-                              <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
-                                {t(msg.infoText)}
-                              </p>
-                              {isLastAssistant(i) && metricOptimizationProgress && (
-                                <MetricOptimizationProgressIndicator progress={metricOptimizationProgress} />
-                              )}
-                              {isLastAssistant(i) && msg.infoSuggestions && msg.infoSuggestions.length > 0 && (
-                                <div className="space-y-1.5 pt-1">
-                                  <ChoiceOptionList
-                                    caption={msg.builderPresentation ? "선택 예시" : undefined}
-                                    options={msg.infoSuggestions}
-                                    onSelect={(suggestion) => {
-                                      if (suggestion === CANCEL_METRIC_OPTIMIZATION_CHIP) {
-                                        metricOptimizationAbortRef.current?.abort();
-                                        return;
-                                      }
-                                      handleSuggestionClick(suggestion);
-                                    }}
-                                    onFreeSubmit={(text) => void handleSend(text)}
-                                    trailing={shouldShowMovingAverageHelp(msg) ? <MovingAverageTypeHelp /> : undefined}
-                                  />
+                      )}
+                      {msg.role === "assistant" && (
+                        <div className="space-y-3">
+                          {msg.isLoading && (
+                            <AnalysisStatusBubble stage={msg.loadingStage} />
+                          )}
+                          {msg.infoText && (
+                            <>
+                              {msg.builderPresentation &&
+                                !msg.builderPresentation.interpretationFailed &&
+                                i === latestBuilderPresentationIndex && (
+                                <div
+                                  className={`max-w-[88%] py-0.5 ${MESSAGE_ENTER_CLASS}`}
+                                >
+                                  <BuilderStrategyOverview summaryItems={msg.builderPresentation.summaryItems} />
                                 </div>
                               )}
-                            </div>
-                          </>
-                        )}
-                        {isLastAssistant(i) && msg.keepItems && msg.keepItems.length > 0 && (
-                          <KeepItemsSelector
-                            items={msg.keepItems}
-                            disabled={isSending}
-                            onSubmit={(keptIds) => {
-                              void submitKeepSelection(msg.keepItems ?? [], keptIds);
-                            }}
-                          />
-                        )}
-                        {msg.parsed && (
-                          <>
-                            {/* 확정된 전략 — 되묻기 중 보던 카드를 그대로 잇고 그 아래에 실행
-                                버튼이 온다(2026-09-28 지시). 요약 카드는 대화에 한 장만 —
-                                뒤에 더 새 카드(되묻기·확정)가 있으면 그리지 않는다. */}
-                            {!msg.clarification &&
-                              !msg.confirmedGraph &&
-                              i === latestConfirmedSummaryIndex &&
-                              latestConfirmedSummaryIndex > latestBuilderPresentationIndex &&
-                              (msg.confirmedSummaryItems?.length ?? 0) > 0 && (
                               <div
-                                className={`max-w-[88%] py-0.5 ${MESSAGE_ENTER_CLASS}`}
-                                data-testid="confirmed-strategy-summary"
+                                className={`max-w-[88%] space-y-2 py-0.5 ${MESSAGE_ENTER_CLASS}`}
                               >
-                                <BuilderStrategyOverview summaryItems={msg.confirmedSummaryItems!} />
-                              </div>
-                            )}
-                            {/* 확정 직후 자동으로 보이는 읽기 전용 전략 그래프 — 이 확정 건의 스냅샷만 읽는다.
-                                뒤에 더 새 확정이 생겨도 이 카드는 그대로 남는다. */}
-                            {msg.confirmedGraph && !msg.clarification && (
-                              <div className={`w-full py-0.5 ${MESSAGE_ENTER_LATE_CLASS}`} data-testid="confirmed-strategy-graph">
-                                <StrategyGraphCard
-                                  input={msg.confirmedGraph}
-                                  title={t("확정된 전략")}
-                                  seen={draftGraphMemoryRef.current.seen}
-                                  // 확정 요약 칩은 "확정된 전략" 제목 줄 아래에 이 카드가 함께 그린다(요약 카드는
-                                  // 대화에 한 장만 — 뒤에 더 새 카드가 있으면 그리지 않는다).
-                                  summary={
-                                    i === latestConfirmedSummaryIndex &&
-                                    latestConfirmedSummaryIndex > latestBuilderPresentationIndex &&
-                                    (msg.confirmedSummaryItems?.length ?? 0) > 0 ? (
-                                      <div data-testid="confirmed-strategy-summary">
-                                        <BuilderStrategyOverview summaryItems={msg.confirmedSummaryItems!} heading={null} />
-                                      </div>
-                                    ) : undefined
-                                  }
-                                />
-                              </div>
-                            )}
-                            {/* 보정·미반영 안내는 되묻기와 **함께** 보여준다. 예전에는 요약 옆에만
-                                붙어 있어, 같은 턴에 되묻기가 뜨면 "왜 반영되지 않았는지"가 조용히
-                                사라졌다(2026-07-31). 사실을 먼저 알리고 다음 질문으로 잇는다. */}
-                            {msg.notices && msg.notices.length > 0 && (
-                              <div className={`flex flex-col gap-1.5 ${MESSAGE_ENTER_LATE_CLASS}`}>
-                                {msg.notices.map((notice, ni) => (
-                                  <div
-                                    key={ni}
-                                    className={`flex items-start gap-2.5 p-3 ${ARTIFACT_CARD_CLASS}`}
-                                  >
-                                    <Info size={13} className="mt-0.5 flex-shrink-0 text-[var(--text-label)]" weight="fill" />
-                                    <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
-                                      {t(notice)}
-                                    </p>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </>
-                        )}
-                        {/* 되묻기 카드는 전략 요약(msg.parsed)의 유무와 무관하게 그린다 —
-                            빌더 질문도 같은 카드로 나가는데(2026-08-16 질문 표현 통일)
-                            빌더 턴에는 아직 parsed가 없다. 예전에는 이 블록이 parsed 안에
-                            있어 같은 성격의 질문이 경로에 따라 박스로도, 맨 텍스트로도 보였다. */}
-                        {isLastAssistant(i) && !msg.coachLoading && msg.clarification && (
-                          <>
-                            {/* 안내문(infoText) 블록이 이미 같은 카드를 그렸으면 다시
-                                그리지 않는다 — 부가 발화 응답 + 되묻기 재질문이 한
-                                메시지에 함께 오는 턴에서 카드가 두 번 보였다. */}
-                            {msg.builderPresentation && !msg.infoText &&
-                              !msg.builderPresentation.interpretationFailed &&
-                              i === latestBuilderPresentationIndex && (
-                              <div
-                                className={`flex flex-col gap-2.5 py-0.5 ${MESSAGE_ENTER_CLASS}`}
-                              >
-                                <DraftStrategyView parsed={msg.parsed} summaryItems={msg.builderPresentation.summaryItems} memory={draftGraphMemoryRef.current} explicitFields={explicitFieldsRef.current} />
-                              </div>
-                            )}
-                            {/* 칩으로 답하는 동안에는 카드를 흐름에서 빼 화면 하단에 고정한다.
-                                고정본은 대화 트리 **바깥**(하단 입력 바 옆)에서 그린다 —
-                                여기서 fixed를 주면 진입 연출(transform)이 남아 있는 조상이
-                                고정 기준이 돼 화면 위쪽에 떠버린다. */}
-                            {!isClarificationDocked && renderClarificationCard(msg, false)}
-                          </>
-                        )}
-                        {(msg.coachLoading || msg.coachText) && (
-                          <div
-                            className={`max-w-[88%] space-y-2 p-4 ${ARTIFACT_CARD_CLASS} ${MESSAGE_ENTER_LATE_CLASS}`}
-                            data-testid="strategy-coach-bubble"
-                          >
-                            <div className="flex items-center gap-2">
-                              {msg.coachLoading && <LoadingSpinner />}
-                              <span className="text-xs font-black text-white">
-                                {t("전략 검증")}
-                              </span>
-                              {msg.coachLoading && (
-                                <ShimmerStatusText className="text-sm font-bold">{t("검증 중...")}</ShimmerStatusText>
-                              )}
-                            </div>
-                            {msg.coachText && (
-                              <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
-                                {/* 표시 지점에서 번역한다 — coachText는 세션 스냅샷으로 복원될 수
-                                    있어(이전 지역에서 저장된 한국어 원문) 저장 시점 언어에 의존하면
-                                    /us에서 한국어가 그대로 보인다. 사전 미등록 문구(LLM 자유 서술·
-                                    조합 문구)는 t()가 원문을 그대로 돌려준다. */}
-                                {parseCoachSegments(t(msg.coachText)).map((seg, segIdx) =>
-                                  seg.type === "link" ? (
-                                    <a
-                                      key={segIdx}
-                                      href={seg.href}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-[var(--chat-accent)] underline decoration-[var(--chat-accent-underline)] underline-offset-2 transition-colors hover:decoration-[var(--chat-accent)]"
-                                    >
-                                      {seg.value}
-                                    </a>
-                                  ) : (
-                                    <span key={segIdx}>{seg.value}</span>
-                                  )
+                                <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
+                                  {t(msg.infoText)}
+                                </p>
+                                {isLastAssistant(i) && metricOptimizationProgress && (
+                                  <MetricOptimizationProgressIndicator progress={metricOptimizationProgress} />
                                 )}
-                              </p>
-                            )}
-                          </div>
-                        )}
-                        {isLastAssistant(i) &&
-                          backtestReq &&
-                          stage !== "running" &&
-                          !isSending &&
-                          !msg.isLoading &&
-                          !msg.clarification &&
-                          runButtonPlacement(msg) !== null &&
-                          isBacktestReady(msg.parsed ?? latestParsed, {
-                            allowNoRebalancing: explicitNoRebalancing,
-                            explicitFields: explicitFieldsRef.current,
-        declinedFields: declinedFieldsRef.current,
-                            requireExplicitConfiguration: true,
-                          }) && (
+                                {isLastAssistant(i) && msg.infoSuggestions && msg.infoSuggestions.length > 0 && (
+                                  <div className="space-y-1.5 pt-1">
+                                    <ChoiceOptionList
+                                      caption={msg.builderPresentation ? "선택 예시" : undefined}
+                                      options={msg.infoSuggestions}
+                                      onSelect={(suggestion) => {
+                                        if (suggestion === CANCEL_METRIC_OPTIMIZATION_CHIP) {
+                                          metricOptimizationAbortRef.current?.abort();
+                                          return;
+                                        }
+                                        handleSuggestionClick(suggestion);
+                                      }}
+                                      onFreeSubmit={(text) => void handleSend(text)}
+                                      trailing={shouldShowMovingAverageHelp(msg) ? <MovingAverageTypeHelp /> : undefined}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            </>
+                          )}
+                          {isLastAssistant(i) && msg.keepItems && msg.keepItems.length > 0 && (
+                            <KeepItemsSelector
+                              items={msg.keepItems}
+                              disabled={isSending}
+                              onSubmit={(keptIds) => {
+                                void submitKeepSelection(msg.keepItems ?? [], keptIds);
+                              }}
+                            />
+                          )}
+                          {msg.parsed && (
+                            <>
+                              {/* 보정·미반영 안내는 되묻기와 **함께** 보여준다. 예전에는 요약 옆에만
+                                  붙어 있어, 같은 턴에 되묻기가 뜨면 "왜 반영되지 않았는지"가 조용히
+                                  사라졌다(2026-07-31). 사실을 먼저 알리고 다음 질문으로 잇는다. */}
+                              {msg.notices && msg.notices.length > 0 && (
+                                <div className={`flex flex-col gap-1.5 ${MESSAGE_ENTER_LATE_CLASS}`}>
+                                  {msg.notices.map((notice, ni) => (
+                                    <div
+                                      key={ni}
+                                      className={`flex items-start gap-2.5 p-3 ${ARTIFACT_CARD_CLASS}`}
+                                    >
+                                      <Info size={13} className="mt-0.5 flex-shrink-0 text-[var(--text-label)]" weight="fill" />
+                                      <p className="text-xs font-bold text-gray-300 leading-relaxed whitespace-pre-line">
+                                        {t(notice)}
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          )}
+                          {/* 되묻기 카드는 전략 요약(msg.parsed)의 유무와 무관하게 그린다 —
+                              빌더 질문도 같은 카드로 나가는데(2026-08-16 질문 표현 통일)
+                              빌더 턴에는 아직 parsed가 없다. 예전에는 이 블록이 parsed 안에
+                              있어 같은 성격의 질문이 경로에 따라 박스로도, 맨 텍스트로도 보였다. */}
+                          {isLastAssistant(i) && !msg.coachLoading && msg.clarification && (
+                            <>
+                              {/* 안내문(infoText) 블록이 이미 같은 카드를 그렸으면 다시
+                                  그리지 않는다 — 부가 발화 응답 + 되묻기 재질문이 한
+                                  메시지에 함께 오는 턴에서 카드가 두 번 보였다. */}
+                              {msg.builderPresentation && !msg.infoText &&
+                                !msg.builderPresentation.interpretationFailed &&
+                                i === latestBuilderPresentationIndex && (
+                                <div
+                                  className={`flex flex-col gap-2.5 py-0.5 ${MESSAGE_ENTER_CLASS}`}
+                                >
+                                  <BuilderStrategyOverview summaryItems={msg.builderPresentation.summaryItems} />
+                                </div>
+                              )}
+                              {/* 칩으로 답하는 동안에는 카드를 흐름에서 빼 화면 하단에 고정한다.
+                                  고정본은 대화 트리 **바깥**(하단 입력 바 옆)에서 그린다 —
+                                  여기서 fixed를 주면 진입 연출(transform)이 남아 있는 조상이
+                                  고정 기준이 돼 화면 위쪽에 떠버린다. */}
+                              {!isClarificationDocked && renderClarificationCard(msg, false)}
+                            </>
+                          )}
+                          {(msg.coachLoading || msg.coachText) && (
                             <div
-                              className={`flex max-w-[88%] px-1 ${MESSAGE_ENTER_LATE_CLASS}`}
-                              data-testid="backtest-action"
+                              className={`max-w-[88%] space-y-2 p-4 ${ARTIFACT_CARD_CLASS} ${MESSAGE_ENTER_LATE_CLASS}`}
+                              data-testid="strategy-coach-bubble"
                             >
-                              <button
-                                onClick={() => handleRunBacktest()}
-                                className="flex items-center gap-2 rounded-xl bg-[var(--chat-accent)] px-5 py-2.5 text-xs font-black text-[var(--chat-accent-ink)] transition-colors duration-200 hover:brightness-110 active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
-                              >
-                                <ChartLineUp size={13} weight="fill" />
-                                {t("백테스트 시작하기")}
-                                <ArrowRight size={11} />
-                              </button>
+                              <div className="flex items-center gap-2">
+                                {msg.coachLoading && <LoadingSpinner />}
+                                <span className="text-xs font-black text-white">
+                                  {t("전략 검증")}
+                                </span>
+                                {msg.coachLoading && (
+                                  <ShimmerStatusText className="text-sm font-bold">{t("검증 중...")}</ShimmerStatusText>
+                                )}
+                              </div>
+                              {msg.coachText && (
+                                <p className="text-sm font-bold text-white leading-relaxed whitespace-pre-line">
+                                  {/* 표시 지점에서 번역한다 — coachText는 세션 스냅샷으로 복원될 수
+                                      있어(이전 지역에서 저장된 한국어 원문) 저장 시점 언어에 의존하면
+                                      /us에서 한국어가 그대로 보인다. 사전 미등록 문구(LLM 자유 서술·
+                                      조합 문구)는 t()가 원문을 그대로 돌려준다. */}
+                                  {parseCoachSegments(t(msg.coachText)).map((seg, segIdx) =>
+                                    seg.type === "link" ? (
+                                      <a
+                                        key={segIdx}
+                                        href={seg.href}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[var(--chat-accent)] underline decoration-[var(--chat-accent-underline)] underline-offset-2 transition-colors hover:decoration-[var(--chat-accent)]"
+                                      >
+                                        {seg.value}
+                                      </a>
+                                    ) : (
+                                      <span key={segIdx}>{seg.value}</span>
+                                    )
+                                  )}
+                                </p>
+                              )}
                             </div>
                           )}
-                        {msg.error && (
-                          <div
-                            className={`flex items-start gap-2.5 rounded-2xl border border-[var(--error-red-line)] bg-[var(--chat-artifact-surface)] p-4 chat-glass ${MESSAGE_ENTER_CLASS}`}
-                          >
-                            <Warning size={13} className="mt-0.5 flex-shrink-0 text-[var(--error-red)]" weight="fill" />
-                            <div className="flex-1 space-y-1">
-                              <p className="text-xs font-black text-[var(--error-red)]">{t("오류 발생")}</p>
-                              <p className="text-xs font-bold text-[var(--text-label)]">{t(msg.error)}</p>
-                              {msg.retryPrompt && (
-                                <button
-                                  onClick={() => void handleRetryParse(msg)}
-                                  disabled={isSending}
-                                  data-testid="parse-retry"
-                                  className="mt-2 flex items-center gap-1 rounded-lg border border-gray-600 bg-[var(--chat-surface)] px-2 py-1 text-[11px] font-black text-[var(--text-strong)] transition-colors duration-200 hover:brightness-110 active:translate-y-[1px] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
-                                >
-                                  <ArrowsClockwise size={10} weight="bold" />
-                                  {t("다시 시도")}
-                                </button>
-                              )}
+                          {msg.error && (
+                            <div
+                              className={`flex items-start gap-2.5 rounded-2xl border border-[var(--error-red-line)] bg-[var(--chat-artifact-surface)] p-4 chat-glass ${MESSAGE_ENTER_CLASS}`}
+                            >
+                              <Warning size={13} className="mt-0.5 flex-shrink-0 text-[var(--error-red)]" weight="fill" />
+                              <div className="flex-1 space-y-1">
+                                <p className="text-xs font-black text-[var(--error-red)]">{t("오류 발생")}</p>
+                                <p className="text-xs font-bold text-[var(--text-label)]">{t(msg.error)}</p>
+                                {msg.retryPrompt && (
+                                  <button
+                                    onClick={() => void handleRetryParse(msg)}
+                                    disabled={isSending}
+                                    data-testid="parse-retry"
+                                    className="mt-2 flex items-center gap-1 rounded-lg border border-gray-600 bg-[var(--chat-surface)] px-2 py-1 text-[11px] font-black text-[var(--text-strong)] transition-colors duration-200 hover:brightness-110 active:translate-y-[1px] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
+                                  >
+                                    <ArrowsClockwise size={10} weight="bold" />
+                                    {t("다시 시도")}
+                                  </button>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-                <div ref={messagesEndRef} />
-              </div>
-            )}
-
-            {stage === "running" && (
-              <BacktestRunningStatus message={statusMessage} />
-            )}
-
-            {/* 입력 영역 — 시작 화면, 전략 요약 출력 후, 또는 안내 대화 중 표시 */}
-            {shouldShowChatInput && !hasChatStarted && (
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    ),
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+              )}
+              {stage === "running" && (
+                <div className="mt-3">
+                  <BacktestRunningStatus message={statusMessage} />
+                </div>
+              )}
+            </>
+          ),
+          // 입력창은 칩이 떠 있어도 왼쪽 칸에 남는다 — 되묻기 카드는 오른쪽 칸(aside)에 놓인다.
+          footer:
+            showLabChatInput ? (
               <ChatInputBox
-                key={shouldShowIntro ? "intro-chat-input" : "active-chat-input"}
+                key="lab-chat-input"
                 ref={chatInputRef}
-                variant="inline"
-                containerClassName={softEnterLateClass}
+                variant={hasChatStarted ? "panel" : "inline"}
+                containerClassName={SURFACE_ENTER_LATE_CLASS}
+                fill={chatMessagesHidden}
                 running={stage === "running"}
                 canSend={canSendInput}
                 isLlmWorking={isLlmWorking}
                 isStrategyInput={isStrategyInput}
                 preserveOnSend={isStrategyInput && authState !== "authenticated"}
                 onSend={handleSendFromInput}
+                onStop={handleStopTurn}
               />
-            )}
-          </div>
-
-          {/* 예시 프롬프트 */}
-          {shouldShowIntro && (
-            <div className="w-[min(calc(100vw_-_2rem),80rem)]">
-              <StrategyExampleTabs
-                onSelectExample={(prompt) => void handleSend(prompt)}
-                onPreviewOpenChange={setIsStrategyPreviewModalOpen}
-              />
-            </div>
-          )}
-        </div>
-        </div>{/* end 채팅 영역 */}
-
-        {shouldShowChatInput && hasChatStarted && (
-          <ChatInputBox
-            key="fixed-chat-input"
-            ref={chatInputRef}
-            variant="fixed"
-            containerClassName={softEnterLateClass}
-            running={stage === "running"}
-            canSend={canSendInput}
-            isLlmWorking={isLlmWorking}
-            isStrategyInput={isStrategyInput}
-            preserveOnSend={isStrategyInput && authState !== "authenticated"}
-            onSend={handleSendFromInput}
-            onReset={handleResetFromInput}
-            onStop={handleStopTurn}
-          />
-        )}
-
-        {/* 칩으로만 답하는 동안의 되묻기 카드. 대화 트리 안에서 fixed를 주면 진입 연출로
-            transform이 남은 조상이 고정 기준이 돼 화면 위쪽에 떠버린다 — 하단 입력 바와
-            같은 자리(트리 바깥)에서 그려야 viewport 하단에 붙는다. */}
-        {isClarificationDocked && lastAssistantMessage &&
-          renderClarificationCard(lastAssistantMessage, true)}
-
-        {/* 입력창이 숨겨지는 상태(에러/로딩 등 예상 못 한 상태 포함)에서도 항상 빠져나갈 수 있도록,
-            입력 바가 안 보일 때는 '대화 종료' 버튼만이라도 독립적으로 띄운다.
-            옵션 카드가 이 자리에 고정된 동안에는 카드 안 우하단 버튼이 대신한다. */}
-        {hasChatStarted && !shouldShowChatInput && !isClarificationDocked && (
-          <div
-            key="fixed-chat-escape"
-            className="fixed dock-bottom left-4 right-4 z-40 mx-auto flex max-w-4xl justify-center"
-          >
-            <button
-              type="button"
-              onClick={handleReset}
-              className={END_CHAT_CONTROL_CLASS}
-            >
-              <X size={12} weight="bold" />
-              {t("대화 종료")}
-            </button>
-          </div>
-        )}
-
-      </div>
-
+            ) : undefined,
+        }}
+        onPickExample={handlePickExample}
+        overlay={
+          <>
       {isAuthModalOpen && (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm animate-fade-in"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="strategy-auth-modal-title"
-        >
-          <div
-            ref={authModalRef}
-            tabIndex={-1}
-            className={`w-full max-w-md rounded-2xl border border-[var(--chat-hairline)] bg-[var(--background)] p-6 text-center shadow-2xl shadow-black/50 ${softEnterClass}`}
-          >
-            <div className="space-y-3">
-              <p
-                id="strategy-auth-modal-title"
-                className="text-2xl font-black tracking-tight text-white"
+              <div
+                className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm animate-fade-in"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="strategy-auth-modal-title"
               >
-                {t("아이디어를 전략으로 만들어 드립니다")}
-              </p>
-              <p className="text-sm font-bold leading-relaxed text-gray-400">
-                {emailLoginEnabled
-                  ? t("Google 또는 이메일로 시작하세요")
-                  : t("Google 계정으로 시작하세요")}
-              </p>
-            </div>
-            <div className="mt-6 flex flex-col items-center gap-3">
-              <p className="text-xs font-black text-gray-400">
-                {t("카드 등록 불필요")}
-              </p>
-              <button
-                type="button"
-                onClick={() => void handleGoogleStart()}
-                disabled={isStartingGoogleLogin}
-                className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white px-4 py-2 text-sm font-black text-black transition-colors duration-200 hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <GoogleLogo size={18} weight="fill" />
-                <span>{isStartingGoogleLogin ? t("로그인 준비 중...") : t("Google로 시작하기")}</span>
-              </button>
-              {emailLoginEnabled && (
-                <a
-                  href={regionHref("/login")}
-                  className="flex items-center gap-2 rounded-xl border border-white/[0.15] px-4 py-2 text-sm font-black text-white transition-colors duration-200 hover:bg-white/[0.08]"
+                <div
+                  ref={authModalRef}
+                  tabIndex={-1}
+                  className={`w-full max-w-md rounded-2xl border border-[var(--chat-hairline)] bg-[var(--background)] p-6 text-center shadow-2xl shadow-black/50 ${SURFACE_ENTER_CLASS}`}
                 >
-                  <EnvelopeSimple size={18} weight="bold" />
-                  <span>{t("이메일로 시작하기")}</span>
-                </a>
-              )}
-              <button
-                type="button"
-                onClick={() => setIsAuthModalOpen(false)}
-                className="text-sm font-black text-gray-400 transition-colors hover:text-white"
-              >
-                {t("취소")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+                  <div className="space-y-3">
+                    <p
+                      id="strategy-auth-modal-title"
+                      className="text-2xl font-black tracking-tight text-white"
+                    >
+                      {t("아이디어를 전략으로 만들어 드립니다")}
+                    </p>
+                    <p className="text-sm font-bold leading-relaxed text-gray-400">
+                      {emailLoginEnabled
+                        ? t("Google 또는 이메일로 시작하세요")
+                        : t("Google 계정으로 시작하세요")}
+                    </p>
+                  </div>
+                  <div className="mt-6 flex flex-col items-center gap-3">
+                    <p className="text-xs font-black text-gray-400">
+                      {t("카드 등록 불필요")}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => void handleGoogleStart()}
+                      disabled={isStartingGoogleLogin}
+                      className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white px-4 py-2 text-sm font-black text-black transition-colors duration-200 hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <GoogleLogo size={18} weight="fill" />
+                      <span>{isStartingGoogleLogin ? t("로그인 준비 중...") : t("Google로 시작하기")}</span>
+                    </button>
+                    {emailLoginEnabled && (
+                      <a
+                        href={regionHref("/login")}
+                        className="flex items-center gap-2 rounded-xl border border-white/[0.15] px-4 py-2 text-sm font-black text-white transition-colors duration-200 hover:bg-white/[0.08]"
+                      >
+                        <EnvelopeSimple size={18} weight="bold" />
+                        <span>{t("이메일로 시작하기")}</span>
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setIsAuthModalOpen(false)}
+                      className="text-sm font-black text-gray-400 transition-colors hover:text-white"
+                    >
+                      {t("취소")}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        }
+      />
     </DashboardLayout>
   );
 }

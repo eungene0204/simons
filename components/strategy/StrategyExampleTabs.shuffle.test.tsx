@@ -1,7 +1,6 @@
-import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { EXAMPLES, StrategyExampleTabs, shuffleExamples } from "./StrategyExampleTabs";
+import { EXAMPLES, shuffleExamples } from "./StrategyExampleTabs";
 
 describe("예시 카드 무작위 노출", () => {
   afterEach(() => {
@@ -23,35 +22,5 @@ describe("예시 카드 무작위 노출", () => {
     vi.spyOn(Math, "random").mockReturnValue(0.999999);
 
     expect(shuffleExamples(EXAMPLES)).toEqual(EXAMPLES);
-  });
-
-  it("전략연구소 첫 화면 카드도 마운트 후 섞인 순서로 보여준다", () => {
-    vi.spyOn(Math, "random").mockReturnValue(0);
-    const visible = shuffleExamples(EXAMPLES).slice(0, 20);
-    const dropped = EXAMPLES.slice(0, 20).find((example) => !visible.includes(example));
-
-    render(<StrategyExampleTabs onSelectExample={vi.fn()} />);
-
-    const cards = screen.getAllByTestId("strategy-example-card");
-    expect(cards).toHaveLength(20);
-    expect(cards[0]).toHaveTextContent(visible[0].title);
-    expect(dropped).toBeDefined();
-    expect(screen.queryByText(dropped!.title)).not.toBeInTheDocument();
-  });
-
-  it("첫 줄 카드 중 무작위 하나에만 시작 말풍선을 붙인다", () => {
-    // 섞기와 말풍선 위치가 같은 난수를 쓴다 — 0.5면 후보 5장 중 index 2
-    vi.spyOn(Math, "random").mockReturnValue(0.5);
-
-    render(<StrategyExampleTabs onSelectExample={vi.fn()} />);
-
-    const bubbles = screen.getAllByTestId("strategy-example-start-bubble");
-    expect(bubbles).toHaveLength(1);
-    expect(bubbles[0]).toHaveTextContent("예시로 시작해 보세요!");
-    const cards = screen.getAllByTestId("strategy-example-card");
-    expect(cards[2]).toContainElement(bubbles[0]);
-    // 말풍선 카드만 테두리가 강조색으로 은은하게 빛난다
-    expect(cards[2].className).toContain("shadow-[0_0_20px_var(--chat-accent-soft)]");
-    expect(cards.filter((card) => card.className.includes("chat-accent"))).toHaveLength(1);
   });
 });

@@ -94,12 +94,10 @@ function bodiesFor(url: string) {
 }
 
 async function send(text: string) {
-  // 칩이 떠 있는 동안 입력창은 숨겨진다 — 사용자는 '직접 입력'으로 다시 연다.
-  const freeInput = screen.queryByRole("button", { name: "직접 입력" });
-  if (freeInput) fireEvent.click(freeInput);
-  const textarea = await screen.findByRole("textbox");
+  // 캔버스 화면의 입력창은 칩이 떠 있어도 왼쪽 칸에 남는다(2026-10-28) — 그 입력창에 적어 보낸다.
+  const textarea = await screen.findByTestId("lab-chat-input");
   fireEvent.change(textarea, { target: { value: text } });
-  fireEvent.click(screen.getByRole("button", { name: /전략 생성|전송/ }));
+  fireEvent.keyDown(textarea, { key: "Enter" });
 }
 
 describe("되묻기 답변은 파스 레인이 해석한다", () => {

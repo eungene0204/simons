@@ -110,11 +110,10 @@ function mockFetch(classifyForPrompt: (query: string) => Record<string, unknown>
 }
 
 async function sendFreeText(text: string) {
-  // 되묻기 칩이 떠 있는 동안에는 입력창이 숨겨진다 — '직접 입력'으로 다시 연다.
-  fireEvent.click(await screen.findByRole("button", { name: "직접 입력" }));
-  const textarea = await screen.findByRole("textbox");
+  // 캔버스 화면의 입력창은 칩이 떠 있어도 왼쪽 칸에 남는다(2026-10-28) — 그 입력창에 적어 보낸다.
+  const textarea = await screen.findByTestId("lab-chat-input");
   fireEvent.change(textarea, { target: { value: text } });
-  fireEvent.click(screen.getByRole("button", { name: /전략 생성|전송/ }));
+  fireEvent.keyDown(textarea, { key: "Enter" });
 }
 
 describe("부가 발화는 열려 있는 되묻기를 삼키지 않는다", () => {

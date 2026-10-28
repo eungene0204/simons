@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import StrategyLabPage from "./page";
 
@@ -90,11 +90,9 @@ describe("StrategyLab auth entry", () => {
     window.sessionStorage.clear();
   });
 
-  // 글자 진입 연출은 CSS animation-delay 캐스케이드가 만든다(.chat-headline-char).
-  // 이전에는 38ms setInterval + 인라인 opacity였고, 이 테스트도 그 타이머를 전제로
-  // opacity 0 -> 1을 검증했다. 타이머 구현은 글자마다 페이지 전체를 리렌더링했고
-  // prefers-reduced-motion으로 끌 수도 없어 CSS로 옮겼다.
-  it("staggers the headline letters through the CSS delay cascade", async () => {
+  // 캔버스 레이아웃(2026-10-28)은 화면 제목 자리에 툴바의 전략 이름을 둔다. 페이지 유일 h1은 검색엔진이
+  // 본문 제목으로 읽도록 보이지 않게(sr-only) 남긴다(SEO 2026-09-13).
+  it("keeps the single page h1 and shows the five lab areas", async () => {
     render(<StrategyLabPage />);
 
     await act(async () => {
@@ -102,36 +100,21 @@ describe("StrategyLab auth entry", () => {
     });
 
     const headline = screen.getByTestId("strategy-lab-headline");
-    // 두 줄 사이에 공백이 있어야 검색엔진이 낱말을 붙여 읽지 않는다 — toHaveTextContent는
-    // 공백을 정규화하므로 textContent를 그대로 비교한다.
-    expect(headline.textContent?.replace(/\u00A0/g, " ")).toBe("퀀트 전략을 입력하세요");
-    // 검색엔진이 본문 제목으로 읽는 페이지 유일 h1이다(SEO 2026-09-13).
     expect(headline.tagName).toBe("H1");
-    expect(headline).toHaveClass("text-[27px]", "sm:text-5xl", "lg:text-7xl");
-    expect(screen.getByTestId("strategy-lab-headline-stack")).toHaveClass(
-      "w-full",
-      "lg:w-auto"
-    );
-    expect(headline.querySelector(":scope > span")).toHaveClass(
-      "whitespace-normal",
-      "lg:whitespace-nowrap"
-    );
-    expect(screen.getByTestId("strategy-lab-background")).toHaveClass(
-      "pt-10",
-      "sm:pt-14",
-      "lg:pt-20"
-    );
+    expect(headline).toHaveTextContent("퀀트 전략을 입력하세요");
+    expect(headline).toHaveClass("sr-only");
+    expect(document.querySelectorAll("h1")).toHaveLength(1);
 
-    const animatedChars = Array.from(headline.querySelectorAll("span span"));
-    expect(animatedChars).toHaveLength(
-      "퀀트 전략을 입력하세요".length
-    );
-    expect(animatedChars[0]).toHaveClass("chat-headline-char");
-    // 지연 순서는 --char-index가 줄 경계를 넘어 이어져야 한다.
-    expect(animatedChars[0].getAttribute("style")).toContain("--char-index: 0");
-    expect(animatedChars[animatedChars.length - 1].getAttribute("style")).toContain(
-      `--char-index: ${animatedChars.length - 1}`
-    );
+    expect(screen.getByTestId("lab-toolbar")).toBeInTheDocument();
+    expect(screen.getByTestId("lab-left-drawer")).toBeInTheDocument();
+    expect(screen.getByTestId("lab-canvas")).toBeInTheDocument();
+    expect(screen.getByTestId("lab-chat-panel")).toBeInTheDocument();
+    // 전략 예시는 왼쪽 서랍의 두 번째 탭이다.
+    expect(screen.getByRole("tab", { name: "대화 기록" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "전략 예시" })).toHaveAttribute("aria-selected", "false");
+    // 빈 캔버스는 채팅으로 안내하고, 전략이 없으니 실행 버튼은 막혀 있다.
+    expect(screen.getByTestId("lab-canvas-empty")).toHaveTextContent("아래 채팅창에 전략을 설명해 보세요");
+    expect(screen.getByTestId("lab-run-button")).toBeDisabled();
   });
 
   it("opens a Google start modal when an anonymous user tries to generate a strategy", async () => {
@@ -281,19 +264,72 @@ describe("StrategyLab auth entry", () => {
     expect(push).not.toHaveBeenCalled();
   });
 
-  it("blurs the strategy lab background while a template preview is open", async () => {
+  // 예시 카드는 문장을 입력창에 채우기만 한다 — 자동 전송하지 않는다(로그인 대화상자도 뜨지 않는다).
+  it("fills the chat input from an example card without sending it", async () => {
     render(<StrategyLabPage />);
 
-    const background = await screen.findByTestId("strategy-lab-background");
-    expect(background.className).not.toContain("blur-[6px]");
+    const textarea = await screen.findByRole("textbox");
+    fireEvent.click(screen.getByRole("tab", { name: "전략 예시" }));
+    const [firstCard] = screen.getAllByTestId("lab-example-card");
+    fireEvent.click(firstCard);
 
-    fireEvent.click(screen.getByRole("button", { name: "미리보기 열기" }));
+    expect((textarea as HTMLTextAreaElement).value.length).toBeGreaterThan(0);
+    expect(firstCard).toHaveTextContent((textarea as HTMLTextAreaElement).value.slice(0, 20));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/query/classify"))).toBe(false);
+  });
+  // "+"는 캔버스 위에서 블록 트레이를 내린다. 블록은 값이 정해진 되묻기 칩이고, 올리는 즉시 전략에 포함된다 —
+  // 채팅 턴(해석 요청)도 로그인 대화상자도 없다. 다음에 정할 조건은 채팅이 이어서 묻는다.
+  it("includes a picked block in the strategy immediately without a chat turn, then asks the next condition", async () => {
+    render(<StrategyLabPage />);
 
-    expect(background.className).toContain("blur-[6px]");
-    expect(background.className).toContain("pointer-events-none");
+    const textarea = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+    const tray = screen.getByTestId("lab-block-tray");
+    expect(tray).toHaveAttribute("data-open", "false");
+    fireEvent.click(screen.getByRole("button", { name: "블록 추가" }));
+    expect(tray).toHaveAttribute("data-open", "true");
 
-    fireEvent.click(screen.getByRole("button", { name: "미리보기 닫기" }));
+    fireEvent.click(within(tray).getByRole("tab", { name: "위험 관리" }));
+    const options = within(tray).getAllByTestId("lab-block-option").map((o) => o.textContent);
+    expect(options).toEqual(["손절 -5%", "손절 -10%", "손절 -15%", "익절 10%", "익절 20%", "익절 30%"]);
 
-    expect(background.className).not.toContain("blur-[6px]");
+    fireEvent.click(within(tray).getByRole("tab", { name: "투자 대상" }));
+    fireEvent.click(within(tray).getByRole("button", { name: "코스피" }));
+
+    expect(tray).toHaveAttribute("data-open", "false");
+    expect(textarea.value).toBe("");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/strategy/parse"))).toBe(false);
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/query/classify"))).toBe(false);
+    // 투자 대상이 정해졌으니 채팅은 다음 조건(매수 조건)을 묻는다.
+    const card = await screen.findByTestId("clarification-card");
+    expect(card).toHaveTextContent("매수");
+    expect(screen.queryByText("어떤 시장을 대상으로 할까요?")).not.toBeInTheDocument();
+  });
+
+  // 트레이가 내려와 있을 때 다른 곳(캔버스 바탕·채팅 입력창)을 누르면 접힌다. 여는 "+" 버튼은 토글로 남는다.
+  it("collapses the block tray when something outside it is pressed", async () => {
+    render(<StrategyLabPage />);
+
+    const textarea = await screen.findByRole("textbox");
+    const tray = screen.getByTestId("lab-block-tray");
+    const toggle = screen.getByRole("button", { name: "블록 추가" });
+
+    fireEvent.click(toggle);
+    expect(tray).toHaveAttribute("data-open", "true");
+    // 트레이 안(칸 탭)을 눌러도 열려 있다.
+    fireEvent.pointerDown(within(tray).getByRole("tab", { name: "위험 관리" }));
+    expect(tray).toHaveAttribute("data-open", "true");
+    // 바깥(채팅 입력창)을 누르면 접힌다.
+    fireEvent.pointerDown(textarea);
+    expect(tray).toHaveAttribute("data-open", "false");
+
+    // "+" 버튼은 누르는 순간 접었다 다시 열지 않고 토글로 동작한다.
+    fireEvent.pointerDown(toggle);
+    fireEvent.click(toggle);
+    expect(tray).toHaveAttribute("data-open", "true");
+    fireEvent.pointerDown(toggle);
+    fireEvent.click(toggle);
+    expect(tray).toHaveAttribute("data-open", "false");
   });
 });

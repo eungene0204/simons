@@ -259,8 +259,9 @@ describe("StrategyLab unknown intent fallback", () => {
     const rebalanceMethodChip = await screen.findByRole("button", {
       name: "종목 교체 리밸런싱",
     });
-    // 닫힌 선택지다(2026-09-06 지시) — 두 칩이 답의 전부라 입력창도 '직접 입력' 칩도 없다.
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    // 닫힌 선택지다(2026-09-06 지시) — 두 칩이 답의 전부라 카드 안 입력칸도 '직접 입력' 칩도 없다.
+    // 왼쪽 채팅 입력창은 칩이 떠 있어도 남는다(2026-10-28).
+    expect(screen.getAllByTestId("clarification-card").every((card) => card.querySelector("input, textarea") === null)).toBe(true);
     expect(screen.queryByRole("button", { name: "직접 입력" })).not.toBeInTheDocument();
     fireEvent.click(rebalanceMethodChip);
     expect(
@@ -276,7 +277,7 @@ describe("StrategyLab unknown intent fallback", () => {
       screen.getByPlaceholderText("원하는 익절 기준을 직접 적어 주세요"),
     ).toBeInTheDocument();
     expect(screen.queryByText(/현재 상태로도 백테스트를 실행할 수 있습니다/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "백테스트 시작하기" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("lab-run-button")).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "익절 20%" }));
     // 빌더 단독 진입(파스 없음)이라 기간·초기 자본은 사용자가 말했다는 근거가 없다 —
     // 기본값으로 조용히 확정하지 않고 묻는다.

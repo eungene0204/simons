@@ -1,12 +1,17 @@
-// [2026-09-28 지시] 전략이 확정되면 옛 '전략 요약' 배지 카드와 '전략 검증 — 전략 정의가
-// 완료되었습니다' 카드 없이, 되묻기 중 보던 '현재까지 이해한 전략입니다' 카드를 그대로 보여주고
-// 그 바로 아래에 '백테스트 시작하기' 버튼을 둔다. 검증은 뒤에서 돌고, 알릴 문제가 있을 때만
+// [2026-10-28 지시] 전략이 확정돼도 대화에 요약 카드·'백테스트 시작하기' 버튼을 그리지 않는다 —
+// 실행은 상단 툴바의 백테스트 실행 버튼 하나다. 검증은 뒤에서 돌고, 알릴 문제가 있을 때만
 // '전략 검증' 카드를 붙인다. 버튼은 검증 응답을 기다리지 않는다.
 import type { ReactNode } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import StrategyLabPage from "./page";
+
+// 실행은 상단 툴바 버튼 하나다 — 준비가 끝나(활성) 누를 수 있을 때까지 기다린다.
+const findRunButton = async (timeout = 5_000) => {
+  await waitFor(() => expect(screen.getByTestId("lab-run-button")).toBeEnabled(), { timeout });
+  return screen.getByTestId("lab-run-button");
+};
 
 const push = vi.fn();
 const back = vi.fn();
@@ -185,21 +190,16 @@ describe("전략 확정 즉시 백테스트 버튼", () => {
     vi.unstubAllGlobals();
   });
 
-  it("만든 전략 카드 아래에 검증 응답 전부터 버튼을 보여준다", async () => {
+  it("확정 후 대화에 요약 카드·시작 버튼 없이 검증 응답 전부터 툴바 실행 버튼이 켜진다", async () => {
     const coach = createDeferred<Response>();
     mockFetch(coach.promise);
     await submitCompleteStrategy();
 
-    // 검증 응답이 아직 오지 않았는데도 버튼이 뜬다.
-    const runButton = await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5_000 });
-    // 되묻기 중 보던 카드를 그대로 — 말한 설정이 행으로 보이고, 버튼은 그 카드 뒤에 온다.
-    const card = screen.getByTestId("confirmed-strategy-summary");
-    expect(card).toHaveTextContent("현재까지 이해한 전략입니다");
-    expect(card).toHaveTextContent("KOSPI");
-    expect(card).toHaveTextContent("5종목");
-    expect(card).toHaveTextContent("손절 -10%");
-    expect(card.compareDocumentPosition(runButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getAllByText("현재까지 이해한 전략입니다")).toHaveLength(1);
+    // 검증 응답이 아직 오지 않았는데도 툴바 버튼이 켜진다.
+    await findRunButton(5_000);
+    expect(screen.queryByTestId("confirmed-strategy-summary")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("backtest-action")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "백테스트 시작하기" })).not.toBeInTheDocument();
     expect(screen.queryByText("전략 요약")).not.toBeInTheDocument();
     expect(screen.queryByTestId("strategy-coach-bubble")).not.toBeInTheDocument();
     expect(screen.queryByText("검증 중...")).not.toBeInTheDocument();
@@ -212,7 +212,7 @@ describe("전략 확정 즉시 백테스트 버튼", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByTestId("strategy-coach-bubble")).not.toBeInTheDocument();
     expect(screen.queryByText("전략 정의가 완료되었습니다. 백테스트를 실행할 수 있습니다.")).not.toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "백테스트 시작하기" })).toHaveLength(1);
+    expect(screen.getAllByTestId("lab-run-button")).toHaveLength(1);
   });
 
   it("검증이 문제를 알리면 '전략 검증' 카드를 붙이고 버튼은 그 아래 하나만 둔다", async () => {
@@ -233,35 +233,9 @@ describe("전략 확정 즉시 백테스트 버튼", () => {
     const bubble = await screen.findByTestId("strategy-coach-bubble", undefined, { timeout: 5_000 });
     expect(bubble).toHaveTextContent("매수 조건이 서로 충돌합니다.");
     expect(screen.queryByText("전략 요약")).not.toBeInTheDocument();
-    const runButtons = screen.getAllByRole("button", { name: "백테스트 시작하기" });
+    const runButtons = screen.getAllByTestId("lab-run-button");
     expect(runButtons).toHaveLength(1);
     expect(bubble).not.toContainElement(runButtons[0]);
-  });
-
-  it("분할 매수 사다리·분할 익절도 카드의 '매매 설정' 행으로 보인다", async () => {
-    // 첫 스크린샷의 옛 요약 카드는 이 전략을 '익절 100%'로만 보여줬다 — 사다리가 통째로 빠졌다.
-    mockFetch(
-      Promise.resolve(createJsonResponse({ message: JSON.stringify({ is_valid: true, issues: [] }) })),
-      {
-        ...parsedStrategy,
-        take_profit_pct: 100,
-        entry_tranches: { first_pct: 50, levels: [{ drop_pct: 15, size_pct: 10 }, { drop_pct: 25, size_pct: 25 }] },
-        partial_take_profits: [
-          { profit_pct: 25, sell_pct: 10 },
-          { profit_pct: 35, sell_pct: 20 },
-        ],
-      },
-    );
-    await submitCompleteStrategy();
-
-    const runButton = await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5_000 });
-    const card = screen.getByTestId("confirmed-strategy-summary");
-    expect(card).toHaveTextContent("매매 설정");
-    expect(card).toHaveTextContent("분할 매수 첫 회차 50% · 추가 -15%에 10%, -25%에 25%");
-    expect(card).toHaveTextContent("분할 익절 +25%에 10% 매도");
-    expect(card).toHaveTextContent("분할 익절 +35%에 20% 매도");
-    expect(card).toHaveTextContent("익절 100%");
-    expect(card.compareDocumentPosition(runButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("백테스트 진행 상황은 하단 진행 카드 한 곳에만 보인다", async () => {
@@ -269,7 +243,7 @@ describe("전략 확정 즉시 백테스트 버튼", () => {
     mockFetch(Promise.resolve(createJsonResponse({ message: JSON.stringify({ is_valid: true, issues: [] }) })));
     await submitCompleteStrategy();
 
-    fireEvent.click(await screen.findByRole("button", { name: "백테스트 시작하기" }, { timeout: 5_000 }));
+    fireEvent.click(await findRunButton(5_000));
     expect(await screen.findByText("백테스트 진행 중")).toBeInTheDocument();
     await screen.findByText("성과 지표 계산 중...");
     expect(screen.getAllByText("성과 지표 계산 중...")).toHaveLength(1);

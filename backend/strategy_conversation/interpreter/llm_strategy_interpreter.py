@@ -40,6 +40,8 @@ from strategy_conversation.interpreter.output_repair import (
     cross_role_duplicate_fields,
     restore_repair_role_drift,
     is_bare_unsupported_request,
+    is_draftless_patch_intent,
+    draftless_patch_error,
     misfiled_trading_value_error,
     misfiled_trading_value_fields,
     split_bollinger_recovery_error,
@@ -530,6 +532,22 @@ class StrategyInterpreter:
                         build_repair_prompt(user_input, current_raw, error_message, draft),
                     )
                     _log_llm(f"◀ 빈 라벨 재생성 응답({attempts}회차)", current_raw.strip())
+                    continue
+                # 출력 형식 위반 — 초안 없는 턴의 수정 패치(is_draftless_patch_intent docstring).
+                # 같은 레인으로 1회 재생성한다. 재생성 뒤에도 남으면 그대로 진행한다(기존 해석 실패 안내).
+                if (draft is None and is_draftless_patch_intent(intent)
+                        and format_fallback_raw is None
+                        and attempts < config.MAX_REPAIR_ATTEMPTS):
+                    format_fallback_raw = current_raw
+                    format_original_other_slots = _other_strategy_slots(intent)
+                    attempts += 1
+                    error_message = draftless_patch_error()
+                    _log_llm(f"⟳ 초안 없는 패치 재생성 요청({attempts}회차)", error_message)
+                    current_raw = self._chat(
+                        self._system_prompt,
+                        build_repair_prompt(user_input, current_raw, error_message, draft),
+                    )
+                    _log_llm(f"◀ 초안 없는 패치 재생성 응답({attempts}회차)", current_raw.strip())
                     continue
                 # 출력 형식 위반 — 인용이 다른 지표를 부르는 거래대금 조건(금액 표현을 거래대금으로
                 # 지어낸 흔적, misfiled_trading_value_fields docstring). 같은 레인으로 1회 재생성한다

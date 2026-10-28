@@ -452,6 +452,32 @@ def is_bare_unsupported_request(intent) -> bool:
     )
 
 
+def is_draftless_patch_intent(intent) -> bool:
+    """초안 없는 턴에 수정 패치만 낸 출력인가(형식 위반) — 호출부는 생성 턴(draft=None)에서만 부른다.
+
+    라벨은 MODIFY/CLARIFY(기존 초안 수정)인데 고칠 초안이 없고 strategy도 비어 있어 패치를 적용할
+    곳이 없다 — 턴이 "해석하지 못했어요"로 끝난다(2026-10-28 실측: 캔버스 블록 문장 "투자 대상을
+    KOSPI로 해줘"에 120B가 `MODIFY_STRATEGY, strategy=null, patches=[/universe/markets]`를 냈다).
+    strategy가 채워진 경우는 문맥 보정이 CREATE로 바꾼다 — 여기는 그 보정이 손댈 수 없는 모양이다.
+    출력 필드의 값 존재만 본다 — 원문을 읽지 않는다.
+    """
+    return (
+        getattr(intent, "intent", None) in ("MODIFY_STRATEGY", "CLARIFY_STRATEGY")
+        and getattr(intent, "strategy", None) is None
+        and bool(getattr(intent, "patches", None))
+    )
+
+
+def draftless_patch_error() -> str:
+    """초안 없는 수정 패치를 LLM에 되돌려줄 검증 오류 문구(build_repair_prompt의 error_message)."""
+    return (
+        "intent: MODIFY_STRATEGY로 patches만 냈지만 '현재 전략 초안'이 없습니다 — 고칠 초안이 없는 "
+        "턴의 patches는 적용할 곳이 없어 허용되지 않습니다.\n"
+        "- 이 입력은 새 전략 서술입니다. intent는 CREATE_STRATEGY, patches는 빈 목록으로 두고, "
+        "patches로 바꾸려던 값을 strategy의 해당 필드에 채우세요. 입력이 정하지 않은 필드는 비워 두세요."
+    )
+
+
 def bare_unsupported_request_error() -> str:
     """빈 UNSUPPORTED_REQUEST를 LLM에 되돌려줄 검증 오류 문구(build_repair_prompt의 error_message).
 

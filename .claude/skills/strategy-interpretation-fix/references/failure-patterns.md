@@ -28,6 +28,11 @@ SKILL.md 2단계 표의 기호별 상세. 각 절은 **식별 신호 → 실제 
   1회 재생성한다. 재생성 오류 문구에 "옮길 수 있는 표현은 필드에"를 넣어야 한다. "무엇이 미지원인지 적어라"만 주면
   여섯 문장을 통째로 미지원으로 보내고 주기·비중·체결·수수료까지 버린다.
 - **같은 계열**: 입력 전체를 인용하는 경우(`whole_input_quote_fields`), 금액 표현을 거래대금 조건으로 지어내는 경우(`misfiled_trading_value_fields`).
+- **같은 계열 — 초안 없는 수정 패치(2026-10-28)**: 첫 턴(초안 없음)에 "투자 대상을 KOSPI로 해줘"처럼 "~로 해줘" 꼴
+  문장이 오면 120B가 `MODIFY_STRATEGY, strategy=null, patches=[…]`(≈88토큰)를 낸다. 기존 문맥 보정은 strategy가
+  채워진 MODIFY만 CREATE로 바꿔서 이 모양은 그대로 "해석하지 못했어요"로 끝났다. `is_draftless_patch_intent` →
+  `draftless_patch_error`로 1회 재생성 — 사고 문장 실서버 3/3 CREATE·투자 대상만 채움(지어낸 칸 없음). 캔버스 블록이
+  문장을 채팅 턴으로 보내면서 드러났다.
 - **기각**: 규칙 줄 추가만으로는 빈 라벨이 없어지지 않았다. (project_bare_unsupported_request_regeneration.md)
 
 ## C — 조립(compile) 예외
