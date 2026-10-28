@@ -1,14 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { fetchBackend } from "@/lib/server/backend";
 import {
-  PUBLIC_STRATEGY_WHERE,
   findPublicStrategy,
   snapshotFromSettings,
   snapshotHash,
   type PublicStrategyRow,
 } from "./access";
 
-// 공개 원본 결과(§3.8) — 조회는 저장된 결과만 읽고, 낡았으면 백그라운드 갱신을 예약할 뿐 기다리지 않는다.
+// 예시 원본 결과(§3.8) — 조회는 저장된 결과만 읽고, 낡았으면 백그라운드 갱신을 예약할 뿐 기다리지 않는다.
 
 export type Baseline = {
   today: string; requestedStart: string; requestedEnd: string; endDate: string;
@@ -112,10 +111,9 @@ export function ensureFresh(item: PublicStrategyRow, baseline: Baseline | null):
 export async function refreshOne(publicId: string): Promise<void> {
   const now = new Date();
   // 리스를 조건부 갱신(CAS)으로 잡은 프로세스 하나만 실행한다.
-  const leased = await prisma.publicSimulationResult.updateMany({
+  const leased = await prisma.exampleSimulationResult.updateMany({
     where: {
       id: publicId,
-      Strategy: { is: { ...PUBLIC_STRATEGY_WHERE } },
       OR: [{ refreshLeaseUntil: null }, { refreshLeaseUntil: { lt: now } }],
     },
     data: { refreshLeaseUntil: new Date(now.getTime() + LEASE_MS), lastAttemptAt: now },
@@ -128,10 +126,10 @@ export async function refreshOne(publicId: string): Promise<void> {
   const hash = snapshotHash(snapshot);
   const baseline = await getBaseline();
 
-  // 저장은 '내가 실행한 설정 그대로 아직 공개 중일 때'만 — 실행 도중 철회·수정되면 결과를 버린다.
+  // 예시 실행 설정은 배포 단위로 고정이라 실행 도중 바뀌지 않는다 — 결과 행만 갱신한다.
   const write = (data: Record<string, unknown>) =>
-    prisma.publicSimulationResult.updateMany({
-      where: { id: publicId, Strategy: { is: { ...PUBLIC_STRATEGY_WHERE, settings: item.settings } } },
+    prisma.exampleSimulationResult.updateMany({
+      where: { id: publicId },
       data: { lastAttemptAt: new Date(), ...data },
     });
   const fail = (code: string, backoffMs: number) =>

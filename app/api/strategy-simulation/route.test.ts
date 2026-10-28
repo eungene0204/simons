@@ -53,9 +53,9 @@ const stored = {
   editableParams: [{ path: "entry.conditions.0.params.period", original: 14, editable: true }],
 };
 const item = {
-  name: "RSI 전략", description: "설명", settings,
+  name: "RSI 전략", description: "설명", settings, assumptions: [],
   row: {
-    id: "pubId1234", strategyId: "7:secret-strategy-id", snapshotHash: HASH, dataAsOf: "2026-10-23", engineVersion: "16.43.0",
+    id: "pubId1234", snapshotHash: HASH, dataAsOf: "2026-10-23", engineVersion: "16.43.0",
     status: "ready", reason: null, result: JSON.stringify(stored), computedAt: new Date(), refreshLeaseUntil: null,
     lastAttemptAt: null, lastError: null,
   },
@@ -82,7 +82,7 @@ describe("GET /api/strategy-simulation", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("Cache-Control")).toBe("no-store");
     expect(Object.keys(body.items[0]).sort()).toEqual(
-      ["computedAt", "curve", "description", "name", "publicId", "status", "summary", "window"].sort());
+      ["computedAt", "curve", "description", "name", "publicId", "randomAssumed", "status", "summary", "window"].sort());
     expect(body.items[0]).toMatchObject({ publicId: "pubId1234", status: "ready", summary: { totalReturnPct: 10, totalProfit: 1e6, maxDrawdownPct: -5 } });
     expect(body.items[0].summary).not.toHaveProperty("initialCapital");
     const text = JSON.stringify(body);

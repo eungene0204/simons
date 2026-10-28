@@ -11,6 +11,7 @@ export type SimulationCard = {
   publicId: string;
   name: string;
   description: string | null;
+  randomAssumed?: boolean;
   status: "pending" | "refreshing" | "ready" | "no_trades" | "unavailable" | "failed";
   reason?: string;
   window?: { actualStart?: string; actualEnd?: string; dataAsOf?: string; limited?: boolean };
@@ -57,6 +58,8 @@ function CardBody({ card }: { card: SimulationCard }) {
   );
 }
 
+const POLL_MS = 5000;
+
 export function SimulationCardGrid({ onOpen }: { onOpen?: (publicId: string) => void }) {
   const [items, setItems] = useState<SimulationCard[]>([]);
   const [page, setPage] = useState(1);
@@ -92,6 +95,30 @@ export function SimulationCardGrid({ onOpen }: { onOpen?: (publicId: string) => 
     void load(query, 1);
   }, [load, query]);
 
+  // 계산 중인 카드가 있으면 목록 전체를 기다리지 않고, 끝나는 카드부터 제자리에서 바꿔 보여 준다.
+  const waiting = !loading && !failed && items.some((c) => c.status === "pending" || c.status === "refreshing");
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = setTimeout(async () => {
+      const id = latest.current;
+      try {
+        const fresh = new Map<string, SimulationCard>();
+        for (let p = 1; p <= page; p++) {
+          const params = new URLSearchParams({ page: String(p) });
+          if (query) params.set("q", query);
+          const res = await fetch(`/api/strategy-simulation?${params}`, { cache: "no-store" });
+          const body = await res.json().catch(() => null);
+          if (!res.ok || !Array.isArray(body?.items)) return;
+          for (const card of body.items as SimulationCard[]) fresh.set(card.publicId, card);
+        }
+        if (id === latest.current) setItems((prev) => prev.map((c) => fresh.get(c.publicId) ?? c));
+      } catch {
+        // 다음 주기에 다시 시도한다.
+      }
+    }, POLL_MS);
+    return () => clearTimeout(timer);
+  }, [waiting, items, page, query]);
+
   return (
     <div>
       <form
@@ -121,7 +148,7 @@ export function SimulationCardGrid({ onOpen }: { onOpen?: (publicId: string) => 
         </p>
       )}
       {!failed && !loading && items.length === 0 && (
-        <p className="mt-6 text-sm font-bold text-gray-400">{query ? t("검색 결과가 없습니다.") : t("공개된 전략이 아직 없습니다.")}</p>
+        <p className="mt-6 text-sm font-bold text-gray-400">{query ? t("검색 결과가 없습니다.") : t("표시할 예시 전략이 아직 없습니다.")}</p>
       )}
 
       <ul className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -134,12 +161,15 @@ export function SimulationCardGrid({ onOpen }: { onOpen?: (publicId: string) => 
               className="flat-card block h-full w-full rounded-xl p-4 text-left transition-colors hover:bg-white/[0.04]"
             >
               <div className="flex items-start justify-between gap-2">
-                <h2 className="text-base font-black text-white">{card.name}</h2>
+                <h2 className="text-base font-black text-white">{t(card.name)}</h2>
                 {card.status === "refreshing" && (
                   <span className="shrink-0 rounded bg-white/[0.08] px-1.5 py-0.5 text-[11px] font-bold text-gray-300">{t("갱신 중")}</span>
                 )}
               </div>
-              {card.description && <p className="mt-1 line-clamp-2 text-xs text-gray-400">{card.description}</p>}
+              {card.randomAssumed && (
+                <p className="mt-1.5 inline-block rounded bg-white/[0.08] px-1.5 py-0.5 text-[11px] font-bold text-gray-300">{t("무작위 선택값 포함")}</p>
+              )}
+              {card.description && <p className="mt-1 line-clamp-2 text-xs text-gray-400">{t(card.description)}</p>}
               <div className="mt-3"><CardBody card={card} /></div>
               {card.window?.actualStart && (
                 <p className="mt-3 text-[11px] text-[var(--text-label)]">

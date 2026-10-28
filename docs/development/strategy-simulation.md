@@ -2,6 +2,8 @@
 
 - 상태: **구현 완료(2026-10-27) — Z-1~Z-10, Q-1, G-2.** 구현 결과·검증·요구사항 대조는 §9, 명세와 달라진 점은 §9.2,
   남은 제약은 §8. (명세는 같은 날 먼저 작성했고 이 문서가 구현에 맞게 갱신된 정본이다.)
+- **2026-10-28 대상 전환: 공개 사용자 전략 → 널스탁 예시 전략(§10).** 아래 §0~§9의 `Strategy.isPublic`·공개 철회·소유자 관련 서술은
+  전환 전 기록이다. 창·지표·수정·캐시·요청 제한 계약은 그대로다.
 - 전용 boundary: `docs/architecture/boundaries.md` **Boundary Z: Public Strategy Simulation**.
   내비게이션 연결은 Boundary Q, 구현 후 문서 갱신은 Boundary G의 별도 작업이다.
 - 성격: 투자 연구 도구. 전략 추천·자동 최적화·최적 파라미터 탐색·시장 전망·매매 시점 제안·
@@ -199,7 +201,7 @@
   - 항목 수 ≤ 설명자 항목 수, 중복 path 금지. 모든 값이 원본과 같으면 실행하지 않고 원본 결과를 돌려준다.
 - 실행: 원본 스냅샷의 **깊은 복사본**에만 덮어쓴 뒤 원본과 같은 창으로 실제 백테스트를 실행한다. 원본 `Strategy.settings`·원본 결과 행은 읽기만 한다.
 - 화면 동작(모달 안):
-  - 입력이 유효해진 뒤 600ms 디바운스로 자동 재계산. 유효하지 않은 입력은 필드 옆에 사유를 표시하고 요청하지 않는다.
+  - 값을 바꾼 뒤 [적용] 버튼을 눌렀을 때만 재계산(입력 중에는 요청하지 않음). 유효하지 않은 입력은 필드 옆에 사유를 표시하고 요청하지 않는다.
   - 모달당 **동시 1건**. 실행 중 새 입력이 오면 대기열의 마지막 입력 하나만 남기고, 진행 중 요청이 끝나면 그 입력으로 다시 보낸다.
     응답은 요청 순번·모달 세션 토큰·전략 `publicId`가 모두 현재와 같을 때만 반영한다(늦은 응답·다른 전략·닫힌 모달 응답 폐기).
     모달을 닫거나 전략을 바꾸면 `AbortController`로 진행 중 요청을 끊는다.
@@ -362,7 +364,7 @@ Run 공통: Python 변경 → `uv run pytest backend/tests`(CLAUDE.md의 서버 
 
 ### Z-9 지표 수정 폼·재계산 훅 (Boundary Z) ✅ 완료
 - Files: `components/strategy-simulation/SimulationParamForm.tsx`, `components/strategy-simulation/useModifiedSimulation.ts`, `components/strategy-simulation/useModifiedSimulation.test.tsx`, `lib/i18n/en.ts`
-- Tests(가짜 타이머): 600ms 디바운스, 빠른 연속 수정 시 마지막 입력 결과만 반영, 늦은 응답 폐기, 모달 닫기·재열기·전략 전환 시 원본 시작·응답 미반영, 원본으로 초기화, %p 차이 표기, 잘못된 입력 미요청, 카드 성과 불변.
+- Tests(가짜 타이머): 적용 전 미요청·적용 시 1회 계산, 연속 적용 시 마지막 결과만 반영, 늦은 응답 폐기, 모달 닫기·재열기·전략 전환 시 원본 시작·응답 미반영, 원본으로 초기화, %p 차이 표기, 잘못된 입력 미요청, 카드 성과 불변.
 
 ### Q-1 상단 메뉴 연결 (Boundary Q, **D5 결정 후**) ✅ 완료
 - Files: `components/layout/TopNavigation.tsx`(항목 1개), `components/__tests__/TopNavigationQuickSearch.test.tsx`(메뉴 사례 추가만).
@@ -424,7 +426,7 @@ Run 공통: Python 변경 → `uv run pytest backend/tests`(CLAUDE.md의 서버 
 | Z-6 | `app/api/strategy-simulation/{route,[publicId]/route,[publicId]/run/route,response}.ts` | 테스트 27 (허용 필드, no-store, 404, 입력 검증, 오류 코드 매핑, 목록이 엔진 미실행) |
 | Z-7 | `app/strategy-simulation/page.tsx`, `components/strategy-simulation/{SimulationCardGrid,SimulationMiniChart}.tsx` | 테스트 5 |
 | Z-8 | `SimulationDetailModal`, `SimulationReturnChart`, `SimulationMetrics`, `SimulationBrowser`, `format.ts` | 테스트 8 |
-| Z-9 | `useModifiedSimulation.ts`, `SimulationParamForm`, `SimulationComparison` | 테스트 8(가짜 타이머: 600ms 디바운스, 마지막 입력만 반영·늦은 응답 폐기[보호 코드 제거 시 실패 확인], 초기화, 재열기, 오류 구분) |
+| Z-9 | `useModifiedSimulation.ts`, `SimulationParamForm`, `SimulationComparison` | 테스트 8(가짜 타이머: 적용 버튼 시점 계산, 마지막 적용만 반영·늦은 응답 폐기[보호 코드 제거 시 실패 확인], 초기화, 재열기, 오류 구분) |
 | Z-10 | 위 화면 파일 보완 | 위 화면 테스트에 포함 |
 | (D5 후속) | `components/strategy/MyStrategiesView.tsx`(토글 안내 문구), `app/strategy-simulation/page.tsx`(`/us` 404), `SimulationBrowser.tsx`(딥링크) | 페이지 테스트 2, 딥링크 테스트 3 |
 | Q-1 | `components/layout/TopNavigation.tsx`, `components/__tests__/TopNavigationQuickSearch.test.tsx` | 메뉴 위치·링크 테스트 1, `/us`에서 숨김 테스트 1(숨김 설정을 빼면 실패 확인) |
@@ -454,7 +456,7 @@ Run 공통: Python 변경 → `uv run pytest backend/tests`(CLAUDE.md의 서버 
 | 4 필수 지표·CAGR/샤프/승률/거래 수·총 손익 기준 명시·'—'와 사유 | ✅ "완료 거래 수" 대신 "거래 수(미청산 포함)"(D7) |
 | 5 종목 손익 기여 상·하위 3·종목명·코드·중복 없음·빈 상태 | ✅ |
 | 6 누적 수익률 차트 하나·수정 시 두 선·툴팁 | ✅ 범례 없음 |
-| 7 파라미터 폼(메타 기반)·600ms·마지막 입력만·%p·초기화·원본 불변·실제 재계산 | ✅ 숫자 파라미터만 |
+| 7 파라미터 폼(메타 기반)·적용 버튼·마지막 적용만·%p·초기화·원본 불변·실제 재계산 | ✅ 숫자 파라미터만 |
 | 8 캐시 분리·키·동시 실행·중복 합치기·시간 제한·요청 제한·실패 구분 | ✅ |
 | 9 UI 순서·모바일·키보드·툴팁·공통 안내 한 번·금지 문구 없음 | ✅ 실기기 미확인 |
 | 카드·모달 요구(카드 필드·미니 그래프·모달 구성·포커스·Esc·카드 복귀) | ✅ 실브라우저 미확인 |
@@ -464,3 +466,44 @@ Run 공통: Python 변경 → `uv run pytest backend/tests`(CLAUDE.md의 서버 
 ## 목록 노출 규칙 (2026-10-27)
 
 시뮬레이션할 수 없는 전략은 목록(카드 그리드)에서 뺀다 — 실행 가능한 스냅샷이 없는 전략, 현재 스냅샷으로 이미 `unavailable`(미국 시장·적립식·비용 정보 없음 등)로 판정된 전략. 실행 가능 여부는 저장 설정을 읽어야 알 수 있어 `listPublicStrategies`가 200건 배치로 훑어 거른 뒤 쪽을 자른다. 아직 계산 전(pending)인 전략은 보이며, 계산 후 `unavailable`이면 다음 조회부터 사라진다. 직접 링크(상세)는 사유와 함께 열린다.
+
+## 10. 예시 전략 전환 (2026-10-28)
+
+사용자 지시: "전략 시뮬레이션 탭을 부활하는데, 쓰는 전략은 가입자 전략이 아니라 우리 예시 전략. 기존 구조는 그대로."
+
+### 10.1 결정
+
+| 항목 | 결정 | 근거 |
+|---|---|---|
+| 예시 → 실행 설정 | 예시 문장은 파서 입력(자연어)이라 그대로 실행할 수 없다. `scripts/build_example_simulations.py`가 `/strategy/parse`로 해석하고 되묻기에는 답변표의 답을 보내 최종 `backtest_request`를 얻어 `lib/strategy/exampleSimulations.json`에 고정한다. 요청 중 LLM 호출 없음 | 대원칙 1(의미 해석=LLM, 해석은 생성 시 한 번) |
+| 되묻기 값 | 2026-10-25 게이트 캐시 기준 82개 중 72개가 되묻기로 끝난다(리밸런싱 주기 30·익절 18·거래량 배수 8 등). 사용자 선택 "초안표 만들고 검토": `--draft`가 칩 선택지 첫 값으로 초안을 채우되 `reviewed=false`이고, 사람이 답을 고르고 `reviewed=true`로 바꾼 항목만 공개한다. 되묻기 없이 끝나는 예시는 바로 공개 | 말하지 않은 값을 질문 없이 확정 금지 |
+| 무작위 되묻기 값(2026-10-29) | 사용자 지시 "되묻기가 있으면 랜덤하게 골라서 보여줘, 뭘 골랐는지 확실하게": `build_example_simulations.py --random`이 미검토 예시의 되묻기를 칩 중 무작위로 골라 답변표에 `random: true`로 남기고 공개 대상으로 올린다. 고른 질문·답은 출력 `assumptions`로 상세 모달 "예시 문장에 없어 정한 값"에 보이고, 카드에는 "무작위 선택값 포함" 배지가 붙는다. 칩이 없는 되묻기(4개)는 고를 값이 없어 제외 | 사용자 명시 허용(말하지 않은 값 확정 금지의 예외) |
+| 결과 저장 | 사용자 선택 "예시 전용 새 테이블": `ExampleSimulationResult`(id=예시 키, 외래키 없음). 기존 `PublicSimulationResult`는 사용자 지시로 삭제(마이그레이션 `20261028000001_drop_public_simulation_result`, 삭제 직전 내용: ready 2·unavailable 2 — 재계산 가능한 캐시) | 기존 테이블은 `Strategy` FK 필수 |
+| 식별자 | `publicId` = 예시 키 = `sha256(예시 제목)` 앞 16자. 환경이 달라도 같은 딥링크 | |
+| 문구 변경 | 고정 파일 항목은 `promptSha256`이 현재 예시 문장과 같을 때만 쓴다. 다르면 재생성 전까지 목록에서 빠진다(`examples.test.ts`가 고정 파일과 예시의 일치를 강제) | 옛 문장의 해석을 새 문장으로 보이지 않게 |
+| 카드 문구 | 이름=예시 제목, 설명=예시 문장(`t()`로 영어 표시) | |
+| '내 전략' 공개 토글 | 안내 문구를 "공개하면 전략공유 화면에 표시됩니다."로 원복 — 사용자 전략은 이 화면에 더는 실리지 않는다 | |
+
+### 10.2 답변표 형식 (`scripts/example_simulation_answers.json`)
+
+```json
+{ "<예시 제목>": { "prompt_sha256": "…", "reviewed": false,
+    "turns": [ { "question": "다음으로 포트폴리오를 …", "chips": ["매주 리밸런싱", "매월 리밸런싱", …], "answer": "매월 리밸런싱" } ] } }
+```
+
+- `answer`는 칩 문구와 정확히 같으면 결정론 칩 답변 레인(`run_chip_answer`)으로, 아니면 수정 인터프리터(LLM)로 간다.
+- 앞선 답을 바꾸면 뒤 질문이 달라질 수 있다. 일반 실행은 기록된 질문과 실제 질문이 다르면 `stale_answers`로 멈추고, `--draft`는 그 지점부터 초안을 다시 쓰고 `reviewed=false`로 되돌린다.
+- 예시 문구가 바뀌면 `prompt_sha256`이 달라져 답변표 항목을 버리고 다시 검토받는다.
+
+### 10.3 절차
+
+1. `uv run python scripts/build_example_simulations.py --draft` — 초안 생성(첫 턴 LLM, OpenRouter 한도 소모 — 실행 전 알림)
+2. 답변표 검토 → `answer` 수정 → `reviewed: true`
+3. `uv run python scripts/build_example_simulations.py` — 검토된 답만으로 재생성(필요하면 `--draft`로 바뀐 뒤 질문 초안 보충 후 2로)
+4. 배포 (운영 DB 마이그레이션 두 건은 2026-10-28 `prisma migrate deploy`로 적용 완료)
+
+### 10.4 남은 일
+
+- 답변표 사람 검토(검토 대기 68·직접 답 필요 5), 배포. 첫 초안 실행(2026-10-28, nemotron-3.5-super-vl): 공개 9·검토 대기 68·직접 답 필요 5.
+- 운영 DB는 이미 새 스키마다 — 배포 전까지 운영의 옛 코드가 쓰는 `PublicSimulationResult`가 없어 `/strategy-simulation` 직접 주소(메뉴 숨김 상태)는 오류가 난다.
+

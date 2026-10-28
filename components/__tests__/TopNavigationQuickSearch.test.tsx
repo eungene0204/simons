@@ -246,11 +246,12 @@ describe("TopNavigation quick search", () => {
     expect(screen.getByRole("link", { name: /백테스트 기록/i }).nextElementSibling).toBe(myStrategiesLink);
   });
 
-  it("전략 시뮬레이션 메뉴는 숨긴다(2026-10-28) — 페이지는 유지", async () => {
+  it("전략 시뮬레이션은 내 전략 바로 오른쪽에 두고 /strategy-simulation으로 연결한다", async () => {
     renderWithQueryClient(<TopNavigation />);
 
-    await screen.findByRole("link", { name: /내 전략/i });
-    expect(screen.queryByRole("link", { name: /전략 시뮬레이션/i })).not.toBeInTheDocument();
+    const simulationLink = await screen.findByRole("link", { name: /전략 시뮬레이션/i });
+    expect(simulationLink).toHaveAttribute("href", "/strategy-simulation");
+    expect(screen.getByRole("link", { name: /내 전략/i }).nextElementSibling).toBe(simulationLink);
   });
 
   it("미국 지역(/us)에서는 한국 전략 전용 '전략 시뮬레이션' 메뉴를 숨긴다", async () => {

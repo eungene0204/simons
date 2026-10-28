@@ -34,6 +34,7 @@ async function open() {
   return screen.getByLabelText(/RSI 기간/) as HTMLInputElement;
 }
 const type = (input: HTMLInputElement, value: string) => fireEvent.change(input, { target: { value } });
+const apply = () => fireEvent.click(screen.getByRole("button", { name: "적용" }));
 const advance = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
 
 beforeEach(() => {
@@ -46,13 +47,14 @@ afterEach(() => {
 });
 
 describe("지표 값 수정", () => {
-  it("입력을 멈춘 600ms 뒤에 한 번만 계산하고 원본 대비 차이를 %p로 보인다", async () => {
+  it("입력만으로는 계산하지 않고 적용을 누르면 한 번 계산해 원본 대비 차이를 %p로 보인다", async () => {
     const input = await open();
     vi.useFakeTimers();
     type(input, "2"); type(input, "21");
-    await advance(599);
+    await advance(2000);
     expect(runCalls()).toHaveLength(0);
-    await advance(1);
+    apply();
+    await advance(0);
     expect(runCalls()).toHaveLength(1);
     expect(JSON.parse(String(runCalls()[0][1].body))).toEqual({ overrides: [{ path: PERIOD, value: 21 }], baseSnapshotHash: "hash1", dataAsOf: "2026-10-23" });
     expect(screen.getByText("-5.00%p")).toBeTruthy();            // 수익률 5 − 10
@@ -65,7 +67,8 @@ describe("지표 값 수정", () => {
     const input = await open();
     vi.useFakeTimers();
     type(input, "21");
-    await advance(600);
+    apply();
+    await advance(0);
     expect(screen.getAllByText("사용자 수정 시뮬레이션").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("카카오 (035720)")).toBeTruthy();          // 수정본 종목 기여
     expect(screen.getByText("삼성전자 (005930)")).toBeTruthy();        // 원본 종목 기여는 그대로
@@ -76,7 +79,8 @@ describe("지표 값 수정", () => {
     const input = await open();
     vi.useFakeTimers();
     type(input, "21");
-    await advance(600);
+    apply();
+    await advance(0);
     expect(screen.getByText("-5.00%p")).toBeTruthy();
     cleanup();
     render(<SimulationDetailModal publicId="pub1" onClose={() => {}} />);
@@ -92,6 +96,7 @@ describe("지표 값 수정", () => {
       type(input, raw);
       await advance(700);
       expect(screen.getByRole("alert").textContent).toBe(message);
+      expect((screen.getByRole("button", { name: "적용" }) as HTMLButtonElement).disabled).toBe(true);
     }
     expect(runCalls()).toHaveLength(0);
   });
@@ -102,10 +107,12 @@ describe("지표 값 수정", () => {
     let releaseFirst!: (r: Response) => void;
     fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => (releaseFirst = resolve)));
     type(input, "21");
-    await advance(600);
+    apply();
+    await advance(0);
     fetchMock.mockImplementationOnce(async () => respond({ ...modifiedBody, summary: { ...modifiedBody.summary, totalReturnPct: 7 } }));
     type(input, "30");
-    await advance(600);
+    apply();
+    await advance(0);
     await act(async () => releaseFirst(respond(modifiedBody)));
     expect(runCalls()).toHaveLength(2);
     expect(screen.getByText("-3.00%p")).toBeTruthy();            // 7 − 10 (두 번째 값)
@@ -116,7 +123,8 @@ describe("지표 값 수정", () => {
     const input = await open();
     vi.useFakeTimers();
     type(input, "21");
-    await advance(600);
+    apply();
+    await advance(0);
     expect(screen.getByText("-5.00%p")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "원본 값으로 초기화" }));
     await advance(700);
@@ -124,6 +132,7 @@ describe("지표 값 수정", () => {
     expect(screen.queryByText("-5.00%p")).toBeNull();
     expect(runCalls()).toHaveLength(1);
     type(input, "14");
+    apply();
     await advance(700);
     expect(runCalls()).toHaveLength(1);                          // 원본과 같은 값은 계산하지 않는다
   });
@@ -133,7 +142,8 @@ describe("지표 값 수정", () => {
     vi.useFakeTimers();
     fetchMock.mockImplementationOnce(async () => respond({ code: "BASELINE_CHANGED", reason: "CHANGED" }, 409));
     type(input, "21");
-    await advance(600);
+    apply();
+    await advance(0);
     expect(screen.getByRole("alert").textContent).toContain("원본 결과가 갱신되었습니다.");
     expect(screen.getByRole("button", { name: "다시 불러오기" })).toBeTruthy();
     expect(screen.queryByText(/%p/)).toBeNull();
@@ -144,11 +154,13 @@ describe("지표 값 수정", () => {
     vi.useFakeTimers();
     fetchMock.mockImplementationOnce(async () => respond({ code: "RATE_LIMITED", retryAfterSeconds: 60 }, 429));
     type(input, "21");
-    await advance(600);
+    apply();
+    await advance(0);
     expect(screen.getByRole("alert").textContent).toContain("요청이 많아");
     fetchMock.mockImplementationOnce(async () => respond({ code: "INCONSISTENT_RESULT" }, 500));
     type(input, "22");
-    await advance(600);
+    apply();
+    await advance(0);
     expect(screen.getByRole("alert").textContent).toContain("수정 결과를 계산하지 못했습니다.");
     expect(screen.queryByText(/%p/)).toBeNull();
   });

@@ -104,14 +104,14 @@ const menuItems: MenuItem[] = [
     id: "my-strategies",
     Icon: BookmarkSimple,
   },
-  // 전략 시뮬레이션 메뉴는 숨김(2026-10-28, 페이지·API 코드는 유지) — 다시 켜려면 아래 항목을 복원한다.
-  // {
-  //   label: "전략 시뮬레이션",
-  //   href: "/strategy-simulation",
-  //   id: "strategy-simulation",
-  //   Icon: ChartLine,
-  //   krOnly: true,
-  // },
+  // 예시 전략의 최근 3년 과거 시뮬레이션 — 로그인 없이 열람(2026-10-28 예시 전략으로 전환해 다시 노출).
+  {
+    label: "전략 시뮬레이션",
+    href: "/strategy-simulation",
+    id: "strategy-simulation",
+    Icon: ChartLine,
+    krOnly: true,
+  },
   // 대시보드 메뉴는 숨김(2026-10-20, 페이지·API 코드는 유지) — 그 자리에 전략공유를 둔다. 다시 켜려면 아래 항목을 복원한다.
   // {
   //   label: "대시보드",

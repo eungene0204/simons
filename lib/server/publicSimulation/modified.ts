@@ -4,7 +4,7 @@ import { fetchBackend } from "@/lib/server/backend";
 import { NotPublicError, findPublicStrategy, sha256, snapshotFromSettings, snapshotHash } from "./access";
 import { getBaseline, presentOriginal } from "./originals";
 
-// 방문자 수정 시뮬레이션(§3.7~3.8) — 원본 설정·원본 결과 행은 읽기만 하고, 결과는 서버 메모리에만 잠시 둔다.
+// 방문자 수정 시뮬레이션(§3.7~3.8) — 예시 실행 설정·원본 결과 행은 읽기만 하고, 결과는 서버 메모리에만 잠시 둔다.
 
 export class BaselineChangedError extends Error {
   // REFRESHING: 원본이 새 기준일·새 '오늘' 창으로 갱신 중 / CHANGED: 클라이언트가 가진 원본이 낡음
@@ -95,18 +95,13 @@ async function callBackend(snapshot: unknown, overrides: Override[]): Promise<Re
 }
 
 /**
- * 수정 시뮬레이션. 호출마다 공개 조건을 먼저 확인하므로 캐시 히트도 비공개 전환 뒤에는 나가지 않는다.
- * 같은 키의 진행 중 요청은 하나로 합친다.
+ * 수정 시뮬레이션. 호출마다 예시 등록부에 있는 전략인지 먼저 확인한다. 같은 키의 진행 중 요청은 하나로 합친다.
  */
 export async function runModified(input: {
   publicId: string; overrides: Override[]; baseSnapshotHash: string; dataAsOf: string; identity: string;
 }): Promise<Record<string, unknown>> {
-  const ensurePublic = async () => {
-    const found = await findPublicStrategy(input.publicId);
-    if (!found) throw new NotPublicError();
-    return found;
-  };
-  const item = await ensurePublic();
+  const item = await findPublicStrategy(input.publicId);
+  if (!item) throw new NotPublicError();
   const snapshot = snapshotFromSettings(item.settings);
   if (!snapshot) throw new SimulationFailedError("NO_EXECUTABLE_SNAPSHOT", 422);
 
@@ -144,9 +139,6 @@ export async function runModified(input: {
     inFlight.set(key, pending);
   }
   const result = await pending;
-  // 계산 도중 비공개 전환·설정 변경이 있었다면 결과를 내보내지도 캐시하지도 않는다.
-  const after = await ensurePublic();
-  if (after.settings !== item.settings) throw new NotPublicError();
   cacheSet(key, result);
   return result;
 }

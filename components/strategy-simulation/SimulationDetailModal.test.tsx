@@ -55,10 +55,19 @@ describe("SimulationDetailModal", () => {
     expect(screen.getByText("수익률 변동이 없어 계산할 수 없습니다.")).toBeTruthy();
   });
 
-  it("공개가 해제된 전략은 안내만 보이고 지표를 보이지 않는다", async () => {
+  it("예시 문장에 없어 무작위로 고른 값은 질문과 고른 답을 그대로 보인다", async () => {
+    fetchMock.mockResolvedValue(respond({ ...detail(), assumptions: [{ question: "익절 기준을 몇 %로 정할까요?", answer: "익절 20%", random: true }] }));
+    render(<SimulationDetailModal publicId="pub1" onClose={() => {}} />);
+    expect(await screen.findByText("예시 문장에 없어 정한 값")).toBeTruthy();
+    expect(screen.getByText("익절 기준을 몇 %로 정할까요?")).toBeTruthy();
+    expect(screen.getByText("익절 20%")).toBeTruthy();
+    expect(screen.getByText("무작위 선택")).toBeTruthy();
+  });
+
+  it("없는 예시 전략은 안내만 보이고 지표를 보이지 않는다", async () => {
     fetchMock.mockResolvedValue(respond({ code: "NOT_FOUND" }, 404));
     render(<SimulationDetailModal publicId="pub1" onClose={() => {}} />);
-    expect(await screen.findByText("공개가 해제되었거나 존재하지 않는 전략입니다.")).toBeTruthy();
+    expect(await screen.findByText("존재하지 않는 예시 전략입니다.")).toBeTruthy();
     expect(screen.queryByText("요약 지표")).toBeNull();
   });
 
@@ -153,7 +162,7 @@ describe("SimulationBrowser", () => {
     window.history.replaceState(null, "", "/strategy-simulation?id=../etc");
     fetchMock.mockResolvedValue(respond({ items: [], hasNext: false }));
     render(<SimulationBrowser />);
-    await screen.findByText("공개된 전략이 아직 없습니다.");
+    await screen.findByText("표시할 예시 전략이 아직 없습니다.");
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(fetchMock.mock.calls.every(([u]) => !String(u).includes("/etc"))).toBe(true);
   });

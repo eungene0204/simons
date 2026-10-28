@@ -1,20 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { prisma } from "@/lib/prisma";
 import { BoardError } from "@/lib/board/rules";
 import { limit } from "@/lib/board/server";
 import { fetchBackend } from "@/lib/server/backend";
-import { NotPublicError, snapshotFromSettings, snapshotHash } from "./access";
+import { NotPublicError, findPublicStrategy, snapshotFromSettings, snapshotHash } from "./access";
 import {
   BaselineChangedError, InvalidParameterError, RateLimitedError, SimulationFailedError, resetModifiedCache, runModified,
 } from "./modified";
 import { resetBaselineCache } from "./originals";
 
-vi.mock("@/lib/prisma", () => ({ prisma: { publicSimulationResult: { findFirst: vi.fn() } } }));
+vi.mock("@/lib/prisma", () => ({ prisma: {} }));
+vi.mock("./access", async (importActual) => ({
+  ...(await importActual<typeof import("./access")>()),
+  findPublicStrategy: vi.fn(),
+}));
 vi.mock("@/lib/server/backend", () => ({ fetchBackend: vi.fn() }));
 vi.mock("@/lib/board/server", () => ({ limit: vi.fn() }));
 
-const findFirst = (prisma.publicSimulationResult as unknown as { findFirst: ReturnType<typeof vi.fn> }).findFirst;
+const findFirst = vi.mocked(findPublicStrategy);
 const backend = vi.mocked(fetchBackend);
 const rateLimit = vi.mocked(limit);
 
@@ -35,10 +38,13 @@ const stored = {
   window: { requestedStart: "2023-10-27" }, summary: { totalReturnPct: 10 },
   editableParams: [{ path: PERIOD, original: 14, editable: true }],
 };
-const row = (over: Record<string, unknown> = {}, nextSettings = settings) => ({
-  id: "pub1", strategyId: "7:abc", snapshotHash: HASH, dataAsOf: "2026-10-23", engineVersion: "16.43.0",
-  status: "ready", reason: null, result: JSON.stringify(stored), computedAt: new Date(), refreshLeaseUntil: null,
-  lastAttemptAt: null, lastError: null, Strategy: { name: "n", description: null, settings: nextSettings }, ...over,
+const row = (over: Record<string, unknown> = {}) => ({
+  name: "n", description: null, settings, assumptions: [],
+  row: {
+    id: "pub1", snapshotHash: HASH, dataAsOf: "2026-10-23", engineVersion: "16.43.0",
+    status: "ready", reason: null, result: JSON.stringify(stored), computedAt: new Date(), refreshLeaseUntil: null,
+    lastAttemptAt: null, lastError: null, ...over,
+  },
 });
 const input = (overrides = [{ path: PERIOD, value: 21 }]) => ({
   publicId: "pub1", overrides, baseSnapshotHash: HASH, dataAsOf: "2026-10-23", identity: "id1",
@@ -60,20 +66,19 @@ beforeEach(() => {
     path.endsWith("/baseline") ? respond(200, BASELINE) : respond(200, RESULT)) as any);
 });
 
-describe("공개 조건과 원본 일치", () => {
-  it("비공개·삭제된 전략은 엔진을 부르지 않고 거절한다", async () => {
+describe("예시 등록부와 원본 일치", () => {
+  it("등록부에 없는 전략은 엔진을 부르지 않고 거절한다", async () => {
     findFirst.mockResolvedValue(null);
     await expect(runModified(input())).rejects.toBeInstanceOf(NotPublicError);
     expect(backend).not.toHaveBeenCalled();
     expect(rateLimit).not.toHaveBeenCalled();
   });
 
-  it("공개 여부 조회는 매 호출마다 하고, 캐시 히트도 비공개 전환 뒤에는 내보내지 않는다", async () => {
+  it("같은 입력은 캐시를 쓰되, 등록부 확인은 매 호출마다 한다", async () => {
     expect(await runModified(input())).toEqual(RESULT);
     expect(await runModified(input())).toEqual(RESULT);
     expect(runCalls()).toHaveLength(1);          // 두 번째는 캐시
-    findFirst.mockResolvedValue(null);           // 그 사이 비공개 전환
-    await expect(runModified(input())).rejects.toBeInstanceOf(NotPublicError);
+    expect(findFirst).toHaveBeenCalledTimes(2);
   });
 
   it("클라이언트가 가진 원본이 낡았으면(해시·기준일 불일치) 409 성격의 오류다", async () => {
@@ -115,20 +120,6 @@ describe("실행·캐시·제한", () => {
     release(respond(200, RESULT));
     expect(await Promise.all([a, b])).toEqual([RESULT, RESULT]);
     expect(runCalls()).toHaveLength(1);
-  });
-
-  it("계산 도중 비공개 전환이나 설정 변경이 있었다면 결과를 내보내지도 캐시하지도 않는다", async () => {
-    findFirst.mockResolvedValueOnce(row()).mockResolvedValueOnce(null);
-    await expect(runModified(input())).rejects.toBeInstanceOf(NotPublicError);
-
-    findFirst.mockReset();
-    findFirst.mockResolvedValueOnce(row()).mockResolvedValueOnce(row({}, settings.replace("14", "15")));
-    await expect(runModified(input())).rejects.toBeInstanceOf(NotPublicError);
-
-    findFirst.mockReset();
-    findFirst.mockResolvedValue(row());
-    await runModified(input());                  // 앞선 두 결과가 캐시에 없어 다시 계산한다
-    expect(runCalls()).toHaveLength(3);
   });
 
   it("모든 값이 원본과 같으면 계산·제한 소비 없이 원본 결과를 돌려준다", async () => {

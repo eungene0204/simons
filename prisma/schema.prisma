@@ -207,7 +207,6 @@ model Strategy {
   BatchRunCandidate BatchRunCandidate[]
   StrategyEmbedding StrategyEmbedding[]
   AdviceExperience AdviceExperience[]
-  PublicSimulationResult PublicSimulationResult?
 
   @@index([userId, createdAt])
 }
@@ -224,12 +223,9 @@ model TermLexiconEntry {
   updatedAt DateTime @updatedAt
 }
 
-// 전략 시뮬레이션(2026-10-27) — 공개 전략의 최근 3년 원본 결과 캐시. id가 공개 식별자(publicId)다
-// (Strategy.id는 소유자 ID를 포함해 노출 금지). result는 공개 요약 DTO이며 엔진 원본 결과가 아니다.
-// 조회는 항상 Strategy 공개 조건(isPublic && isSaved && deletedAt null)과 함께 한다.
-model PublicSimulationResult {
-  id                String    @id @default(cuid())
-  strategyId        String    @unique
+// 전략 시뮬레이션 예시 전략 원본 결과(2026-10-28) — id = 예시 키(lib/strategy/exampleSimulations.json). 사용자 전략과 무관.
+model ExampleSimulationResult {
+  id                String    @id
   snapshotHash      String
   dataAsOf          String?
   engineVersion     String?
@@ -242,7 +238,6 @@ model PublicSimulationResult {
   lastError         String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
-  Strategy          Strategy  @relation(fields: [strategyId], references: [id], onDelete: Cascade)
 }
 
 model StrategyVersion {

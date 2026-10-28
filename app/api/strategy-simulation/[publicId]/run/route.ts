@@ -27,7 +27,7 @@ function parseBody(body: any): { overrides: Override[]; baseSnapshotHash: string
   return { overrides, baseSnapshotHash, dataAsOf };
 }
 
-// 방문자 수정 시뮬레이션 — 로그인 불필요, 사용자 기록·한도에 쓰지 않는다. 서버 호출마다 공개 여부를 다시 확인한다.
+// 방문자 수정 시뮬레이션 — 로그인 불필요, 사용자 기록·한도에 쓰지 않는다. 서버 호출마다 예시 등록부를 다시 확인한다.
 export async function POST(request: Request, { params }: { params: { publicId: string } }) {
   if (!PUBLIC_ID_PATTERN.test(params.publicId)) return noStoreJson({ code: "NOT_FOUND" }, 404);
   const body = parseBody(await request.json().catch(() => null));

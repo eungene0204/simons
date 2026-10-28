@@ -27,7 +27,8 @@ type Original = {
   dataAsOf?: string;
   editableParams?: ParamDescriptor[];
 };
-type Detail = { publicId: string; name: string; description: string | null; strategy: Record<string, unknown>; baseSnapshotHash: string; original: Original };
+type Assumption = { question: string; answer: string; random: boolean };
+type Detail = { publicId: string; name: string; description: string | null; strategy: Record<string, unknown>; assumptions?: Assumption[]; baseSnapshotHash: string; original: Original };
 
 const rate = (v: unknown) => (typeof v === "number" ? `${(v * 100).toFixed(3).replace(/\.?0+$/, "")}%` : "-");
 
@@ -84,7 +85,7 @@ function errorText(e: { code: string; reason?: string; retryAfterSeconds?: numbe
     case "BUSY": return t("지금은 계산 요청이 몰려 있습니다. 잠시 후 다시 시도해 주세요.");
     case "TIMEOUT": return t("계산 시간이 초과되었습니다. 값을 바꿔 다시 시도해 주세요.");
     case "INVALID_PARAMETER": return t("입력값을 확인해 주세요.");
-    case "STRATEGY_NOT_PUBLIC": case "NOT_FOUND": return t("공개가 해제되었거나 존재하지 않는 전략입니다.");
+    case "STRATEGY_NOT_PUBLIC": case "NOT_FOUND": return t("존재하지 않는 예시 전략입니다.");
     default: return t("수정 결과를 계산하지 못했습니다.");
   }
 }
@@ -145,9 +146,9 @@ function Result({ o, sim, onReload }: { o: Original; sim: ReturnType<typeof useM
 
       <section>
         <h3 className="text-sm font-black text-white">{t("지표 값 바꿔 보기")}</h3>
-        <p className="mt-1 text-xs text-gray-400">{t("값을 바꾸면 같은 기간·자본·비용 조건으로 다시 계산합니다. 원본 결과는 바뀌지 않습니다.")}</p>
+        <p className="mt-1 text-xs text-gray-400">{t("값을 바꾸고 적용을 누르면 같은 기간·자본·비용 조건으로 다시 계산합니다. 원본 결과는 바뀌지 않습니다.")}</p>
         <div className="mt-3">
-          <SimulationParamForm params={o.editableParams ?? []} inputs={sim.inputs} errors={sim.errors} onChange={sim.setInput} onReset={sim.reset} changed={sim.changed} />
+          <SimulationParamForm params={o.editableParams ?? []} inputs={sim.inputs} errors={sim.errors} onChange={sim.setInput} onApply={sim.apply} onReset={sim.reset} dirty={sim.dirty} changed={sim.changed} />
         </div>
         {sim.loading && <p className="mt-3 text-xs font-bold text-gray-400">{t("수정 결과를 계산하고 있습니다.")}</p>}
         {sim.error && (
@@ -214,14 +215,14 @@ export function SimulationDetailModal({ publicId, onClose }: { publicId: string;
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label={detail?.name ?? t("전략 시뮬레이션")}
+        aria-label={detail?.name ? t(detail.name) : t("전략 시뮬레이션")}
         className="h-[100dvh] w-full max-w-3xl space-y-6 overflow-y-auto bg-[var(--card-bg)] p-5 sm:h-auto sm:max-h-[92dvh] sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-lg font-black text-white">{detail?.name ?? ""}</h2>
-            {detail?.description && <p className="mt-1 text-xs text-gray-400">{detail.description}</p>}
+            <h2 className="text-lg font-black text-white">{detail?.name ? t(detail.name) : ""}</h2>
+            {detail?.description && <p className="mt-1 text-xs text-gray-400">{t(detail.description)}</p>}
           </div>
           <button type="button" onClick={onClose} className="shrink-0 rounded-lg border border-white/[0.12] px-3 py-1.5 text-sm font-bold text-white">
             {t("닫기")}
@@ -234,7 +235,7 @@ export function SimulationDetailModal({ publicId, onClose }: { publicId: string;
             {t("불러오는 중")}
           </p>
         )}
-        {error === "NOT_FOUND" && <p role="alert" className="text-sm font-bold text-gray-400">{t("공개가 해제되었거나 존재하지 않는 전략입니다.")}</p>}
+        {error === "NOT_FOUND" && <p role="alert" className="text-sm font-bold text-gray-400">{t("존재하지 않는 예시 전략입니다.")}</p>}
         {error === "FAILED" && <p role="alert" className="text-sm font-bold text-gray-400">{t("상세 정보를 불러오지 못했습니다.")}</p>}
 
         {detail && (
@@ -258,6 +259,25 @@ export function SimulationDetailModal({ publicId, onClose }: { publicId: string;
                 </div>
               )}
             </section>
+            {!!detail.assumptions?.length && (
+              <section>
+                <h3 className="text-sm font-black text-white">{t("예시 문장에 없어 정한 값")}</h3>
+                <p className="mt-1 text-xs text-gray-400">
+                  {detail.assumptions.some((a) => a.random)
+                    ? t("예시 문장이 정하지 않은 값은 선택지 중 무작위로 골랐습니다. 아래 값이 이 결과에 쓰였습니다.")
+                    : t("예시 문장이 정하지 않은 값은 아래처럼 정했습니다.")}
+                </p>
+                <ul className="mt-2 space-y-1.5">
+                  {detail.assumptions.map((a, i) => (
+                    <li key={`${a.question}-${i}`} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                      <span className="text-gray-400">{t(a.question)}</span>
+                      <span className="rounded-md bg-white/[0.06] px-2 py-1 font-bold text-gray-200">{t(a.answer)}</span>
+                      {a.random && <span className="text-[11px] font-bold text-[var(--text-label)]">{t("무작위 선택")}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
             {hasResult ? (
               <Result o={o} sim={sim} onReload={reload} />
             ) : (

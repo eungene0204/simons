@@ -80,7 +80,7 @@ export default function MyStrategiesView() {
     }
   };
 
-  // 공개 전환(2026-10-20) — 공개 전략은 로그인 없이 열람되는 '전략 시뮬레이션' 화면에 조건과 과거 시뮬레이션 결과가 실린다(2026-10-27).
+  // 공개 전환(2026-10-20) — 공개 전략은 '전략공유' 화면에 카드로 실린다. 전략 시뮬레이션은 예시 전략만 쓴다(2026-10-28).
   const handleToggleStrategyVisibility = async (strategy: SavedStrategy) => {
     const nextPublic = !strategy.isPublic;
     setUpdatingVisibilityIds((prev) => new Set(prev).add(strategy.id));
@@ -188,7 +188,7 @@ export default function MyStrategiesView() {
                           onClick={() => void handleToggleStrategyVisibility(strategy)}
                           disabled={isUpdatingVisibility}
                           aria-pressed={strategy.isPublic === true}
-                          title={t("공개하면 로그인 없이 누구나 볼 수 있는 전략 시뮬레이션 화면에 전략 조건과 과거 시뮬레이션 결과가 표시됩니다.")}
+                          title={t("공개하면 전략공유 화면에 표시됩니다.")}
                           className={`absolute right-11 top-3 inline-flex h-6 items-center gap-1 rounded-md border px-2 text-[10px] font-black transition-colors duration-200 ${
                             strategy.isPublic
                               ? "border-sky-400/25 bg-sky-500/10 text-sky-300"

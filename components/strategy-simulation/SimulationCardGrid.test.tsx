@@ -50,6 +50,13 @@ describe("SimulationCardGrid", () => {
     expect(screen.queryByText(/0\.00%/)).toBeNull();
   });
 
+  it("되묻기 값을 무작위로 고른 예시는 카드에 표시한다", async () => {
+    fetchMock.mockResolvedValue(respond({ items: [{ ...ready, randomAssumed: true }, { ...ready, publicId: "pub2", name: "다른 전략" }], hasNext: false }));
+    render(<SimulationCardGrid />);
+    await screen.findByText("다른 전략");
+    expect(screen.getAllByText("무작위 선택값 포함")).toHaveLength(1);
+  });
+
   it("갱신 중 항목은 저장된 값과 함께 배지를 보인다", async () => {
     fetchMock.mockResolvedValue(respond({ items: [{ ...ready, status: "refreshing" }], hasNext: false }));
     render(<SimulationCardGrid />);
@@ -80,7 +87,7 @@ describe("SimulationCardGrid", () => {
     fetchMock.mockResolvedValueOnce(respond({ code: "LIST_FAILED" }, false)).mockResolvedValueOnce(respond({ items: [ready], hasNext: false }));
     render(<SimulationCardGrid />);
     await screen.findByRole("alert");
-    expect(screen.queryByText("공개된 전략이 아직 없습니다.")).toBeNull();
+    expect(screen.queryByText("표시할 예시 전략이 아직 없습니다.")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
     await waitFor(() => expect(screen.getByText("RSI 전략")).toBeTruthy());
   });

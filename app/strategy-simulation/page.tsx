@@ -5,7 +5,7 @@ import { getRequestRegion } from "@/lib/geo/server";
 import { buildOpenGraph } from "@/lib/seo/site";
 
 const TITLE = "전략 시뮬레이션";
-const DESCRIPTION = "공개된 전략의 최근 3년 과거 데이터 백테스트 결과를 로그인 없이 살펴보고, 지표 값을 바꿔 결과가 어떻게 달라지는지 확인합니다.";
+const DESCRIPTION = "널스탁 예시 전략의 최근 3년 과거 데이터 백테스트 결과를 살펴보고, 지표 값을 바꿔 결과가 어떻게 달라지는지 확인합니다.";
 
 export const metadata: Metadata = {
   title: TITLE,

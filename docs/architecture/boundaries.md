@@ -909,14 +909,15 @@ Represent and execute a user's strict comparison of the latest reported quarter'
 ### Purpose
 공개(`Strategy.isPublic`) 저장 전략의 최근 3년 과거 데이터 시뮬레이션 결과를 로그인 없이 열람하고, 방문자가
 지표 파라미터만 바꾼 임시 사본으로 같은 조건의 결과 차이를 확인하는 '전략 시뮬레이션' 기능 전용 boundary.
-계약·작업 명세: `docs/development/strategy-simulation.md`. 상태: 구현 완료(2026-10-27) — Z-1~Z-10.
+계약·작업 명세: `docs/development/strategy-simulation.md`. 상태: 구현 완료(2026-10-27) — Z-1~Z-10. 2026-10-28 대상을 예시 전략으로 전환(명세 §10).
 
 ### Files
 신규(새로 만들 파일):
 - backend/public_simulation/** (`__init__.py`, `window.py`, `summary.py`, `params.py`)
 - backend/api/public_simulation_routes.py
 - backend/tests/test_public_simulation_*.py
-- lib/server/publicSimulation/** (access, originals, modified 및 *.test.ts)
+- lib/server/publicSimulation/** (access, originals, modified, examples 및 *.test.ts)
+- lib/strategy/exampleSimulations.json, scripts/build_example_simulations.py, scripts/example_simulation_answers.json (2026-10-28 예시 전환)
 - app/api/strategy-simulation/** (route.ts, [publicId]/route.ts, [publicId]/run/route.ts 및 *.test.ts)
 - app/strategy-simulation/page.tsx
 - components/strategy-simulation/** (카드 그리드·미니 차트·상세 모달·수익률 차트·요약·파라미터 폼·재계산 훅 및 *.test.tsx)
@@ -926,6 +927,8 @@ Represent and execute a user's strict comparison of the latest reported quarter'
 - lib/i18n/en.ts (이 기능의 신규 문구 번역만)
 - prisma/schema.prisma (`PublicSimulationResult` 모델과 `Strategy` 역관계 한 줄만) — 사용자 승인(명세 D1, 2026-10-27)으로 수정 완료
 - prisma/migrations/20261027000000_public_strategy_simulation/** — 위와 같은 조건(운영 DB 적용 완료)
+- prisma/schema.prisma `ExampleSimulationResult` 모델 + prisma/migrations/20261028000000_example_strategy_simulation/** — 사용자 선택(2026-10-28 "예시 전용 새 테이블"), 운영 DB 적용 완료
+- prisma/migrations/20261028000001_drop_public_simulation_result/** — `PublicSimulationResult` 모델·`Strategy` 역관계 삭제(사용자 지시 2026-10-28), 운영 DB 적용 완료
 
 ### Allowed Tasks
 - 공개 조건(`isPublic && isSaved && deletedAt null`) 재검증, 불투명 `publicId`, 허용 목록 기반 공개 응답
@@ -972,7 +975,7 @@ Exception:
 - `prisma/**` is allowed inside `Boundary P: User Personalization / Ownership Persistence` only for user personalization models, ownership fields/FKs, and indexes required for per-user isolation.
 - `prisma/**` is allowed inside `Boundary J: Stock Info Profile Persistence`
 - `prisma/**` is allowed inside `Boundary M: News Impact Pipeline` only for news-specific models, migrations, and indexes
-- `prisma/**` is allowed inside `Boundary Z: Public Strategy Simulation` only for the `PublicSimulationResult` model, the `Strategy` back-relation line, and its single migration — user decision D1 in `docs/development/strategy-simulation.md` was approved on 2026-10-27 and the migration is applied
+- `prisma/**` is allowed inside `Boundary Z: Public Strategy Simulation` only for the `PublicSimulationResult` model, the `Strategy` back-relation line, and its single migration — user decision D1 in `docs/development/strategy-simulation.md` was approved on 2026-10-27 and the migration is applied — and for the `ExampleSimulationResult` model and its migration plus the migration dropping `PublicSimulationResult` (user instructions 2026-10-28; both applied to production)
 
 ---
 

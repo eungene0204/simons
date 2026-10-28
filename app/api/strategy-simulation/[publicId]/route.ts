@@ -6,7 +6,7 @@ import { ensureFresh, getBaseline, presentOriginal } from "@/lib/server/publicSi
 
 export const dynamic = "force-dynamic";
 
-// 공개 상세 — 매 조회마다 공개 여부를 DB로 확인한다. 비공개·삭제·없음은 모두 같은 404.
+// 공개 상세 — 예시 등록부에 없는 키는 404.
 export async function GET(_request: Request, { params }: { params: { publicId: string } }) {
   if (!PUBLIC_ID_PATTERN.test(params.publicId)) return noStoreJson({ code: "NOT_FOUND" }, 404);
   try {
@@ -19,6 +19,7 @@ export async function GET(_request: Request, { params }: { params: { publicId: s
       name: item.name,
       description: item.description,
       strategy: publicStrategyFields(item.settings),
+      assumptions: item.assumptions,
       // 수정 실행 요청이 '지금 보는 원본'을 가리키는 값 — 설정이 바뀌면 달라진다.
       baseSnapshotHash: snapshotHash(snapshotFromSettings(item.settings)),
       original: presentOriginal(item, baseline),

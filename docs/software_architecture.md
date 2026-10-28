@@ -2279,7 +2279,7 @@ BoardAudit로 검수 조치를 기록한다. 기존 requireAdmin 인증을 재�
 ### 전략 시뮬레이션 — 구조 (2026-10-27, 구현 완료)
 
 공개 전략 결과는 기존 로그인 백테스트 라우트(`/api/backtest/run`·`/api/strategy/backtest-stream`, 한도 소비·사용자 기록 저장)를 거치지 않는다.
-Next 공개 라우트(`/api/strategy-simulation/**`)가 공개 조건(`isPublic && isSaved && deletedAt null`)·불투명 `publicId`·허용 목록 응답·캐시·요청 제한을 맡고,
+Next 공개 라우트(`/api/strategy-simulation/**`)가 대상 확인(예시 등록부, 2026-10-28 전환 — 이전에는 `isPublic` 사용자 전략)·`publicId`(=예시 키)·허용 목록 응답·캐시·요청 제한을 맡고,
 FastAPI `POST /internal/public-simulation/run`(내부 토큰 필수)이 Asia/Seoul 3년 창·스냅샷 검증·파라미터 검증 후 기존 `backtest_executor.run`(워치독 포함)으로 엔진을 실행해 결과를 공개 요약으로 축약한다(재계산 없음).
-원본 결과는 `PublicSimulationResult`에 저장해 조회 시 데이터 기준일·엔진 버전·스냅샷 해시로 재검증·지연 갱신하고, 방문자 수정 결과는 Next 메모리 LRU에만 둔다.
-수정 가능 파라미터는 REGISTRY `engine_binding` 역조회로 서버가 만든다. 수정 실행은 공개 조건 재확인 → 원본 최신 여부(REFRESHING/CHANGED) 확인 → 요청 제한 → 중복 합치기 → 엔진 실행 → 저장 직전 공개 조건·설정 재확인 순이다. 화면은 `app/strategy-simulation/page.tsx` → `SimulationBrowser`(카드 그리드 + 상세 모달, 수정 폼은 `useModifiedSimulation`의 600ms 디바운스·마지막 입력만 반영)로 이어진다. 계약·구현 결과·남은 제약: docs/development/strategy-simulation.md, Boundary Z.
+예시 실행 설정은 `scripts/build_example_simulations.py`가 예시 문장을 해석하고 검토된 되묻기 답변을 칩 답변 레인(결정론)으로 적용해 만든 `lib/strategy/exampleSimulations.json`에서 읽는다(요청 중 LLM 없음, 예시 문구가 바뀌면 그 항목은 재생성 전까지 제외). 원본 결과는 `ExampleSimulationResult`(id=예시 키)에 저장해 조회 시 데이터 기준일·엔진 버전·스냅샷 해시로 재검증·지연 갱신하고, 방문자 수정 결과는 Next 메모리 LRU에만 둔다.
+수정 가능 파라미터는 REGISTRY `engine_binding` 역조회로 서버가 만든다. 수정 실행은 등록부 확인 → 원본 최신 여부(REFRESHING/CHANGED) 확인 → 요청 제한 → 중복 합치기 → 엔진 실행 순이다. 화면은 `app/strategy-simulation/page.tsx` → `SimulationBrowser`(카드 그리드 + 상세 모달, 수정 폼은 `useModifiedSimulation`의 적용 버튼 시점 계산·마지막 적용만 반영)로 이어진다. 계약·구현 결과·남은 제약: docs/development/strategy-simulation.md, Boundary Z.

@@ -10,16 +10,18 @@ function reasonText(code: string): string {
   return t("값을 바꿀 수 없습니다.");
 }
 
-// 지표 파라미터 수정 폼 — 숫자 칸만 있다. 범위·정수 검사는 입력 즉시, 계산은 훅이 디바운스한다.
+// 지표 파라미터 수정 폼 — 숫자 칸과 적용 버튼. 범위·정수 검사는 입력 즉시, 계산은 적용을 눌렀을 때만 한다.
 export function SimulationParamForm(props: {
   params: ParamDescriptor[];
   inputs: Record<string, string>;
   errors: Record<string, string>;
   onChange: (path: string, value: string) => void;
+  onApply: () => void;
   onReset: () => void;
+  dirty: boolean;
   changed: number;
 }) {
-  const { params, inputs, errors, onChange, onReset, changed } = props;
+  const { params, inputs, errors, onChange, onApply, onReset, dirty, changed } = props;
   if (params.length === 0) return <p className="text-xs text-gray-400">{t("수정할 수 있는 지표 값이 없습니다.")}</p>;
   return (
     <div>
@@ -48,15 +50,25 @@ export function SimulationParamForm(props: {
           );
         })}
       </div>
-      <button
-        type="button"
-        onClick={onReset}
-        disabled={Object.keys(inputs).length === 0}
-        className="mt-3 rounded-lg border border-white/[0.12] px-3 py-1.5 text-sm font-bold text-white disabled:opacity-40"
-      >
-        {t("원본 값으로 초기화")}
-      </button>
-      {changed > 0 && <span className="ml-3 text-xs text-gray-400">{t("{0}개 값을 바꿔 계산합니다.", changed)}</span>}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={onApply}
+          disabled={!dirty || Object.keys(errors).length > 0}
+          className="rounded-lg bg-[var(--chat-accent)] px-4 py-1.5 text-sm font-black text-[var(--chat-accent-ink)] disabled:opacity-40"
+        >
+          {t("적용")}
+        </button>
+        <button
+          type="button"
+          onClick={onReset}
+          disabled={Object.keys(inputs).length === 0}
+          className="rounded-lg border border-white/[0.12] px-3 py-1.5 text-sm font-bold text-white disabled:opacity-40"
+        >
+          {t("원본 값으로 초기화")}
+        </button>
+      </div>
+      {changed > 0 && <span className="mt-2 block text-xs text-gray-400">{t("{0}개 값을 바꿔 계산합니다.", changed)}</span>}
     </div>
   );
 }

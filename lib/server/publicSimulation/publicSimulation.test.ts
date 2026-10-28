@@ -3,24 +3,32 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { fetchBackend } from "@/lib/server/backend";
 import {
-  PUBLIC_STRATEGY_WHERE, findPublicStrategy, listPublicStrategies, publicStrategyFields,
+  findPublicStrategy, listPublicStrategies, publicStrategyFields,
   snapshotFromSettings, snapshotHash, type PublicStrategyRow,
 } from "./access";
+import { exampleRegistry, type ExampleStrategy } from "./examples";
 import {
   ensureFresh, getBaseline, presentOriginal, refreshOne, resetBaselineCache, whenRefreshesSettled, type Baseline,
 } from "./originals";
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    strategy: { findMany: vi.fn() },
-    publicSimulationResult: { findFirst: vi.fn(), findMany: vi.fn(), createMany: vi.fn(), updateMany: vi.fn() },
+    exampleSimulationResult: { findMany: vi.fn(), createMany: vi.fn(), updateMany: vi.fn() },
   },
 }));
 vi.mock("@/lib/server/backend", () => ({ fetchBackend: vi.fn() }));
+vi.mock("./examples", async (importActual) => ({
+  ...(await importActual<typeof import("./examples")>()),
+  exampleRegistry: vi.fn(() => new Map()),
+}));
 
-const db = prisma.publicSimulationResult as unknown as Record<string, ReturnType<typeof vi.fn>>;
-const strategyDb = prisma.strategy as unknown as Record<string, ReturnType<typeof vi.fn>>;
+const db = prisma.exampleSimulationResult as unknown as Record<string, ReturnType<typeof vi.fn>>;
 const backend = vi.mocked(fetchBackend);
+const setRegistry = (examples: ExampleStrategy[]) =>
+  vi.mocked(exampleRegistry).mockReturnValue(new Map(examples.map((e) => [e.key, e])));
+const example = (key: string, title = "RSI 전략", settings = settingsOf()): ExampleStrategy => ({
+  key, title, prompt: `${title} 문장`, settings, assumptions: [],
+});
 
 const BASELINE: Baseline = {
   today: "2026-10-27", requestedStart: "2023-10-27", requestedEnd: "2026-10-27", endDate: "2026-10-23",
@@ -44,9 +52,9 @@ const stored = (over: Record<string, unknown> = {}) =>
   });
 export function item(over: Partial<PublicStrategyRow["row"]> = {}, settings = settingsOf()): PublicStrategyRow {
   return {
-    name: "RSI 전략", description: "설명", settings,
+    name: "RSI 전략", description: "설명", settings, assumptions: [],
     row: {
-      id: "pub1", strategyId: "7:abc", snapshotHash: snapshotHash(snapshotFromSettings(settings)),
+      id: "pub1", snapshotHash: snapshotHash(snapshotFromSettings(settings)),
       dataAsOf: "2026-10-23", engineVersion: "16.43.0", status: "ready", reason: null, result: stored(),
       computedAt: new Date("2026-10-27T01:00:00Z"), refreshLeaseUntil: null, lastAttemptAt: null, lastError: null, ...over,
     },
@@ -65,9 +73,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   resetBaselineCache();
   db.updateMany.mockResolvedValue({ count: 0 });
+  db.findMany.mockResolvedValue([]);
+  setRegistry([]);
 });
 
-describe("공개 조건과 공개 응답 허용 목록", () => {
+describe("예시 등록부와 공개 응답 허용 목록", () => {
   it("엔진 요청형 키만 스냅샷으로 고르고, 메타만 저장된 전략은 null이다", () => {
     const snap = snapshotFromSettings(settingsOf()) as Record<string, unknown>;
     expect(Object.keys(snap).sort()).toEqual(["entry", "exit", "options", "period", "risk", "sector", "symbols", "target_stocks", "universe_id"].sort());
@@ -80,7 +90,7 @@ describe("공개 조건과 공개 응답 허용 목록", () => {
     expect(snapshotHash(snapshotFromSettings(settingsOf(14)))).not.toBe(snapshotHash(snapshotFromSettings(settingsOf(21))));
   });
 
-  it("공개 필드에 소유자·전략 ID·종목 코드 전체 목록·해시가 없다", () => {
+  it("공개 필드에 전략 ID·종목 코드 전체 목록·해시가 없다", () => {
     const fields = publicStrategyFields(settingsOf());
     const text = JSON.stringify(fields);
     for (const leaked of ["userId", "strategy_id", "canonical_strategy_dsl", "symbols", "7:abc", "secret", "000660"]) {
@@ -90,49 +100,53 @@ describe("공개 조건과 공개 응답 허용 목록", () => {
     expect(fields.target_stocks).toEqual([{ symbol: "005930", name: "삼성전자" }]);
   });
 
-  it("publicId 조회는 공개·저장·미삭제 조건을 함께 걸고, 비공개·삭제는 null이다", async () => {
-    db.findFirst.mockResolvedValue(null);
+  it("publicId 조회는 예시 등록부에 있는 키만 받고, 없으면 DB를 보지 않고 null이다", async () => {
     expect(await findPublicStrategy("pub1")).toBeNull();
-    expect(db.findFirst.mock.calls[0][0].where).toEqual({ id: "pub1", Strategy: { is: PUBLIC_STRATEGY_WHERE } });
+    expect(db.findMany).not.toHaveBeenCalled();
 
-    db.findFirst.mockResolvedValue({ ...item().row, Strategy: { name: "RSI 전략", description: null, settings: settingsOf() } });
+    setRegistry([example("pub1")]);
+    db.findMany.mockResolvedValue([item().row]);
     const found = await findPublicStrategy("pub1");
-    expect(found?.row.id).toBe("pub1");
-    expect(found).not.toHaveProperty("Strategy");
+    expect(found).toMatchObject({ name: "RSI 전략", description: "RSI 전략 문장", settings: settingsOf(), row: { id: "pub1" } });
+    expect(db.createMany).not.toHaveBeenCalled();
   });
 
-  it("목록은 공개 조건·전략명순·검색을 쓰고 21번째 행으로 다음 페이지를 판단한다", async () => {
-    const rows = Array.from({ length: 41 }, (_, i) => ({
-      id: `s${i}`, name: `전략${String(i).padStart(2, "0")}`, description: null, settings: settingsOf(),
-      PublicSimulationResult: i === 0 ? null : { ...item().row, id: `p${i}`, strategyId: `s${i}` },
-    }));
-    strategyDb.findMany.mockResolvedValue(rows);
-    db.findMany.mockResolvedValue([{ ...item().row, id: "pnew", strategyId: "s0" }]);
+  it("결과 행이 없는 예시는 pending 행을 만든다", async () => {
+    setRegistry([example("pub1")]);
+    db.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([item({ status: "pending", result: null }).row]);
+    const found = await findPublicStrategy("pub1");
+    expect(db.createMany.mock.calls[0][0]).toEqual({
+      data: [{ id: "pub1", snapshotHash: snapshotHash(snapshotFromSettings(settingsOf())) }], skipDuplicates: true,
+    });
+    expect(found?.row.status).toBe("pending");
+  });
+
+  it("목록은 예시 이름순·검색을 쓰고 21번째 항목으로 다음 페이지를 판단한다", async () => {
+    const examples = Array.from({ length: 41 }, (_, i) => example(`key${String(40 - i).padStart(2, "0")}`, `RSI 전략${String(i).padStart(2, "0")}`));
+    setRegistry([...examples, example("other-key", "골든크로스")]);
+    // key40만 결과 행이 없다 — createMany 뒤의 재조회에서 생긴다.
+    db.findMany.mockImplementation(async ({ where }: any) =>
+      where.id.in.filter((id: string) => id !== "key40" || db.createMany.mock.calls.length > 0).map((id: string) => ({ ...item().row, id })));
 
     const out = await listPublicStrategies({ q: "rsi", page: 1 });
-    const args = strategyDb.findMany.mock.calls[0][0];
-    expect(args.where).toMatchObject({ ...PUBLIC_STRATEGY_WHERE, name: { contains: "rsi", mode: "insensitive" } });
-    expect(args.orderBy).toEqual([{ name: "asc" }, { id: "asc" }]);
-    expect([args.skip, args.take]).toEqual([0, 200]);
-    expect(JSON.stringify(args.select)).not.toContain("userId");
     expect(out.hasNext).toBe(true);
     expect(out.items).toHaveLength(20);
-    expect(db.createMany.mock.calls[0][0]).toMatchObject({ skipDuplicates: true, data: [{ strategyId: "s0" }] });
-    expect(out.items[0].row.id).toBe("pnew");
+    expect(out.items.map((i) => i.name)).toEqual(examples.slice(0, 20).map((e) => e.title));
+    expect(db.createMany.mock.calls[0][0]).toMatchObject({ skipDuplicates: true, data: [{ id: "key40" }] });
+    expect(JSON.stringify(out.items)).not.toContain("골든크로스");
+
+    const last = await listPublicStrategies({ q: "rsi", page: 3 });
+    expect([last.items.length, last.hasNext]).toEqual([1, false]);
   });
 
-  it("시뮬레이션할 수 없는 전략(실행 설정 없음·불가 판정)은 목록에서 빼고 쪽을 채운다", async () => {
-    const okRow = (i: number) => ({ id: `ok${i}`, name: `전략${i}`, description: null, settings: settingsOf(), PublicSimulationResult: { ...item().row, id: `p${i}`, strategyId: `ok${i}` } });
-    const unavailable = { ...item().row, id: "pu", strategyId: "u", status: "unavailable", snapshotHash: snapshotHash(snapshotFromSettings(settingsOf())) };
-    strategyDb.findMany.mockResolvedValue([
-      { id: "meta", name: "가", description: null, settings: JSON.stringify({ name: "메타만" }), PublicSimulationResult: null },
-      { id: "u", name: "나", description: null, settings: settingsOf(), PublicSimulationResult: unavailable },
-      okRow(1),
-    ]);
+  it("시뮬레이션할 수 없는 예시(실행 설정 없음·불가 판정)는 목록에서 뺀다", async () => {
+    setRegistry([example("meta", "가", JSON.stringify({ name: "메타만" })), example("u", "나"), example("ok1", "다")]);
+    const unavailable = { ...item().row, id: "u", status: "unavailable" };
+    db.findMany.mockResolvedValue([{ ...item().row, id: "meta" }, unavailable, { ...item().row, id: "ok1" }]);
 
     const out = await listPublicStrategies({ page: 1 });
 
-    expect(out.items.map((i) => i.row.strategyId)).toEqual(["ok1"]);
+    expect(out.items.map((i) => i.row.id)).toEqual(["ok1"]);
     expect(out.hasNext).toBe(false);
     expect(db.createMany).not.toHaveBeenCalled();
   });
@@ -186,7 +200,8 @@ describe("기준일 캐시", () => {
 describe("갱신 예약과 실행", () => {
   const leaseAndRun = (n = 1) => {
     db.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValue({ count: n });
-    db.findFirst.mockResolvedValue({ ...item({ status: "pending", result: null }).row, Strategy: { name: "n", description: null, settings: settingsOf() } });
+    setRegistry([example("pub1")]);
+    db.findMany.mockResolvedValue([item({ status: "pending", result: null }).row]);
   };
 
   it("낡은 항목만 같은 id당 한 번 예약하고, 리스가 살아 있으면 건너뛴다", async () => {
@@ -211,22 +226,21 @@ describe("갱신 예약과 실행", () => {
     await refreshOne("pub1");
     const where = db.updateMany.mock.calls[0][0].where;
     expect(where.OR).toEqual([{ refreshLeaseUntil: null }, { refreshLeaseUntil: { lt: expect.any(Date) } }]);
-    expect(where.Strategy).toEqual({ is: PUBLIC_STRATEGY_WHERE });
     expect(backend).not.toHaveBeenCalled();
   });
 
-  it("성공 결과는 '실행한 설정 그대로 아직 공개 중'일 때만 저장한다", async () => {
+  it("성공 결과를 그 예시의 결과 행에 저장한다", async () => {
     leaseAndRun();
     mockBackend(() => ({ status: 200, body: { status: "ready", dataAsOf: "2026-10-23", engineVersion: "16.43.0", computedAt: "2026-10-27T01:00:00Z", summary: {}, appliedOverrides: [] } }));
     await refreshOne("pub1");
     const write = db.updateMany.mock.calls[1][0];
-    expect(write.where).toEqual({ id: "pub1", Strategy: { is: { ...PUBLIC_STRATEGY_WHERE, settings: settingsOf() } } });
+    expect(write.where).toEqual({ id: "pub1" });
     expect(write.data).toMatchObject({ status: "ready", snapshotHash: snapshotHash(snapshotFromSettings(settingsOf())), dataAsOf: "2026-10-23", refreshLeaseUntil: null });
     expect(JSON.parse(write.data.result)).not.toHaveProperty("appliedOverrides");
     expect(backend.mock.calls.find((c) => String(c[0]).endsWith("/run"))?.[1]).toMatchObject({ method: "POST" });
   });
 
-  it("저장 조건이 더는 맞지 않으면(실행 중 철회) 쓰기가 0건이고 오류 없이 끝난다", async () => {
+  it("결과 행이 사라졌으면 쓰기가 0건이고 오류 없이 끝난다", async () => {
     leaseAndRun(0);
     mockBackend(() => ({ status: 200, body: { status: "ready", summary: {} } }));
     await expect(refreshOne("pub1")).resolves.toBeUndefined();
@@ -236,7 +250,8 @@ describe("갱신 예약과 실행", () => {
   it("실행 불가 스냅샷은 엔진 없이 unavailable로 기록한다", async () => {
     db.updateMany.mockResolvedValue({ count: 1 });
     const meta = JSON.stringify({ id: "9:x", name: "메타", description: "d" });
-    db.findFirst.mockResolvedValue({ ...item({}, meta).row, Strategy: { name: "n", description: null, settings: meta } });
+    setRegistry([example("pub1", "메타", meta)]);
+    db.findMany.mockResolvedValue([item({}, meta).row]);
     mockBackend(() => ({ status: 200, body: {} }));
     await refreshOne("pub1");
     expect(backend.mock.calls.some((c) => String(c[0]).endsWith("/run"))).toBe(false);
@@ -260,7 +275,8 @@ describe("갱신 예약과 실행", () => {
 
     vi.clearAllMocks();
     db.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValue({ count: 1 });
-    db.findFirst.mockResolvedValue({ ...item().row, Strategy: { name: "n", description: null, settings: settingsOf() } });
+    setRegistry([example("pub1")]);
+    db.findMany.mockResolvedValue([item().row]);
     mockBackend(() => new Error("down"));
     await refreshOne("pub1");
     const data = db.updateMany.mock.calls[1][0].data;

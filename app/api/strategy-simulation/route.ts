@@ -21,7 +21,7 @@ function downsample(curve: Curve | undefined, max: number): Curve | undefined {
 const pick = (source: Record<string, unknown> | undefined, keys: string[]) =>
   source ? Object.fromEntries(keys.filter((k) => k in source).map((k) => [k, source[k]])) : undefined;
 
-// 공개 목록 — 저장된 원본 결과만 읽는다. 낡은 항목은 백그라운드 갱신을 예약할 뿐 기다리지 않는다.
+// 예시 전략 목록 — 저장된 원본 결과만 읽는다. 낡은 항목은 백그라운드 갱신을 예약할 뿐 기다리지 않는다.
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const q = params.get("q")?.trim() || undefined;
@@ -39,6 +39,7 @@ export async function GET(request: Request) {
         publicId: item.row.id,
         name: item.name,
         description: item.description,
+        randomAssumed: item.assumptions.some((a) => a.random),
         status: view.status,
         reason: view.reason,
         window: pick(view.window, ["requestedStart", "requestedEnd", "actualStart", "actualEnd", "dataAsOf", "stale", "limited"]),
