@@ -498,8 +498,7 @@ StrategyLabPage (app/analytics/new/page.tsx — 상태·대화 턴·백테스트
     │                               실행 불가 이유(getNextMissingBacktestCondition 준비 판정), 확대 비율, 공유 자리
     ├── [B] SideDrawer(left) — 탭 2개(기본 "대화 기록")
     │       ├── ConversationDrawer   — 계정별 대화 로그(/api/strategy-chat-log) 목록·검색·새 전략·삭제
-    │       └── ExampleCardsDrawer   — "전략 예시" 20장(분류 필터, 클릭=입력창 채우기·자동 전송 없음),
-    │                                  끝에 StrategyLabLegalFooter(약관·사업자 정보·투자 유의 — 시작 화면과 공유)
+    │       └── ExampleCardsDrawer   — "전략 예시" 20장(분류 필터, 클릭=입력창 채우기·자동 전송 없음)
     ├── [C] StrategyCanvas        — React Flow(@xyflow/react 12.8.4), 점 그리드, 고정 파이프라인 칸
     │       ├── labGraph.ts       — 전략 그래프(lib/strategy-graph) → 칸 노드·조건 노드·엣지(순수). 칸 순서 고정 = 순환 불가. 손절·익절 등 청산 조건 노드는 위험 관리 칸+매도 칸 두 곳에 연결, 종목 교체 리밸런싱(매수·매도 조건 없음)은 매수·매도 칸을 풀어 그림(derivedFrom)
     │       ├── StrategyNode.tsx  — 칸 노드(아이콘·이름·좌/우/하단 포트·＋) / 조건 노드(보조 포트에 매달림)

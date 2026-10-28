@@ -6,7 +6,6 @@ import { t } from "@/lib/i18n";
 import { useRegion, useRegionHref } from "@/lib/geo/useRegion";
 import { EXAMPLES, type Example, type ExampleCategory } from "@/components/strategy/strategyExamples";
 import { US_EXAMPLES } from "@/components/strategy/usExamples";
-import { StrategyLabLegalFooter } from "@/components/strategy/StrategyLabLegalFooter";
 
 type ExampleCardsDrawerProps = {
   /** 카드를 고르면 예시 문장을 입력창에 채운다(자동 전송하지 않는다). */
@@ -85,8 +84,6 @@ function ExampleCardsDrawer({ onPick }: ExampleCardsDrawerProps) {
             {t("전체 보기")}
           </Link>
         )}
-        {/* 시작 화면에 있던 이용 안내(약관·사업자 정보·투자 유의 문구)를 예시 목록 끝에 둔다. */}
-        <StrategyLabLegalFooter className="mt-4" />
       </div>
     </div>
   );

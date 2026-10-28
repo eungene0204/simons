@@ -35,7 +35,6 @@ const RENDER_SITE_FILES = [
   "app/analytics/new/page.tsx",
   "lib/strategy-summary.ts",
   "components/strategy/StrategyExampleTabs.tsx",
-  "components/strategy/StrategyLabLegalFooter.tsx",
   "components/strategy/lab/ExampleCardsDrawer.tsx",
   "app/analytics/new/canvasEdits.ts",
   "components/layout/TopNavigation.tsx",

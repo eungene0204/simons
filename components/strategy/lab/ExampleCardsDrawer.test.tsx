@@ -41,10 +41,10 @@ describe("ExampleCardsDrawer", () => {
     expect(onPick.mock.calls[0][0].length).toBeGreaterThan(0);
   });
 
-  it("예시 목록 끝에 이용 안내 푸터가 있고 추천 문구를 쓰지 않는다", () => {
+  it("예시 목록 끝에 이용 안내 푸터를 두지 않고 추천 문구를 쓰지 않는다", () => {
     render(<ExampleCardsDrawer onPick={vi.fn()} />);
 
-    expect(screen.getByRole("contentinfo", { name: "전략연구소 이용 안내" })).toBeInTheDocument();
+    expect(screen.queryByRole("contentinfo", { name: "전략연구소 이용 안내" })).toBeNull();
     expect(screen.getByText("전략 예시")).toBeInTheDocument();
     expect(screen.queryByText(/추천 전략/)).toBeNull();
   });
