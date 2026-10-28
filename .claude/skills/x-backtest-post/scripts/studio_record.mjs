@@ -14,7 +14,7 @@ import { connect, typePrompt, press, glide, visibleText, waitFor, settle, card, 
 
 const spec = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const { browser, page } = await connect();
-const button = (t) => page.locator('button:visible', { hasText: t }).first();
+const button = (t) => t === '백테스트 시작하기' ? page.locator('[data-testid="lab-run-button"]:visible').first() : page.locator('button:visible', { hasText: t }).first();  // 연구소는 시작 버튼이 상단 툴바의 '백테스트 실행'이다
 const log = (...a) => console.log(new Date().toTimeString().slice(0, 8), ...a);
 
 await page.waitForTimeout(1500);
@@ -86,6 +86,7 @@ for (let i = 0; i < 12; i++) {
 log('칩 답변:', answered.join(' / '));
 
 await graphBox(page, 'final');   // 확정 장면은 완성된 그래프로 당긴다
+await page.waitForTimeout(3500);   // 고른 옵션이 모두 반영된 그래프를 한 번에 보여 줄 시간(make_plan.py FULL_CARD_SEC)
 await card(page, 'summary_full', '현재까지 이해한', '리스크 관리');
 const summaryText = await page.evaluate(() => {
   const leaf = [...document.querySelectorAll('body *')].find((e) => e.children.length === 0 && e.textContent.trim().startsWith('현재까지 이해한'));
@@ -97,7 +98,7 @@ await press(page, button('이 전략으로 확정'), '이 전략으로 확정');
 await button('백테스트 시작하기').waitFor({ state: 'visible', timeout: 60000 });
 await page.waitForTimeout(1200);
 // 지정 종목 — 확정된 전략 그래프의 '지정 종목 N개' 노드를 눌러 어떤 종목인지 펼쳐 보여 준다(2026-10-21 사용자 지시). 노드가 없으면 건너뛴다(편집도 이 기록이 있을 때만 장면을 만든다)
-const uniNode = page.locator('[data-testid="strategy-graph-canvas"] [data-item-key]:visible', { hasText: /지정 종목 \d+개/ }).first();
+const uniNode = page.locator('[data-testid="lab-canvas"] .react-flow__node:visible', { hasText: /지정 종목 \d+개/ }).first();
 if (await uniNode.count()) {
   const label = (await uniNode.innerText().catch(() => '지정 종목')).replace(/\s+/g, ' ').trim();
   await uniNode.evaluate((e) => e.scrollIntoView({ block: 'center' }));
@@ -105,7 +106,7 @@ if (await uniNode.count()) {
   await press(page, uniNode, label, 'universe');
   await page.waitForTimeout(1500);   // 펼침 애니메이션(노드 이동 450ms) + 목록 배치
   const cb = await page.evaluate(() => {
-    const c = [...document.querySelectorAll('[data-testid="strategy-graph-canvas"]')].filter((e) => e.offsetParent !== null).at(-1);
+    const c = [...document.querySelectorAll('[data-testid="lab-canvas"]')].filter((e) => e.offsetParent !== null).at(-1);
     if (!c) return null;
     const r = c.getBoundingClientRect();
     return { x: r.x, y: r.y, width: r.width, height: r.height };
@@ -122,6 +123,7 @@ log('백테스트 시작');
 await waitFor(page, 'result', '투자 수익률', 900);
 await page.waitForTimeout(2500);
 await card(page, 'metrics', '총 수익', '손익비');
+await card(page, 'bench', '벤치마크', 'KODEX').catch(() => null);  // 벤치마크 칸 — 결과 둘러보기가 이 칸으로 당긴다(지표 상자 비율로 잡으면 옆 칸이 잘린다, #30)
 await hold(page, 20); // 결과 둘러보기(make_plan.py)는 이 정지 화면에서 찍는다 — 약 16초 + 사건 구간마다 4.5초
 const body = await page.innerText('body');
 log('결과 화면 기록');

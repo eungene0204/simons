@@ -116,10 +116,9 @@ export async function watchGraph(page) {
     const gw = (window.__gw = { log: [], prev: new Map(), pending: false });
     const scan = () => {
       gw.pending = false;
-      const c = [...document.querySelectorAll('[data-testid="strategy-graph-canvas"]')].filter((e) => e.offsetParent !== null).at(-1);
+      const c = [...document.querySelectorAll('[data-testid="lab-canvas"]')].filter((e) => e.offsetParent !== null).at(-1);
       if (!c) return;
-      const cur = new Map([...c.querySelectorAll('[data-item-key]')].map((g) => [g.dataset.itemKey,
-        [...g.querySelectorAll('span')].filter((s) => s.style.fontSize !== '11px').map((s) => s.textContent.trim()).filter(Boolean).join(' ')]));  // 보조 문구(11px, 예: '기준값 해당 없음')는 뺀다
+      const cur = new Map([...c.querySelectorAll('.react-flow__node')].map((g) => [g.dataset.id, g.innerText.replace(/\s+/g, ' ').trim()]));  // 연구소 캔버스(React Flow) 노드
       const added = [...cur].filter(([k]) => !gw.prev.has(k));
       if (added.length) gw.log.push({ t: Date.now(), added: added.map(([key, text]) => ({ key, text })) });
       gw.prev = cur;
@@ -132,16 +131,40 @@ export async function watchGraph(page) {
  * 그래프가 하단에 고정된 질문 패널 뒤에 가려져 있으면(실제 화면에서도 사용자가 위로 스크롤해야 보인다) 패널 위로 올라오게 스크롤한다.
  * 노드가 생기는 순간 바로 실행해야 편집의 카메라 상자(스크롤 뒤 위치)와 화면이 어긋나지 않는다. 스크롤한 시각(ms)을 돌려준다.
  */
-async function revealGraph(page, top = 130) {
+async function revealGraph(page, top = 130, fit = true) {
+  // 전략 연구소(2026-10-28): 캔버스는 화면 위쪽에 고정돼 있고, 앱은 처음 그래프만 화면에 맞춘다 — 칩 답변으로 붙은 노드는
+  // 캔버스 아래(채팅 패널 뒤)로 나가 보이지 않는다(#30 영상 실측). 사용자가 하듯 '화면 맞춤'을 눌러 새 노드까지 캔버스 안에 담는다.
+  const fitted = fit && await page.evaluate(() => {
+    const b = [...document.querySelectorAll('[data-testid="lab-canvas"] button[aria-label="화면 맞춤"]')].find((e) => e.offsetParent !== null);
+    if (!b) return false;
+    b.click();
+    return true;
+  });
+  if (fitted) { await page.waitForTimeout(450); return Date.now(); }  // 맞춤 애니메이션(200ms)이 끝난 뒤 위치를 잰다
   await page.evaluate((top) => {
-    const c = [...document.querySelectorAll('[data-testid="strategy-graph-canvas"]')].filter((e) => e.offsetParent !== null).at(-1);
+    const c = [...document.querySelectorAll('[data-testid="lab-canvas"]')].filter((e) => e.offsetParent !== null).at(-1);
     if (!c) return;
     let p = c.parentElement;
     while (p && !(p.scrollHeight > p.clientHeight + 4 && /(auto|scroll)/.test(getComputedStyle(p).overflowY))) p = p.parentElement;
-    const dy = c.getBoundingClientRect().top - top;
+    const r0 = c.getBoundingClientRect();
+    if (r0.top >= 0 && r0.bottom <= window.innerHeight + 4) return;  // 연구소는 캔버스가 화면 안에 고정돼 있어 스크롤하지 않는다
+    const dy = r0.top - top;
     if (p) p.scrollBy({ top: dy, behavior: 'instant' }); else window.scrollBy({ top: dy, behavior: 'instant' });
   }, top);
   return Date.now();
+}
+
+/** 캔버스 안에 보이는 노드 전부를 품은 상자(카메라가 그래프 전체를 담을 때 — 캔버스 상자는 빈 여백까지 품어 그래프가 잘린다). */
+async function nodesBox(page) {
+  return page.evaluate(() => {
+    const c = [...document.querySelectorAll('[data-testid="lab-canvas"]')].filter((e) => e.offsetParent !== null).at(-1);
+    if (!c) return null;
+    const rs = [...c.querySelectorAll('.react-flow__node')].map((g) => g.getBoundingClientRect()).filter((r) => r.width > 0);
+    if (!rs.length) return null;
+    const x0 = Math.min(...rs.map((r) => r.x)), y0 = Math.min(...rs.map((r) => r.y));
+    const x1 = Math.max(...rs.map((r) => r.right)), y1 = Math.max(...rs.map((r) => r.bottom));
+    return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+  });
 }
 
 /**
@@ -158,23 +181,24 @@ export async function graphAdd(page, label, since, { phase = 'add', settleMs = 2
     await page.waitForTimeout(100);
   }
   if (!hits.length) return null;
-  const first = await revealGraph(page);  // 스크롤한 시각이 편집의 기준점이다
+  const first = await revealGraph(page, 130, phase !== 'initial');  // 맞춘(스크롤한) 시각이 편집의 기준점이다. 처음 그래프는 앱이 스스로 맞춘다
   await page.waitForTimeout(Math.max(0, first + settleMs - Date.now()));  // 노드가 하나씩 나타나는 연출이 끝나길 기다린다(처음 그릴 때 최대 약 7초)
   const added = (await page.evaluate(() => { const l = window.__gw.log; window.__gw.log = []; return l; })).filter((e) => e.t >= since).flatMap((e) => e.added);
   const keys = added.map((a) => a.key);
   const m = await page.evaluate((keys) => {
-    const c = [...document.querySelectorAll('[data-testid="strategy-graph-canvas"]')].filter((e) => e.offsetParent !== null).at(-1);
+    const c = [...document.querySelectorAll('[data-testid="lab-canvas"]')].filter((e) => e.offsetParent !== null).at(-1);
     if (!c) return null;
     const rect = (e) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; };
-    const boxes = [...c.querySelectorAll('[data-item-key]')].filter((g) => keys.includes(g.dataset.itemKey)).map(rect);
+    const boxes = [...c.querySelectorAll('.react-flow__node')].filter((g) => keys.includes(g.dataset.id)).map(rect);
     const x0 = Math.min(...boxes.map((b) => b.x)), y0 = Math.min(...boxes.map((b) => b.y));
     const x1 = Math.max(...boxes.map((b) => b.x + b.w)), y1 = Math.max(...boxes.map((b) => b.y + b.h));
     const cv = rect(c);
-    return { canvas: { x: cv.x, y: cv.y, width: cv.w, height: cv.h }, box: boxes.length ? { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } : null };
+    return { canvas: { x: cv.x, y: cv.y, width: cv.w, height: cv.h }, texts: [...c.querySelectorAll('.react-flow__node')].filter((g) => keys.includes(g.dataset.id)).map((g) => g.innerText.replace(/\s+/g, ' ').trim()), box: boxes.length ? { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } : null };
   }, keys);
   if (!m) return null;
-  const texts = added.map((a) => a.text).filter(Boolean);
-  mark('graph', { t: first, phase, label, texts, box: m.box ?? m.canvas, canvas: m.canvas });
+  const nodes = await nodesBox(page);
+  const texts = (m.texts?.length ? m.texts : added.map((a) => a.text)).filter(Boolean);  // 노드는 DOM에 생긴 직후 비어 있을 수 있어 연출이 끝난 뒤 글자를 다시 읽는다
+  mark('graph', { t: first, phase, label, texts, box: m.box ?? m.canvas, canvas: m.canvas, nodes });
   return { ...m, texts, t: first };
 }
 
@@ -183,11 +207,12 @@ export async function graphBox(page, label) {
   await revealGraph(page);
   await page.waitForTimeout(400);
   const b = await page.evaluate(() => {
-    const c = [...document.querySelectorAll('[data-testid="strategy-graph-canvas"]')].filter((e) => e.offsetParent !== null).at(-1);
+    const c = [...document.querySelectorAll('[data-testid="lab-canvas"]')].filter((e) => e.offsetParent !== null).at(-1);
     if (!c) return null;
     const r = c.getBoundingClientRect();
     return { x: r.x, y: r.y, width: r.width, height: r.height };
   });
-  if (b) mark('graph', { phase: 'final', label, box: b, canvas: b, texts: [] });
+  const nodes = await nodesBox(page);
+  if (b) mark('graph', { phase: 'final', label, box: b, canvas: b, nodes, texts: [] });
   return b;
 }
