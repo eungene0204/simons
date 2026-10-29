@@ -97,6 +97,7 @@ describe("HomeLanding", () => {
     expect(footer.textContent).toContain("통신판매업신고번호 : 2026-서울서대문-0758");
     expect(footer.textContent).toContain("대표 : 이응준");
     expect(footer.textContent).toContain("주소 : 서울특별시 서대문구 이화여대7길 37, 3층 S88호");
+    expect(footer.textContent).toContain("이메일 : support@nullstock.im");
   });
 
   it("carries the not-advice disclosure and avoids recommendation wording", () => {

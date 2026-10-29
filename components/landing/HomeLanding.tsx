@@ -238,7 +238,7 @@ export function HomeLanding() {
           </p>
           <p className="mt-3 text-xs font-bold leading-relaxed text-gray-500">
             상호명 : 널스페이스 · 사업자등록번호 : 898-50-00737 · 통신판매업신고번호 : 2026-서울서대문-0758 · 대표 : 이응준
-            <span className="block">주소 : 서울특별시 서대문구 이화여대7길 37, 3층 S88호</span>
+            <span className="block">주소 : 서울특별시 서대문구 이화여대7길 37, 3층 S88호 · 이메일 : support@nullstock.im</span>
           </p>
           <nav aria-label="약관 및 정책" className="mt-4 flex flex-wrap justify-center gap-x-5 gap-y-2 text-xs font-bold text-gray-400">
             <Link href="/?legal=terms" className="hover:text-white">
