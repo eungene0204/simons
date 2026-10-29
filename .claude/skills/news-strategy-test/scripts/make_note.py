@@ -1,6 +1,7 @@
 """뉴스 전략 테스트 결과(result.json)로 해설 note.txt를 만든다 — 같은 입력이면 같은 글.
 
 사용: python3 make_note.py <전략 폴더>     폴더에 result.json, spec.json({"prompt", "post_name", "news": {"title", "link", "published"}, "why"})
+note.txt와 함께 link.txt(같은 문장으로 널스탁을 여는 링크 한 줄)를 남긴다.
 수치는 앱 화면·백테스트 로그에서 그대로 옮긴다. 계산은 벤치마크와의 차이(%p)뿐이다.
 평가·전망·권유 표현을 쓰지 않는다(규제 원칙) — "과거 데이터 기준" 사실만 적는다.
 """
@@ -10,6 +11,23 @@ import json
 import re
 import sys
 from pathlib import Path
+from urllib.parse import quote, urlencode
+
+SITE_URL = "https://www.nullstock.im"
+MAX_OPEN_LINK_PROMPT_LENGTH = 1000  # 앱(lib/strategy/strategyOpenLink.ts) 한도와 같다
+
+
+def open_link(prompt: str, folder: Path) -> str:
+    """같은 문장을 널스탁 입력창에 채워 여는 링크 — 홈(/)이어야 비로그인 방문자도 쿼리를 잃지 않는다
+    (x-backtest-post의 post_to_x.strategy_open_url과 같은 규칙, 유입 출처만 news)."""
+    prompt = prompt.strip()
+    if not prompt or len(prompt) > MAX_OPEN_LINK_PROMPT_LENGTH:
+        sys.exit(f"[중단] 링크에 넣을 전략 문장이 비었거나 {MAX_OPEN_LINK_PROMPT_LENGTH}자를 넘는다")
+    campaign = f"news-{folder.resolve().parent.name}-{folder.resolve().name}"
+    query = urlencode({"prompt": prompt, "utm_source": "news", "utm_medium": "report", "utm_campaign": campaign},
+                      quote_via=quote)
+    return f"{SITE_URL}/?{query}"
+
 
 num = lambda t: float(re.sub(r"[^\d.\-]", "", t))  # noqa: E731  "+3,894,378원" → 3894378.0
 
@@ -36,7 +54,8 @@ def build(folder: Path) -> str:
         if spec.get("why"):
             out.append(f"→ {spec['why']}")
         out.append("")
-    out += [f"{spec.get('post_name') or r['prompt']} 전략 백테스트", "", f"입력 문장: “{r['prompt']}”", "", "널스탁 해석"]
+    out += [f"{spec.get('post_name') or r['prompt']} 전략 백테스트", "", f"입력 문장: “{r['prompt']}”",
+            f"널스탁에서 같은 문장으로 열기: {open_link(r['prompt'], folder)}", "", "널스탁 해석"]
     out += [f"- {k}: {v}" for k, v in card_pairs(r["summary"])]
     cost = log_find(log, r"수수료\s*([\d.]+%)\s*/\s*슬리피지\s*([\d.]+%)\s*/\s*거래세\s*([\d.]+%)(?:\s*→\s*([\d.]+%))?")
     if cost:
@@ -72,4 +91,5 @@ if __name__ == "__main__":
     folder = Path(sys.argv[1])
     text = build(folder)
     (folder / "note.txt").write_text(text)
+    (folder / "link.txt").write_text(open_link(json.loads((folder / "result.json").read_text())["prompt"], folder) + "\n")
     print(text)
