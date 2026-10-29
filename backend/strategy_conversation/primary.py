@@ -1735,6 +1735,12 @@ def _drop_fabricated_conditions(
                     shape_copies.append({"role": role, "factor": cond.factor,
                                          "quote": cond.source_text, "market_size": False})
                     continue
+                # 다른 매수 기준(필터·랭킹)을 받는 '매수' 같은 말로 지어낸 시작일 매수 — 사용자의 매수
+                # 기준은 다른 칸에 반영돼 있어 "근거로 확인되지 않아" 안내는 거짓 딱지다(2026-10-29).
+                if quote_check._canonical_factor(cond.factor) == quote_check.BUY_AT_START_FACTOR:
+                    shape_copies.append({"role": role, "factor": cond.factor,
+                                         "quote": cond.source_text, "buy_at_start": False})
+                    continue
                 # 인용이 순위 선정 구절이고 전략에 랭킹이 있으면 그 구절은 랭킹으로 반영됐다 —
                 # "매수 신호의 근거로 확인되지 않아"는 반영된 구절에 붙는 거짓 딱지다(2026-10-07
                 # 예시 57·70, 120B 3/6). 판정은 LLM(describes=ranking), 반영 확인은 랭킹 칸 구조.

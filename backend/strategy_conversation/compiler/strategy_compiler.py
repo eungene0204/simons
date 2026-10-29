@@ -96,6 +96,11 @@ def _compile_technical(
         kwargs["timeframe"] = params["timeframe"]          # 다중 타임프레임(v16.29)
     if indicator.startswith("candle_"):
         return TechnicalSignal(**kwargs)                   # 캔들 패턴(v16.29): 파라미터 없음
+    if indicator == "buy_at_start":
+        # 시작일 매수(v16.45) — 매수 전용·파라미터 없음. 청산 칸에 앉으면 '시작일에 판다'는 뜻이 없다.
+        if signal_type != "buy":
+            raise StrategyCompileError("'시작일 매수'는 매수 조건으로만 쓸 수 있습니다")
+        return TechnicalSignal(**kwargs)
 
     if indicator in ("ma_crossover", "ema", "macd", "rsi", "breakout") \
             and cond.operator in ("crosses_above", "crosses_below"):

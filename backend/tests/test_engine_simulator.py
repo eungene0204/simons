@@ -411,3 +411,27 @@ def test_simulator_exit_deferred_on_unavailable_day(simulator):
 
     assert len(trades) == 1
     assert trades.iloc[0]['Exit Timestamp'] == pf.close.index[4]
+
+
+def test_rebalance_topup_buys_get_rebalance_reason(simulator):
+    """비중 유지 리밸런싱의 추가 매수(내린 종목 미달분 매수)는 리밸런싱 사유로 남는다.
+
+    2026-10-29 발견: 시작일 매수 + 분기 리밸런싱 전략에서 2022-04-01 KB금융 1주 추가 매수의
+    매매사유가 '시작일 매수'로 찍혔다 — 매수 행은 체결일 이전의 마지막 매수 신호 사유를 찾아
+    붙이는데, 추가 매수에는 시뮬레이터가 사유를 남기지 않았다(초과분 매도에만 남겼다)."""
+    from engine import trade_reason as tr
+    dates = pd.bdate_range("2025-01-06", periods=30)
+    n = len(dates)
+    price = pd.DataFrame({"UP": np.linspace(100.0, 200.0, n), "DOWN": np.linspace(100.0, 60.0, n)},
+                         index=dates)
+    entries = pd.DataFrame(True, index=dates, columns=price.columns)
+    exits = pd.DataFrame(False, index=dates, columns=price.columns)
+    risk_params = {"init_cash": 1_000_000.0, "max_positions": 2, "allocation_type": "equal",
+                   "rebalancing_period": "weekly", "rebalance_method": "weights_only",
+                   "skip_risk_management": True}
+    options = {"fee_rate": 0.0, "slippage_rate": 0.0, "execution_type": "same_close"}
+    simulator.run(price, price.copy(), entries, exits, risk_params, options)
+
+    topups = simulator.entry_reason_overrides.get("DOWN") or {}
+    assert topups, "내린 종목의 리셋 추가 매수 사유가 있어야 한다"
+    assert set(topups.values()) == {tr.encode([tr.part(tr.REBALANCE_TOPUP)])}

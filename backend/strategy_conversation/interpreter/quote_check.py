@@ -55,7 +55,10 @@ BOLLINGER_BAND_NAMES = {
 }
 BOLLINGER_MIDDLE_RECOVERY = "technical.bollinger_middle_recovery"
 BOLLINGER_FACTORS = (BOLLINGER_FACTOR, *BOLLINGER_BAND_NAMES, BOLLINGER_MIDDLE_RECOVERY)
-CHECKED_FACTORS = MA_FACTORS + BOLLINGER_FACTORS
+# 시작일 매수(엔진 v16.45) — 2026-10-29 실측(nemotron-3.5-super): 신호 없이 필터만 말한 문장("조선 업종 중
+# 영업이익 성장률이 20% 이상인 종목을 매수하고")에 인용 "매수"를 달아 이 조건을 지어냈다(거래 110→3회).
+BUY_AT_START_FACTOR = "technical.buy_at_start"
+CHECKED_FACTORS = MA_FACTORS + BOLLINGER_FACTORS + (BUY_AT_START_FACTOR,)
 # 값 없는 시가총액 조건(2026-10-28): 인터프리터가 "KOSPI 종목"을 인용으로 달아 시총 조건을 지어내고
 # (nemotron-3.5-super-vl 3회 중 2회) 사용자에게 시총 기준값을 되물었다. 값이 있으면 사용자가 수치를
 # 말한 것이라 묻지 않는다.
@@ -210,6 +213,8 @@ def render_condition(cond: Any, role: str) -> str:
     if factor in ("concept.golden_cross", "concept.dead_cross"):
         name = "골든크로스" if factor == "concept.golden_cross" else "데드크로스"
         return f"{side} — {name}(단기 이동평균선이 장기 이동평균선을 교차)가 나오면"
+    if factor == BUY_AT_START_FACTOR:
+        return f"{side} — 백테스트 시작일에 한 번 매수하고 계속 보유"
     if factor == MARKET_CAP_FACTOR:
         bound = "이하" if op in ("<", "<=") else "이상"
         return f"{side} 대상 — 시가총액(회사 규모)이 기준값 {bound}인 종목만"
@@ -224,7 +229,7 @@ def conditions_to_check(
     strategy: Any, only: Optional[List[Any]] = None,
     skip: Callable[[Any], bool] = lambda _c: False,
 ) -> List[Tuple[Any, str]]:
-    """물어볼 (조건, 역할) 목록 — 이동평균 계열·볼린저·값 없는 시가총액이고 인용이 있는 조건만."""
+    """물어볼 (조건, 역할) 목록 — 이동평균 계열·볼린저·시작일 매수·값 없는 시가총액이고 인용이 있는 조건만."""
     targets: List[Tuple[Any, str]] = []
     for role in ("entry_conditions", "exit_conditions"):
         for cond in getattr(strategy, role):
@@ -485,12 +490,13 @@ def quote_does_not_express(verdicts: Optional[QuoteVerdicts], cond: Any) -> bool
     moving_average를 답한다). 낱말 옮겨 적기 형태(signal_words)는 9B가 설정 문구를 통째로
     옮겨 적어 조작 제거 0/12라 기각했다. unclear·enum 밖·판정 없음은 False(남긴다). 신고가
     돌파는 제거가 아니라 교정 대상이다(quote_describes_breakout). 값 없는 시가총액 조건도
-    같은 규칙으로 뺀다(인용이 회사 규모가 아닌 시장 이름일 때 — MARKET_CAP_FACTOR).
+    같은 규칙으로 뺀다(인용이 회사 규모가 아닌 시장 이름일 때 — MARKET_CAP_FACTOR). 시작일 매수도
+    같다(인용이 '매수'처럼 다른 매수 기준을 받는 말일 때 — BUY_AT_START_FACTOR).
     """
     verdict = _verdict(verdicts, cond)
     return (verdict is not None and verdict.expresses == "no"
             and verdict.describes in ("other", "ranking")
-            and _canonical_factor(cond.factor) in (*MA_FACTORS, MARKET_CAP_FACTOR))
+            and _canonical_factor(cond.factor) in (*MA_FACTORS, MARKET_CAP_FACTOR, BUY_AT_START_FACTOR))
 
 
 def quote_describes_ranking(verdicts: Optional[QuoteVerdicts], cond: Any) -> bool:

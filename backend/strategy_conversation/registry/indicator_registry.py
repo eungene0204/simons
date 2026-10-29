@@ -359,6 +359,12 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                          "parameters.lookback_period=N, operator/value 없음. 신고가 돌파와 반대 방향"),
         engine_binding=("technical_signal", "breakout"),
     ),
+    # 시작일 매수(엔진 v16.45) — 조건 없이 백테스트 시작일에 한 번 사서 계속 보유한다('매수 후 보유').
+    # 값·연산자·파라미터가 없는 사건이고 매수 칸 전용이다. 다른 매수 조건과 함께 쓰면 '시작일에 그 조건도
+    # 충족할 때만' 산다(AND).
+    _technical("buy_at_start", "시작일 매수", "event", (), {},
+               notes="백테스트 시작일에 조건 없이 한 번 사서 청산 없이 계속 보유('매수 후 보유'·바이앤홀드). "
+                     "operator/value/parameters 없음. 매수 조건 칸 전용 — 청산 칸에는 쓸 수 없음"),
     _technical("consecutive_up", "종가 연속 상승", "event", (),
                {"period": ParamSpec(minimum=1, maximum=250, required=True)},
                notes="최근 N거래일 각각의 종가가 직전 거래일 종가보다 높음. "
@@ -612,6 +618,8 @@ _ALIASES: Dict[str, str] = {
     "bollinger_lower_breakout": "technical.bollinger_lower_touch",
     "breakout": "technical.breakout", "신고가돌파": "technical.breakout", "신고가": "technical.breakout",
     "고가돌파": "technical.breakout",
+    "buy_at_start": "technical.buy_at_start", "시작일매수": "technical.buy_at_start",
+    "buy_and_hold": "technical.buy_at_start", "바이앤홀드": "technical.buy_at_start",
     "consecutive_up": "technical.consecutive_up", "연속상승": "technical.consecutive_up",
     "consecutive_down": "technical.consecutive_down", "연속하락": "technical.consecutive_down",
     "volume_spike": "technical.volume_spike",

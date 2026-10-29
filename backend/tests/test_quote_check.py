@@ -273,3 +273,45 @@ def test_modify_turn_does_not_classify_settings():
     verdicts = primary._check_condition_quotes(intent, MARKET_TEXT, chat, only=only)
     assert primary._drop_fabricated_conditions(intent, MARKET_TEXT, verdicts, only=only)
     assert quote_check._KIND_SYSTEM not in calls
+
+
+SHIP_TEXT = "조선 업종 중 영업이익 성장률이 20% 이상인 종목을 매수하고, 60거래일 보유한 뒤 매도하는 전략"
+
+
+def buy_at_start_intent(quote):
+    # 2026-10-29 트레이스(nemotron-3.5-super): 필터만 말한 문장에 인용 "매수"로 시작일 매수를 지어냈다.
+    return StrategyIntent.model_validate({"intent": "CREATE_STRATEGY", "strategy": {
+        "universe": {"markets": ["KOSPI", "KOSDAQ"], "sectors": ["조선"]},
+        "entry_conditions": [
+            {"factor": "fundamental.operating_income_growth", "operator": ">=", "value": 20.0,
+             "unit": "percent", "source_text": "영업이익 성장률이 20% 이상"},
+            {"factor": "technical.buy_at_start", "source_text": quote},
+        ],
+        "portfolio": {"hold_period_days": 63},
+    }})
+
+
+def test_fabricated_buy_at_start_is_removed_silently():
+    intent = buy_at_start_intent("매수")
+    calls = []
+
+    def chat(system, user, **kwargs):
+        calls.append((system, user))
+        return response("no", "other")
+
+    verdicts = primary._check_condition_quotes(intent, SHIP_TEXT, chat)
+    notices = primary._drop_fabricated_conditions(intent, SHIP_TEXT, verdicts)
+    assert notices == []
+    assert [c.factor for c in intent.strategy.entry_conditions] == ["fundamental.operating_income_growth"]
+    assert "백테스트 시작일에 한 번 매수하고 계속 보유" in calls[0][1]
+
+
+def test_requested_buy_at_start_is_kept():
+    text = "KB금융, 신한지주 2종목을 시작일에 바로 매수하고 끝까지 보유하는 전략"
+    intent = StrategyIntent.model_validate({"intent": "CREATE_STRATEGY", "strategy": {
+        "universe": {"markets": ["KOSPI"]},
+        "entry_conditions": [{"factor": "technical.buy_at_start", "source_text": "시작일에 바로 매수"}],
+    }})
+    verdicts = primary._check_condition_quotes(intent, text, lambda *a, **k: response("yes", "other"))
+    primary._drop_fabricated_conditions(intent, text, verdicts)
+    assert [c.factor for c in intent.strategy.entry_conditions] == ["technical.buy_at_start"]

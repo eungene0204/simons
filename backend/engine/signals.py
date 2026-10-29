@@ -223,6 +223,13 @@ class SignalEngine:
             arr = get_col(f"candle_{p.get('pattern')}")
             return np.zeros(data_len, dtype=bool) if arr is None else (arr > 0.5)
 
+        if cid == 'buy_at_start':
+            # 시작일 매수(v16.45): 백테스트 창의 첫 매수 가능 봉에서만 참이다. 창 경계는 신호 생성기가
+            # 모르므로 phase1이 `__window_start` 열(0/1)로 알려 준다 — 열이 없으면(실시간 신호·미리보기)
+            # fail-closed다.
+            arr = get_col('__window_start')
+            return np.zeros(data_len, dtype=bool) if arr is None else (arr > 0.5)
+
         if cid in ('consecutive_up', 'consecutive_down'):
             # N거래일 연속 상승(하락) = 마지막 N개의 종가 변화가 모두 양수(음수). 현재 봉까지의
             # 종가만 사용하고, 동일 종가·결측은 연속 횟수를 끊는다.
@@ -644,6 +651,10 @@ class SignalEngine:
 
         if cid == 'candle_pattern':
             val = safe_get(f"candle_{p.get('pattern')}", idx)
+            return bool(val is not None and val > 0.5)
+
+        if cid == 'buy_at_start':
+            val = safe_get('__window_start', idx)
             return bool(val is not None and val > 0.5)
 
         if cid in ('consecutive_up', 'consecutive_down'):
@@ -1160,6 +1171,8 @@ class SignalEngine:
             val = p.get('value', 1)
             tvr_op_seg = op_seg if op else tr.part(tr.OP_GTE)
             return [tr.part(tr.TRADING_VALUE_RATIO, period, f"{float(val):g}", tvr_op_seg)]
+        elif cid == 'buy_at_start':
+            return [tr.part(tr.BUY_AT_START)]
         elif cid == 'breakout':
             period = p.get('lookbackPeriod', 20)
             low = p.get('signalType') == 'sell' or p.get('side') == 'low'

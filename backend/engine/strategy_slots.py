@@ -868,6 +868,14 @@ def has_withdrawal_plan(parsed: Any) -> bool:
     )
 
 
+def has_buy_at_start(parsed: Any) -> bool:
+    """매수 조건이 '시작일 매수'(엔진 v16.45)인가 — 청산 없이 끝까지 보유하는 전략이다."""
+    return any(
+        (sig.get("indicator") if isinstance(sig, dict) else getattr(sig, "indicator", None)) == "buy_at_start"
+        for sig in (getattr(parsed, "entry_signals", None) or [])
+    )
+
+
 def has_contribution_plan(parsed: Any) -> bool:
     """납입액과 주기가 둘 다 있고 사 모을 대상(지정 종목 또는 ETF 상품 유니버스)이 있는 전략인가 —
     반쪽 요청은 적립식이 아니다. "S&P500 ETF"는 국내 S&P500 ETF 전체가 대상이다(2026-09-22)."""
@@ -914,6 +922,10 @@ def _decided(parsed: Any, field: str, declined: frozenset[str]) -> Optional[_Dec
     # 손절·익절, 리밸런싱은 물을 대상이 아니다(엔진은 이들과 섞인 적립 요청을 거절한다).
     if field in CONTRIBUTION_NOT_APPLICABLE and (
             has_contribution_plan(parsed) or has_withdrawal_plan(parsed)):
+        return _Decided(not_applicable=True)
+    # ① 시작일 매수는 한 번 사서 끝까지 보유한다 — 청산 규칙은 물을 대상이 아니다(손절·익절·리밸런싱은
+    # 사용자가 덧붙일 수 있어 그대로 묻는다).
+    if field == EXIT and has_buy_at_start(parsed):
         return _Decided(not_applicable=True)
     if field == REBALANCING:
         # 단독 종목(지정 1개)은 교체가 없다. 지정 종목이라도 여럿이면 포트폴리오이므로

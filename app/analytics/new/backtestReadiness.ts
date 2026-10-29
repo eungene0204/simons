@@ -8,7 +8,7 @@ import { getLanguage, t } from "@/lib/i18n";
 import type { ParsedSummary } from "@/lib/strategy-summary";
 
 import slotPrompts from "./__fixtures__/slot-prompts.json";
-import { hasContributionPlan, hasWithdrawalPlan, isUsParsedUniverse } from "@/lib/strategy-summary";
+import { hasBuyAtStart, hasContributionPlan, hasWithdrawalPlan, isUsParsedUniverse } from "@/lib/strategy-summary";
 
 export type MissingBacktestCondition = {
   field:
@@ -117,6 +117,8 @@ export function isSlotFilled(
   // 손절·익절, 리밸런싱은 물을 대상이 아니다(백엔드 CONTRIBUTION_NOT_APPLICABLE과 동형).
   if (CONTRIBUTION_NOT_APPLICABLE.includes(field) && (hasContributionPlan(parsed) || hasWithdrawalPlan(parsed)))
     return true;
+  // 시작일 매수(엔진 v16.45)는 한 번 사서 끝까지 보유한다 — 청산 규칙은 물을 대상이 아니다(백엔드 _decided와 동형).
+  if (field === "exit" && hasBuyAtStart(parsed)) return true;
   // '리밸런싱 안 함'은 로컬 칩 레인(allowNoRebalancing)과 백엔드 칩 레인(declined_fields) 두 경로로
   // 온다 — 백엔드 _decided처럼 둘 다 거부로 본다(한쪽만 보면 백엔드가 받은 거부를 다시 묻는다).
   const rebalancingDeclined =

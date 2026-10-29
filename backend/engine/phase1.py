@@ -180,6 +180,8 @@ def symbol_signals(df_pl: pl.DataFrame, pdf: pd.DataFrame, bprep: Optional[Dict[
     pre_df_pl = (bprep or {}).get("pre_df_pl")
     n_pre = 0 if pre_df_pl is None else len(pre_df_pl)
     sig_frame = pl.concat([pre_df_pl, df_pl], how="vertical") if n_pre else df_pl
+    if _has_buy_at_start(ctx["entry"]):
+        sig_frame = sig_frame.with_columns(pl.Series("__window_start", _window_start_flags(len(sig_frame), n_pre)))
 
     entries, entry_reasons = signal_engine.generate_signals(sig_frame, ctx["entry"])
     exits, exit_reasons = signal_engine.generate_signals(sig_frame, ctx["exit"])
@@ -249,6 +251,23 @@ def symbol_signals(df_pl: pl.DataFrame, pdf: pd.DataFrame, bprep: Optional[Dict[
         "exits": exits, "exit_reasons": exit_reasons,
         "liquidity": liquidity_ok, "liquidity_blocked": liquidity_blocked, "pre": pre,
     }
+
+
+def _has_buy_at_start(group: Optional[Dict[str, Any]]) -> bool:
+    return any(c.get("id") == "buy_at_start" for c in (group or {}).get("conditions") or [])
+
+
+def _window_start_flags(n_rows: int, n_pre: int) -> np.ndarray:
+    """시작일 매수(v16.45)의 신호 봉 — 창 첫 봉에 1을 하나 세운다.
+
+    유동성 게이트는 전일 거래대금을 보므로(loader.check_liquidity) 이력이 없는 봉(창 직전 봉이 없는
+    종목의 첫 봉)은 항상 막힌다. 그 봉에 세우면 '시작일 매수'가 영영 체결되지 않으므로, 직전 봉이 없으면
+    둘째 봉에 세운다(상장이 창 중간인 종목은 상장 둘째 거래일)."""
+    flags = np.zeros(n_rows, dtype=np.int8)
+    idx = n_pre if n_pre > 0 else 1
+    if idx < n_rows:
+        flags[idx] = 1
+    return flags
 
 
 def close_at_last_available_row(entry_signals, exit_signals, exit_reasons, sym, ctx) -> None:

@@ -15,6 +15,7 @@ import {
   getDisplayUniverseLabels,
   getSignalExitLabels,
   getSignalLabel,
+  hasBuyAtStart,
   hasBuyCriteria,
   isRawSymbolUniverseName,
   resolveUniverseDisplayName,
@@ -259,6 +260,16 @@ describe("getSignalLabel — 크로스 방향 구체화", () => {
     for (const indicator of ["williams_r", "mfi", "roc"]) {
       expect(getSignalLabel({ indicator, signal_type: "buy" }, "entry")).not.toBe(indicator);
     }
+  });
+});
+
+describe("시작일 매수 (엔진 v16.45)", () => {
+  const atStart = { ...baseParsed, entry_signals: [{ indicator: "buy_at_start", signal_type: "buy" }] };
+
+  it("매수 조건이 시작일 매수면 hasBuyAtStart·hasBuyCriteria가 true", () => {
+    expect(hasBuyAtStart(atStart as never)).toBe(true);
+    expect(hasBuyCriteria(atStart as never)).toBe(true);
+    expect(hasBuyAtStart(baseParsed)).toBe(false);
   });
 });
 

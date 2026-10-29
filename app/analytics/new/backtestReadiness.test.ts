@@ -343,6 +343,11 @@ describe("손절·익절 '안 함' 거부", () => {
     ).toBe(true);
   });
 
+  it("시작일 매수는 청산 칸을 묻지 않는다(엔진 v16.45)", () => {
+    const atStart = { ...readyExceptRisk, entry_signals: [{ indicator: "buy_at_start", signal_type: "buy" }] };
+    expect(isSlotFilled("exit", atStart as never, options)).toBe(true);
+  });
+
   it("손절·익절 질문에 '안 함' 거부 선택지가 있다", () => {
     // 정본 칩은 자기완결 표기다("손절 안 함") — 질문과 떨어져 하단에 고정돼도
     // 무엇을 안 하겠다는 것인지 칩만 보고 알 수 있어야 한다.

@@ -644,7 +644,9 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
     # ⑤ 청산 규칙 부재 — 진입 조건형 전략인데 청산·보유기간·리밸런싱·리스크가 모두 없으면
     risk = strategy.risk_management
     has_exit_rule = bool(
-        strategy.exit_conditions
+        # 시작일 매수(v16.45)는 한 번 사서 끝까지 보유하는 것이 규칙이다 — 청산을 묻지 않는다.
+        any(c.factor == "technical.buy_at_start" for c in strategy.entry_conditions)
+        or strategy.exit_conditions
         or strategy.portfolio.hold_period_days
         or strategy.portfolio.rebalance_frequency
         or strategy.ranking

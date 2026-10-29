@@ -2548,3 +2548,8 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 - 실측(nemotron-3.5-super, 작업 폴더 백엔드): 사고 문장 3/3 종가 기준·50종목, 종가 없는 문장 2/2 기준 없음, 종가 신저가 청산 1/1. 같은 요청 백테스트 종가 -20.54%·1,129회 vs 고가 -22.34%·1,199회.
 - 회귀: `tests/test_breakout_close_basis.py`(18건), `test_knowledge_graph.py::test_infosec_resolves_to_naver_catalog_not_two_seed_edges`, 프론트 라벨 1건.
 - 미실행: 판정을 통합 보조 판정(`check_batch`)에 묶는 호출 절감(돌파 턴마다 LLM 1회 추가), 예시 81 게이트(예시 문구·프롬프트 불변이라 의무 대상 아님).
+
+### 개발 작업 — 2026-10-29 시작일 매수(엔진 v16.45) ✅ 완료(미커밋·미배포)
+
+- ✅ `buy_at_start` 지표 신설: 고정 종목 묶음을 시작일에 사서 끝까지 보유(신호·청산 없음). 해석·컴파일·슬롯·완결성·요약/되묻기 게이트·엔진·라벨·온톨로지 배선, 회귀 `backend/tests/test_buy_at_start.py`·프론트 테스트. 실측: 주요 금융 5곳 5종목 5거래 체결. 미실행: 전체 스위트·`qa_backtest_equivalence --wfa`·예시 게이트.
+- ✅ 엔진 v16.45.1(PATCH): 리밸런싱 추가 매수(목표 비중 미달분)·밴드 리밸런싱 추가 매수의 매매사유를 시뮬레이터가 남긴다 — 종전엔 마지막 매수 신호 사유(예: '시작일 매수')가 붙었다. 회귀 `test_rebalance_topup_buys_get_rebalance_reason`·밴드 테스트 보강.

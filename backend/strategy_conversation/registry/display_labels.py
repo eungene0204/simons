@@ -55,7 +55,7 @@ _EN_LABELS = {
     "technical.bollinger_lower_touch": "Bollinger lower-band touch",
     "technical.bollinger_lower_rebound": "Bollinger lower-band rebound",
     "technical.bollinger_middle_recovery": "Bollinger middle-band recovery after a lower-band touch",
-    "technical.breakout": "New-high breakout", "technical.breakout_low": "New-low breakout", "technical.volume_spike": "Volume spike (OBV)",
+    "technical.breakout": "New-high breakout", "technical.breakout_low": "New-low breakout", "technical.buy_at_start": "Buy at start", "technical.volume_spike": "Volume spike (OBV)",
     "technical.stochastic": "Stochastic", "technical.cci": "CCI", "technical.adx": "ADX",
     "technical.williams_r": "Williams %R", "technical.mfi": "MFI", "technical.roc": "ROC", "technical.disparity": "Disparity (close ÷ MA)",
     "technical.candle_hammer": "Hammer candle", "technical.candle_hanging_man": "Hanging man candle", "technical.candle_inverted_hammer": "Inverted hammer candle", "technical.candle_shooting_star": "Shooting star candle", "technical.candle_doji": "Doji candle", "technical.candle_bullish_engulfing": "Bullish engulfing candle", "technical.candle_bearish_engulfing": "Bearish engulfing candle", "technical.candle_piercing_line": "Piercing line candle", "technical.candle_dark_cloud_cover": "Dark cloud cover candle", "technical.candle_morning_star": "Morning star candle", "technical.candle_evening_star": "Evening star candle", "technical.candle_three_white_soldiers": "Three white soldiers candle", "technical.candle_three_black_crows": "Three black crows candle",

@@ -12,6 +12,7 @@ export type IndicatorType =
   | "volume_ratio"
   | "trading_value_ratio"
   | "breakout"
+  | "buy_at_start"
   | "consecutive_up"
   | "consecutive_down"
   | "stochastic"

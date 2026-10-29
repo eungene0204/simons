@@ -109,6 +109,8 @@ def test_pure_path_band_rebalance_resets_after_drift():
     assert abs(w["A"] - 0.5) < 0.03                       # 되돌린 뒤 다시 50/50
     reasons = {r for by in sim.exit_reason_overrides.values() for r in by.values()}
     assert any(tr.BAND_REBALANCE in r for r in reasons)
+    # 되돌릴 때 B의 추가 매수도 밴드 사유다(v16.45.1) — 없으면 마지막 매수 신호 사유가 붙었다.
+    assert any(tr.BAND_REBALANCE in r for r in (sim.entry_reason_overrides.get("B") or {}).values())
     # 밴드가 없으면 드리프트가 그대로 남는다.
     risk_no = {k: v for k, v in risk.items() if k != "rebalance_threshold_pct"}
     pf2 = Simulator().run(px, px, ents, exts, risk_no, _OPTS, rank_df=rank)

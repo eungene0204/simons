@@ -258,6 +258,16 @@ export function describeCondition(cond: EngineCondition, meta: GraphMeta | null)
     };
   }
 
+  if (id === "buy_at_start") {
+    return {
+      ...base,
+      expression: t("백테스트 시작일에 매수하고 계속 보유"),
+      rows: [row(t("판정 방식"), t("시작일 1회")), NO_THRESHOLD()],
+      status: "not_applicable",
+      statusNote: t("조건 없이 시작일에 사는 규칙이라 기준값이 필요하지 않습니다."),
+    };
+  }
+
   if (id === "consecutive_up") {
     const period = num(p.period);
     return {

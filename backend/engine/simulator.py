@@ -78,6 +78,9 @@ REBALANCE_EXIT_REASON = tr.encode([tr.part(tr.REBALANCE_DROPOUT)])
 # 라벨이 없으면 result_handler의 일반 추론이 '전략 매도 조건 충족'으로 적어 **매도 조건을
 # 하나도 말하지 않은 전략**의 거래 내역에 존재하지 않는 매도 조건이 사유로 찍힌다.
 REBALANCE_TRIM_REASON = tr.encode([tr.part(tr.REBALANCE_TRIM)])
+# 같은 리셋의 반대쪽 — 목표 비중에 못 미친 보유의 추가 매수(v16.45.1). 없으면 result_handler가
+# 체결일 이전의 마지막 매수 신호 사유(예: 몇 달 전 '시작일 매수')를 찾아 붙인다.
+REBALANCE_TOPUP_REASON = tr.encode([tr.part(tr.REBALANCE_TOPUP)])
 
 # 포트폴리오 최대 낙폭 한도(v16.24) 재실행 상한 — 매 회차가 뒤쪽 한 구간을 확정하므로 실제로는
 # 한도에 닿은 횟수+1회에서 끝난다. 상한은 무한 루프 방어일 뿐이다.
@@ -1071,6 +1074,9 @@ class Simulator:
                             self.exit_reason_overrides.setdefault(
                                 symbols[s_idx], {}
                             )[date_strs[i]] = REBALANCE_TRIM_REASON
+                            self.entry_reason_overrides.setdefault(
+                                symbols[s_idx], {}
+                            )[date_strs[i]] = REBALANCE_TOPUP_REASON
                     dropouts = np.zeros(num_symbols, dtype=bool)
                 else:
                     dropouts = active_mask & ~current_target_mask & ~pending_exit
@@ -1150,6 +1156,8 @@ class Simulator:
                             _band_reason = tr.encode([tr.part(tr.BAND_REBALANCE, _fmt_g(band * 100.0))])
                             for s_idx in np.where(movable)[0]:
                                 self.exit_reason_overrides.setdefault(
+                                    symbols[s_idx], {})[date_strs[i]] = _band_reason
+                                self.entry_reason_overrides.setdefault(
                                     symbols[s_idx], {})[date_strs[i]] = _band_reason
                             self.band_events += 1
 
@@ -1459,6 +1467,7 @@ class Simulator:
                 _band_reason = tr.encode([tr.part(tr.BAND_REBALANCE, _fmt_g(band * 100.0))])
                 for s_idx in hidx:
                     self.exit_reason_overrides.setdefault(symbols[s_idx], {})[date_strs[i]] = _band_reason
+                    self.entry_reason_overrides.setdefault(symbols[s_idx], {})[date_strs[i]] = _band_reason
                 reset_price[hidx] = exec_values[i, hidx]
                 target[i, :] = row
                 self.band_events += 1
@@ -1541,11 +1550,14 @@ class Simulator:
             # 오른 종목이 목표 비중까지 잘린다. 라벨이 없으면 result_handler의 일반 추론이
             # '전략 매도 조건 충족'으로 적어, 매도 조건을 하나도 말하지 않은 전략의 거래
             # 내역에 존재하지 않는 매도 조건이 사유로 찍힌다(2026-08-26 실측·사용자 지시로 정리).
-            # 매수로 끝난 종목엔 그날 매도 기록이 없어 이 예약은 쓰이지 않는다(사유는 매도에만 붙는다).
+            # 매수로 끝난 종목엔 그날 매도 기록이 없어 매도 예약은 쓰이지 않고, 매수 예약(v16.45.1)이 쓰인다.
             for s_idx in np.where(held & (row > 0.0) & not_cash)[0]:
                 self.exit_reason_overrides.setdefault(
                     symbols[s_idx], {}
                 )[date_strs[i]] = REBALANCE_TRIM_REASON
+                self.entry_reason_overrides.setdefault(
+                    symbols[s_idx], {}
+                )[date_strs[i]] = REBALANCE_TOPUP_REASON
             row = _park_cash(i, row)
             held = row > 0.0
             current_row = row.copy()

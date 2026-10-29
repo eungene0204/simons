@@ -507,6 +507,7 @@ export const INDICATOR_LABELS: Record<string, string> = {
   macd: "MACD",
   bollinger_bands: "볼린저밴드",
   breakout: "브레이크아웃",
+  buy_at_start: "시작일 매수",
   consecutive_up: "종가 연속 상승",
   consecutive_down: "종가 연속 하락",
   volume_spike: "OBV 평균 상향 돌파",
@@ -872,6 +873,11 @@ export function hasBuyCriteria(parsed: ParsedSummary | null | undefined): boolea
     (parsed.fundamental_filters?.length ?? 0) > 0 ||
     parsed.ranking_metric != null
   );
+}
+
+/** 매수 조건이 '시작일 매수'(엔진 v16.45)인가 — 백엔드 strategy_slots.has_buy_at_start와 동형. */
+export function hasBuyAtStart(parsed: ParsedSummary | null | undefined): boolean {
+  return Boolean(parsed?.entry_signals?.some((signal) => signal.indicator === "buy_at_start"));
 }
 
 /** 납입액과 주기가 둘 다 있고 사 모을 대상(지정 종목 또는 ETF 상품 유니버스)이 있는 전략인가 —

@@ -10,6 +10,7 @@ export {
   getDisplayUniverseLabels,
   getPositionLabel,
   getRankingLabel,
+  hasBuyAtStart,
   hasBuyCriteria,
   isRawSymbolUniverseName,
   inferUniverseFromText,
