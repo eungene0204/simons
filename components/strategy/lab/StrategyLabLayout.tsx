@@ -38,7 +38,7 @@ export default function StrategyLabLayout({ toolbar, conversations, canvas, chat
   const narrow = useMediaQuery("(max-width: 1024px)");
   const [panels, togglePanel] = useLabPanels(narrow);
   const [zoom, setZoom] = useState(1);
-  const [leftTab, setLeftTab] = useState<"conversations" | "examples">("conversations");
+  const [leftTab, setLeftTab] = useState<"conversations" | "examples">("examples");
   const [chatHeight, setChatHeight] = useState(DEFAULT_CHAT_HEIGHT);
 
   // 창을 줄이면 채팅이 캔버스를 다 덮지 않게 상한을 다시 맞춘다.
@@ -97,7 +97,7 @@ export default function StrategyLabLayout({ toolbar, conversations, canvas, chat
         >
           <div className="flex h-full flex-col">
             <div className="flex flex-shrink-0 justify-center gap-1 border-b border-[var(--lab-border)] px-3 pt-2" role="tablist" aria-label={t("왼쪽 패널")}>
-              {([["conversations", t("대화 기록")], ["examples", t("전략 예시")]] as const).map(([key, label]) => (
+              {([["examples", t("전략 예시")], ["conversations", t("대화 기록")]] as const).map(([key, label]) => (
                 <button
                   key={key}
                   type="button"

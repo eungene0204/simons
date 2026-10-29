@@ -102,6 +102,11 @@ function seedLog(userId = 1) {
   seedEntry(userId, "u", "us", snapshot("u", "US chat", "US answer"), 3);
 }
 
+// 왼쪽 서랍은 전략 예시 탭으로 열린다 — 대화 기록은 탭을 눌러야 보인다.
+function openChatHistoryTab() {
+  fireEvent.click(screen.getByRole("tab", { name: /대화 기록|Chat history/ }));
+}
+
 function seedCurrentChat(owner = "1") {
   sessionStorage.setItem(STRATEGY_CHAT_OWNER_KEY, owner);
   sessionStorage.setItem(
@@ -184,6 +189,7 @@ describe("왼쪽 대화 로그", () => {
     render(<StrategyLabPage />);
 
     expect(await screen.findByText("현재 답변")).toBeInTheDocument();
+    openChatHistoryTab();
     const panel = await screen.findByTestId("lab-conversations");
     const list = within(panel).getByTestId("chat-log-list");
     expect(within(list).getByRole("button", { name: "지난 대화 A" })).toBeInTheDocument();
@@ -204,6 +210,7 @@ describe("왼쪽 대화 로그", () => {
     seedCurrentChat();
     render(<StrategyLabPage />);
     expect(await screen.findByText("현재 답변")).toBeInTheDocument();
+    openChatHistoryTab();
     await screen.findByTestId("lab-conversations");
     const drawer = screen.getByTestId("lab-left-drawer");
     expect(drawer).toHaveAttribute("data-open", "true");
@@ -225,6 +232,7 @@ describe("왼쪽 대화 로그", () => {
     render(<StrategyLabPage />);
 
     await waitFor(() => expect(sessionStorage.getItem(STRATEGY_CHAT_OWNER_KEY)).toBe("2"));
+    openChatHistoryTab();
     expect(screen.queryByText("현재 답변")).not.toBeInTheDocument();
     expect(screen.queryByTestId("chat-log-list")).not.toBeInTheDocument();
     expect(screen.queryByText("지난 대화 A")).not.toBeInTheDocument();
@@ -257,6 +265,7 @@ describe("왼쪽 대화 로그", () => {
     seedCurrentChat();
     render(<StrategyLabPage />);
     expect(await screen.findByText("현재 답변")).toBeInTheDocument();
+    openChatHistoryTab();
     expect(screen.queryByTestId("chat-log-list")).not.toBeInTheDocument();
     expect(screen.getByText("저장된 대화가 없습니다.")).toBeInTheDocument();
     // 현재 대화가 저장되면 그 한 건으로 목록이 생긴다 — 그 전에는 없다.
@@ -268,6 +277,7 @@ describe("왼쪽 대화 로그", () => {
     seedCurrentChat();
     render(<StrategyLabPage />);
     expect(await screen.findByText("현재 답변")).toBeInTheDocument();
+    openChatHistoryTab();
 
     const list = within(await screen.findByTestId("lab-conversations")).getByTestId("chat-log-list");
     fireEvent.click(within(list).getByRole("button", { name: "지난 대화 A" }));
@@ -293,6 +303,7 @@ describe("왼쪽 대화 로그", () => {
     seedCurrentChat();
     render(<StrategyLabPage />);
     expect(await screen.findByText("현재 답변")).toBeInTheDocument();
+    openChatHistoryTab();
 
     const list = within(await screen.findByTestId("lab-conversations")).getByTestId("chat-log-list");
     fireEvent.click(within(list).getByRole("button", { name: "지난 대화 B 대화 삭제" }));
@@ -310,6 +321,7 @@ describe("왼쪽 대화 로그", () => {
     seedCurrentChat();
     render(<StrategyLabPage />);
     expect(await screen.findByText("현재 답변")).toBeInTheDocument();
+    openChatHistoryTab();
     const list = within(await screen.findByTestId("lab-conversations")).getByTestId("chat-log-list");
     const deleteCurrent = await within(list).findByRole("button", { name: "현재 대화 대화 삭제" }, SAVE_WAIT);
 
@@ -335,6 +347,7 @@ describe("왼쪽 대화 로그", () => {
     render(<StrategyLabPage />);
 
     expect(await screen.findByText("현재 답변")).toBeInTheDocument();
+    openChatHistoryTab();
     const list = within(await screen.findByTestId("lab-conversations")).getByTestId("chat-log-list");
     expect(within(list).getByRole("button", { name: "US chat" })).toBeInTheDocument();
     expect(within(list).queryByRole("button", { name: "지난 대화 A" })).not.toBeInTheDocument();

@@ -109,9 +109,11 @@ describe("StrategyLab auth entry", () => {
     expect(screen.getByTestId("lab-left-drawer")).toBeInTheDocument();
     expect(screen.getByTestId("lab-canvas")).toBeInTheDocument();
     expect(screen.getByTestId("lab-chat-panel")).toBeInTheDocument();
-    // 전략 예시는 왼쪽 서랍의 두 번째 탭이다.
-    expect(screen.getByRole("tab", { name: "대화 기록" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "전략 예시" })).toHaveAttribute("aria-selected", "false");
+    // 왼쪽 서랍은 전략 예시 탭이 첫 번째이고 처음부터 열려 있다.
+    const tabs = screen.getAllByRole("tab").map((tab) => tab.textContent);
+    expect(tabs.indexOf("전략 예시")).toBeLessThan(tabs.indexOf("대화 기록"));
+    expect(screen.getByRole("tab", { name: "전략 예시" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "대화 기록" })).toHaveAttribute("aria-selected", "false");
     // 빈 캔버스는 채팅으로 안내하고, 전략이 없으니 실행 버튼은 막혀 있다.
     expect(screen.getByTestId("lab-canvas-empty")).toHaveTextContent("아래 채팅창에 전략을 설명해 보세요");
     expect(screen.getByTestId("lab-run-button")).toBeDisabled();
