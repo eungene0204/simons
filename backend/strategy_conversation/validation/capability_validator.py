@@ -350,6 +350,11 @@ def validate_capability(intent: StrategyIntent, universe_findings=None) -> Tuple
                     cond.parameters.pop("timeframe", None)
                     if _tf is None and _tf_raw not in (None, ""):
                         unsupported.append(f"타임프레임 '{_tf_raw}'")
+            # 종가 기준 돌파(v16.44) — 돌파 조건의 "close"만 남긴다. 고가·저가 기준은 값 없음이 정본이다.
+            if "price_basis" in cond.parameters and not (
+                    cond.parameters.get("price_basis") == "close"
+                    and spec.id in ("technical.breakout", "technical.breakout_low")):
+                cond.parameters.pop("price_basis", None)
             if spec.id in ("fundamental.trading_value", "technical.trading_value") \
                     and cond.value is None and cond.parameters.get("period") is not None:
                 # 금액 없이 평균 기간만 실린 거래대금 조건은 '자기 N일 평균과 비교'의 옛 자리다

@@ -169,6 +169,8 @@ def _compile_technical(
         kwargs["lookback_period"] = _int_param("lookback_period")
         if cond.factor == "technical.breakout_low":
             kwargs["side"] = "low"                         # 신저가 돌파(v16.41) — 방향은 개념 ID가 정한다
+        if params.get("price_basis") == "close":
+            kwargs["price_basis"] = "close"                # 종가 기준 돌파(v16.44)
     elif indicator in ("ai_model", "ai_drop_model"):
         # 사용자가 준 값이 Registry 기본값(70)보다 항상 우선한다. _param을 먼저 부르면
         # 기본값이 채워져 cond.value가 영원히 무시된다 — "상승 확률 80% 이상"이 조용히

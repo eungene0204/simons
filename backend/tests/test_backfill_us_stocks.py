@@ -587,6 +587,16 @@ def test_append_carries_fundamentals_and_status_forward():
     assert str(out["eps_growth_status"].dtype) == "string"
 
 
+def test_append_to_file_saved_before_korean_columns_were_added_leaves_them_blank():
+    legacy_missing = ["fcf_margin", "roic", "fcf_yield", "dividend_streak_years", "ncav"]
+    stored = _stored_frame().drop(columns=legacy_missing)
+    bars = _bars({"2026-08-21": (11.0, 0.0, 0.0), "2026-08-24": (12.0, 0.0, 0.0)})
+    out = us.append_daily_rows(stored, bars)
+    assert list(out.columns) == us.COLUMNS
+    assert out[legacy_missing].isna().all().all()
+    assert out.iloc[-1]["eps"] == 2.0
+
+
 def test_append_without_new_bars_returns_stored_unchanged():
     stored = _stored_frame()
     bars = _bars({"2026-08-20": (10.5, 0.0, 0.0), "2026-08-21": (11.0, 0.0, 0.0)})

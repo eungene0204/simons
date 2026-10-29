@@ -21,6 +21,12 @@ def record_verdicts(stage, adapter, args, kwargs, output):
             kind = getattr(verdict, "compares", None)
             _emit(stage, condition, "REJECT" if kind == "volume" else
                   "ACCEPT" if kind in ("own_average", "amount") else "UNRESOLVED", verdict)
+    elif adapter == "breakout":
+        pairs = {id(condition): basis for condition, basis in output or []}
+        for condition in args[1]:
+            basis = pairs.get(id(condition))
+            _emit(stage, condition, "ACCEPT" if basis in ("close", "intraday", "unspecified")
+                  else "UNRESOLVED", basis)
     elif adapter in ("numeric", "scope"):
         for index, patch in args[0]:
             value = index in output if adapter == "numeric" and index in output else (

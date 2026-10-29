@@ -76,6 +76,8 @@ def _decompile_technical(sig: TechnicalSignal) -> StrategyCondition:
             operator = "crosses_above" if sig.signal_type == "buy" else "crosses_below"
         if sig.lookback_period is not None:
             parameters["lookback_period"] = float(sig.lookback_period)
+        if sig.price_basis == "close":
+            parameters["price_basis"] = "close"    # 종가 기준 돌파(v16.44)
     elif sig.indicator in ("ai_model", "ai_drop_model"):
         operator = ">="
         if sig.threshold is not None:

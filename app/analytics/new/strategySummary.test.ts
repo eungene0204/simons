@@ -161,6 +161,22 @@ describe("getSignalLabel — 크로스 방향 구체화", () => {
     ).toBe("52주 신고가 돌파");
   });
 
+  it("종가 기준 돌파(엔진 v16.44)는 '종가 기준'을 붙인다", () => {
+    expect(
+      getSignalLabel({ indicator: "breakout", signal_type: "buy", lookback_period: 20, price_basis: "close" }, "entry")
+    ).toBe("종가 기준 20일 고점 돌파");
+    expect(
+      getSignalLabel(
+        { indicator: "breakout", signal_type: "buy", lookback_period: 20, side: "low", price_basis: "close" },
+        "entry"
+      )
+    ).toBe("종가 기준 20일 신저가 돌파");
+    // 기준이 없으면 종전 표기 그대로
+    expect(getSignalLabel({ indicator: "breakout", signal_type: "buy", lookback_period: 20 }, "entry")).toBe(
+      "20일 고점 돌파"
+    );
+  });
+
   it("RSI 반등(rebound)은 임계선 재돌파를 상향 반등/하향 반전으로 표기한다", () => {
     expect(
       getSignalLabel({ indicator: "rsi", signal_type: "buy", mode: "rebound", value: 30 }, "entry")

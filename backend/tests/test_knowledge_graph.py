@@ -1194,6 +1194,22 @@ def test_covid19_alias_does_not_hijack_vaccine_theme():
     assert {c["symbol"] for c in vaccine["companies"]} == {c["symbol"] for c in covid["companies"]}
 
 
+def test_infosec_resolves_to_naver_catalog_not_two_seed_edges():
+    """'정보보안 관련주' 사고(2026-10-29) — 시드 '사이버보안'의 이름·동의어가 네이버 표기
+    '보안주(정보)'와 달라 카탈로그 정합을 못 하고 시드 직접 엣지 2곳(안랩·파수AI)만
+    유니버스가 됐다. 코로나19와 같은 관례로 네이버 표기를 시드 동의어에 둔다."""
+    from engine.knowledge_graph import theme_backtest_companies
+
+    result = theme_backtest_companies("정보보안 관련주")
+    assert result is not None
+    assert result["term"] == "사이버보안"
+    symbols = {c["symbol"] for c in result["companies"]}
+    assert len(symbols) >= 40
+    # 시드 엣지 2곳도 네이버 목록에 들어 있다 + 네이버에만 있는 지니언스·라온시큐어
+    assert {"053800", "150900", "263860", "042510"} <= symbols
+    assert {c["evidence_source"] for c in result["companies"]} == {"catalog"}
+
+
 def _write_catalog(path, source, themes):
     path.write_text(json.dumps({
         "version": 1, "source": source, "retrieved_at": "2026-09-16", "themes": themes,

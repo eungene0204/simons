@@ -132,6 +132,8 @@ def _get_required_columns_base(cond: Dict) -> List[str]:
         return ['close', 'volume', f'trading_value_{period}_prev_sma']
     elif cid == 'breakout':
         period = p.get('lookbackPeriod', 20)
+        if p.get('priceBasis') == 'close':   # 종가 기준 돌파(v16.44)
+            return [f'close_{period}_max', f'close_{period}_min']
         return [f'high_{period}_max', f'low_{period}_min']
     elif cid == 'trading_value':
         # 평균 기간(v16.14) — 'N일 평균 거래대금'. 미지정은 종전 20일.

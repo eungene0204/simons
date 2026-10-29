@@ -2033,6 +2033,33 @@ def _resolve_trading_value_comparisons(
     return notices
 
 
+def _resolve_breakout_price_basis(
+    intent: Any, user_input: str, chat: Any, only: Optional[List[Any]] = None,
+) -> None:
+    """돌파 조건이 종가 기준인지 LLM에 묻고, 종가면 price_basis="close"를 싣는다
+    (interpreter/breakout_basis_check.py, 엔진 v16.44).
+
+    2026-10-29 실측: '종가가 20일 신고가를 돌파하면 매수'가 고가 기준 돌파로 백테스트됐다 — 메인
+    프롬프트의 돌파 형태에는 가격 기준 자리가 없다. 대상 조건이 없으면 호출이 없고, 실패·unclear는
+    판정 없음(종전대로 고가·저가 기준). chat이 없는 주입 스텁은 건너뛴다.
+    """
+    from strategy_conversation.interpreter import breakout_basis_check
+
+    strategy = getattr(intent, "strategy", None)
+    if strategy is None or not callable(chat):
+        return
+    targets = breakout_basis_check.conditions_to_check(strategy, only=only)
+    if not targets:
+        return
+    pairs = breakout_basis_check.check_breakout_basis(user_input, targets, chat)
+    if pairs is None:
+        _log_llm("△ 돌파 가격 기준 대조 실패", f"{len(targets)}개 조건 — 판정 없음으로 진행")
+        return
+    marked = breakout_basis_check.apply_verdicts(pairs)
+    if marked:
+        _log_llm("✓ 돌파 가격 기준", f"종가 기준 {len(marked)}개 조건")
+
+
 def _resolve_liquidity_exclusions(intent: Any, user_input: str, chat: Any) -> None:
     """미지원으로 보고된 구절이 '거래가 적은 종목 제외'(기준 숫자 없음)인지 LLM에 묻고, 그렇다면
     보고를 걷어 값 없는 거래대금 조건으로 옮긴다 — 이미 유동성 기준이 있으면 보고만 걷는다
@@ -2215,6 +2242,7 @@ def run_primary_parse(
     required_targets = (required_targets[0], checks.conditions(result.intent, user_input)[1])
     trading_notices = _resolve_trading_value_comparisons(
         result.intent, user_input, check_chat)
+    _resolve_breakout_price_basis(result.intent, user_input, check_chat)
     checks.settle(required_targets, quote_verdicts)
     # 적립식 판정(통합) — 파라미터 보정보다 먼저: 계획을 채우고 조건에 금액·상태 연산자를 달아야
     # 아래 보정(매도 선언 재배치 등)이 이 턴을 적립식으로 알아본다(2026-09-22).
@@ -5767,6 +5795,7 @@ def run_primary_modification(
         modify_intent, user_input, check_chat, only=added_conditions,
         rejected_volume=rejected_volume,
     )
+    _resolve_breakout_price_basis(modify_intent, user_input, check_chat, only=added_conditions)
     checks.settle(required_targets, quote_verdicts)
     _resolve_contribution_plan(
         modify_intent, user_input, check_chat, only=added_conditions,

@@ -109,7 +109,8 @@ COLUMNS = [
     "fcf_growth_status", "dividend_yield", "payout_rate", "dividend_growth",
     "net_income", "dividends", "investing_cash_flow", "financing_cash_flow",
     "operating_cf_amount", "investing_cf_amount", "financing_cf_amount",
-    "owner_net_income", "revenue",
+    "owner_net_income", "revenue", "fcf_margin", "roic", "fcf_yield",
+    "dividend_streak_years", "ncav",
 ]
 STATUS_COLUMNS = [c for c in COLUMNS if c.endswith("_status")]
 
@@ -863,7 +864,8 @@ def append_daily_rows(stored: pd.DataFrame, bars: pd.DataFrame) -> pd.DataFrame 
     # 나머지(재무·성장률·상태 컬럼)는 마지막 행을 이어 쓴다.
     for c in COLUMNS:
         if c != "date" and c not in new.columns:
-            new[c] = last[c]
+            # 한국 컬럼 추가(fcf_margin 등) 이전에 저장된 파일에는 없는 컬럼 — 값을 지어내지 않고 빈칸으로 둔다.
+            new[c] = last[c] if c in last.index else (None if c in STATUS_COLUMNS else np.nan)
 
     new.index.name = "date"
     new = new.reset_index()

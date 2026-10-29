@@ -38,6 +38,7 @@ export interface ParsedSummary {
     cross?: string | null;
     touch_lookback?: number | null;
     side?: string | null;
+    price_basis?: string | null;
   }>;
   exit_signals: Array<{
     indicator: string;
@@ -53,6 +54,7 @@ export interface ParsedSummary {
     cross?: string | null;
     touch_lookback?: number | null;
     side?: string | null;
+    price_basis?: string | null;
   }>;
   // 진입 게이트 필터(추세·거래대금·RSI 결합) — 진입 신호와 AND 결합. 빌더 전용, 없으면 생략.
   entry_filters?: Array<{
@@ -608,10 +610,13 @@ export function getSignalLabel(
     cross?: string | null;
     touch_lookback?: number | null;
     side?: string | null;
+    price_basis?: string | null;
   },
   context: "entry" | "exit"
 ): string {
-  const base = getSignalLabelBase(signal, context);
+  const label = getSignalLabelBase(signal, context);
+  // 종가 기준 돌파(엔진 v16.44) — 매매사유와 같은 문구로 감싼다.
+  const base = signal.indicator === "breakout" && signal.price_basis === "close" ? t("종가 기준 {0}", label) : label;
   // 다중 타임프레임(엔진 v16.29) — 주봉·월봉 기준이면 꼬리를 붙인다(매매사유와 같은 문구).
   if (signal.timeframe === "weekly") return `${base}${t(" (주봉 기준)")}`;
   if (signal.timeframe === "monthly") return `${base}${t(" (월봉 기준)")}`;
@@ -1801,6 +1806,7 @@ function conditionToSignal(condition: CompiledCondition & { id: string }) {
     cross: typeof params?.cross === "string" ? params.cross : null,
     touch_lookback: paramNumber(params, "touchLookback"),
     side: typeof params?.side === "string" ? params.side : null,
+    price_basis: typeof params?.priceBasis === "string" ? params.priceBasis : null,
   };
 }
 

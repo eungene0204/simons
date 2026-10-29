@@ -329,6 +329,12 @@ def _add_condition_columns(sdf, cid, p, target_cols, log) -> None:
             sdf[f'low_{period}_min'] = sdf['low'].rolling(window=period, min_periods=1).min()
             target_cols.add(f'high_{period}_max')
             target_cols.add(f'low_{period}_min')
+            if p.get('priceBasis') == 'close':
+                # 종가 기준 돌파(v16.44) — 종가를 직전 N일 최고·최저 종가와 비교한다.
+                sdf[f'close_{period}_max'] = sdf['close'].rolling(window=period, min_periods=1).max()
+                sdf[f'close_{period}_min'] = sdf['close'].rolling(window=period, min_periods=1).min()
+                target_cols.add(f'close_{period}_max')
+                target_cols.add(f'close_{period}_min')
         elif cid == 'candle_pattern':
             # 캔들 패턴(v16.29): 완성 봉에 True. 열 이름 candle_<pattern>(0/1).
             pattern = str(p.get('pattern') or '')

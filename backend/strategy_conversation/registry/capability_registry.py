@@ -85,7 +85,7 @@ def normalize_rebalance_frequency(value: Optional[str]) -> Optional[str]:
 
 
 # 다중 타임프레임(v16.29) — 조건 파라미터 timeframe의 표기 변형. 일봉은 값 없음.
-STRING_CONDITION_PARAMS = ("timeframe", "pattern")
+STRING_CONDITION_PARAMS = ("timeframe", "pattern", "price_basis")   # price_basis: 종가 기준 돌파(v16.44)
 _TIMEFRAME_ALIASES = {
     "weekly": "weekly", "week": "weekly", "w": "weekly", "주봉": "weekly", "주간": "weekly", "1w": "weekly",
     "monthly": "monthly", "month": "monthly", "m": "monthly", "월봉": "monthly", "월간": "monthly", "1m": "monthly",

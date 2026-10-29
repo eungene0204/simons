@@ -43,6 +43,8 @@ STRUCTURAL_PARAM_KEYS = frozenset({
     "band", "touchLookback",
     # 신저가 돌파(v16.41) — 같은 high/low 열을 쓰지만 어느 쪽으로 읽는지가 요청 키에 남아야 한다.
     "side",
+    # 종가 기준 돌파(v16.44) — 종가 최고·최저 열이 따로 필요하다.
+    "priceBasis",
 })
 
 _DEFAULT_BUDGET_MB = 2048

@@ -481,12 +481,14 @@ class SignalEngine:
 
         elif cid == 'breakout':
             period = p.get('lookbackPeriod', 20)
-            current_high = get_col('high')
-            current_low = get_col('low')
+            # 종가 기준(v16.44)이면 고가·저가 대신 종가를 직전 N일 최고·최저 종가와 비교한다.
+            close_basis = p.get('priceBasis') == 'close'
+            current_high = get_col('close' if close_basis else 'high')
+            current_low = get_col('close' if close_basis else 'low')
             if current_high is None or current_low is None:
                 return result
             if p.get('signalType') == 'sell' or p.get('side') == 'low':
-                prev_min = get_col(f'low_{period}_min')
+                prev_min = get_col(f"{'close' if close_basis else 'low'}_{period}_min")
                 if prev_min is None:
                     return result
                 res = np.zeros(data_len, dtype=bool)
@@ -495,7 +497,7 @@ class SignalEngine:
                     res[1:] = current_low[1:] < prev_min[:-1]
                 return res
             else:
-                prev_max = get_col(f'high_{period}_max')
+                prev_max = get_col(f"{'close' if close_basis else 'high'}_{period}_max")
                 if prev_max is None:
                     return result
                 res = np.zeros(data_len, dtype=bool)
@@ -900,15 +902,16 @@ class SignalEngine:
 
         elif cid == 'breakout':
             period = p.get('lookbackPeriod', 20)
-            current_high = safe_get('high', idx)
-            current_low = safe_get('low', idx)
+            close_basis = p.get('priceBasis') == 'close'   # 종가 기준 돌파(v16.44)
+            current_high = safe_get('close' if close_basis else 'high', idx)
+            current_low = safe_get('close' if close_basis else 'low', idx)
             if idx < period or current_high is None or current_low is None:
                 return False
             if p.get('signalType') == 'sell' or p.get('side') == 'low':
-                prev_min = safe_get(f'low_{period}_min', idx - 1)
+                prev_min = safe_get(f"{'close' if close_basis else 'low'}_{period}_min", idx - 1)
                 return compare(current_low, '<', prev_min)
             else:
-                prev_max = safe_get(f'high_{period}_max', idx - 1)
+                prev_max = safe_get(f"{'close' if close_basis else 'high'}_{period}_max", idx - 1)
                 return compare(current_high, '>', prev_max)
 
         elif cid == 'trading_value':
@@ -1160,7 +1163,8 @@ class SignalEngine:
         elif cid == 'breakout':
             period = p.get('lookbackPeriod', 20)
             low = p.get('signalType') == 'sell' or p.get('side') == 'low'
-            return [tr.part(tr.BREAKOUT_LOW if low else tr.BREAKOUT_HIGH, period)]
+            seg = tr.part(tr.BREAKOUT_LOW if low else tr.BREAKOUT_HIGH, period)
+            return [tr.part(tr.CLOSE_BASIS, seg) if p.get('priceBasis') == 'close' else seg]
         elif cid in ['ai_model', 'ai_drop_model']:
             target_type = p.get('targetType')
             if cid == 'ai_drop_model' and not target_type:

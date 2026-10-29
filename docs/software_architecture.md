@@ -879,6 +879,8 @@ LLM Strategy Interpreter (interpreter/llm_strategy_interpreter.py)
 
 > 복구본 칸 이동 복원(2026-10-25): 스키마 복구 요청(1회 예산)으로 다시 쓴 출력이 조건의 매수/매도 칸을 원출력과 다르게 바꾸면(복사·이동) `output_repair.restore_repair_role_drift`가 원출력의 칸으로 되돌린다. 원출력에 없던 조건·원출력에서도 두 칸에 있던 조건은 건드리지 않고, 원출력의 칸은 strategy 안을 먼저 보되 괄호가 일찍 닫혀 최상위로 밀린 칸도 읽는다.
 > 신저가 돌파(엔진 v16.41, 2026-10-18): 인터프리터는 방향을 이름에 담은 개념 ID `technical.breakout_low`(lookback_period만)를 고르고, 컴파일러가 `TechnicalSignal(indicator="breakout", side="low")`로 옮긴다(매수 칸이면 신저가 진입, 청산 칸이면 신저가 이탈). 엔진은 `side="low"`면 역할과 무관하게 저가 이탈 사건을 쓴다. 신고가 돌파에 `crosses_below`를 붙인 진입은 여전히 컴파일 거부(방향을 연산자로 받지 않는다).
+>
+> 종가 기준 돌파(엔진 v16.44, 2026-10-29): 돌파 조건이 있는 턴에만 전용 판정 `interpreter/breakout_basis_check.py`가 인용의 가격 기준(close/intraday/unspecified)을 묻고, close면 `parameters.price_basis="close"`(문자열 조건 파라미터, `STRING_CONDITION_PARAMS`) → `TechnicalSignal.price_basis` → 엔진 `priceBasis:"close"`(종가 vs 직전 N일 최고·최저 종가, `close_{N}_max/min` 열)로 옮긴다. 메인 프롬프트는 이 칸을 모른다. 판정 실패·애매함은 고가·저가 기준 유지.
     └── 조건을 평이한 문장으로 옮겨 적어 보여주고 항목마다 expresses(yes/no/unclear)·
         describes(moving_average/bollinger/new_high_breakout/other) enum을 받음 →
         결정론은 enum 소속만: new_high_breakout=신고가 오분류 교정, 분명한 no=다른 설정 문구

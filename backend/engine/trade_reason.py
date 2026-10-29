@@ -98,6 +98,7 @@ BREAKOUT_HIGH = "{0}일 신고가 돌파"
 BREAKOUT_LOW = "{0}일 신저가 돌파"
 BREAKOUT_HIGH_52W = "52주 신고가 돌파"
 BREAKOUT_LOW_52W = "52주 신저가 돌파"
+CLOSE_BASIS = "종가 기준 {0}"      # 종가 기준 돌파(v16.44) — 돌파 사유 세그먼트를 감싼다
 AI_UP_BUY = "AI {0}% 상승 확률 {1} 이상 (매수)"
 AI_UP_SELL = "AI {0}% 상승 확률 {1} 이하 (매도)"
 AI_DOWN_BUY = "AI {0}% 하락 확률 {1} 이하 (안전 진입)"

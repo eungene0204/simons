@@ -468,6 +468,8 @@ def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
         params["lookbackPeriod"] = sig.lookback_period or 20
         if sig.side:  # 신저가 돌파(v16.41). 없으면 요청이 그대로라 기존 전략의 결과·해시 불변.
             params["side"] = sig.side
+        if sig.price_basis:  # 종가 기준 돌파(v16.44). 없으면 요청이 그대로라 기존 전략의 결과·해시 불변.
+            params["priceBasis"] = sig.price_basis
 
     elif sig.indicator == "volume_spike":
         params["period"] = sig.period or 20
