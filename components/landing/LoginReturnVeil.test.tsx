@@ -22,6 +22,7 @@ describe("LoginReturnVeil", () => {
     window.history.replaceState({}, "", "/#access_token=abc");
     render(<LoginReturnVeil />);
     expect(screen.getByTestId("login-return-veil")).toHaveTextContent("로그인 중입니다");
+    expect(screen.getByTestId("login-return-spinner")).toBeInTheDocument();
   });
 
   it("renders nothing on an ordinary visit", () => {
