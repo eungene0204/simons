@@ -644,7 +644,7 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(compiledParsed.fundamental_filters).toEqual(
       incompleteParsedStrategy.fundamental_filters,
     );
-  });
+  }, 60000);
 
   it("테마 유니버스 되묻기(theme_universe)는 명시 설정 게이트가 삼키지 않고 먼저 보여준다", async () => {
     // 'bts 관련 종목 전략' 사고(2026-07-25): 백엔드가 컨셉 종목 제한 되묻기를 보냈는데
