@@ -176,14 +176,14 @@ export async function graphAdd(page, label, since, { phase = 'add', settleMs = 2
   const until = Date.now() + timeoutSec * 1000;
   let hits = [];
   while (Date.now() < until) {
-    hits = (await page.evaluate(() => window.__gw.log)).filter((e) => e.t >= since);
+    hits = (await page.evaluate(() => window.__gw?.log ?? [])).filter((e) => e.t >= since);  // 입력 뒤 페이지가 다시 로드되면 관찰자가 사라진다(10-29 실측) — 변화 없음으로 본다
     if (hits.length) break;
     await page.waitForTimeout(100);
   }
   if (!hits.length) return null;
   const first = await revealGraph(page, 130, phase !== 'initial');  // 맞춘(스크롤한) 시각이 편집의 기준점이다. 처음 그래프는 앱이 스스로 맞춘다
   await page.waitForTimeout(Math.max(0, first + settleMs - Date.now()));  // 노드가 하나씩 나타나는 연출이 끝나길 기다린다(처음 그릴 때 최대 약 7초)
-  const added = (await page.evaluate(() => { const l = window.__gw.log; window.__gw.log = []; return l; })).filter((e) => e.t >= since).flatMap((e) => e.added);
+  const added = (await page.evaluate(() => { const l = window.__gw?.log ?? []; if (window.__gw) window.__gw.log = []; return l; })).filter((e) => e.t >= since).flatMap((e) => e.added);
   const keys = added.map((a) => a.key);
   const m = await page.evaluate((keys) => {
     const c = [...document.querySelectorAll('[data-testid="lab-canvas"]')].filter((e) => e.offsetParent !== null).at(-1);

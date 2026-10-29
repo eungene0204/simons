@@ -16,8 +16,7 @@ PW="$HOME/nullstock-cf/.pw"
 [ -f "$OUT/spec.json" ] || { echo "[중단] $OUT/spec.json 이 없다"; exit 1; }
 
 # 1) 앱 서버 — 프론트(3000)·백엔드(8000)가 떠 있어야 한다(스킬은 서버를 띄우지 않는다)
-curl -s -o /dev/null http://localhost:3000/ || { echo "[중단] 프론트(3000)가 꺼져 있다"; exit 1; }
-lsof -iTCP:8000 -sTCP:LISTEN >/dev/null 2>&1 || { echo "[중단] 백엔드(8000)가 꺼져 있다"; exit 1; }
+bash "$HERE/../../news-strategy-test/scripts/check_servers.sh" || exit 1
 
 # 2) Playwright(저장소 의존성은 건드리지 않는다)
 if [ ! -d "$PW/node_modules/playwright" ]; then
