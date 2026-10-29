@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "8.17"  # 8.17: 오실레이터 임계 비교 목록에 technical.disparity(이격도) 추가. 8.16: 배수 없는 거래량 급증=volume_ratio(value=null, 되묻기), volume_spike(OBV)는 OBV 명시 때만. 8.15: "N거래일 지나면 매도"=hold_period_days(최소 보유로 읽던 오배정). 8.14: EMA 한 선 이탈 청산 예시(진입 EMA 쌍 복사 방지). 8.13: 코치의 직전 질문을 수정 턴 문맥으로 전달
+PROMPT_VERSION = "8.18"  # 8.18: 어휘의 technical.roc에 "종목 자체 N거래일 수익률" 설명 추가(설명이 있는 시장 대비 초과수익률·랭킹으로 가던 오배정). 8.17: 오실레이터 임계 비교 목록에 technical.disparity(이격도) 추가. 8.16: 배수 없는 거래량 급증=volume_ratio(value=null, 되묻기), volume_spike(OBV)는 OBV 명시 때만. 8.15: "N거래일 지나면 매도"=hold_period_days(최소 보유로 읽던 오배정). 8.14: EMA 한 선 이탈 청산 예시(진입 EMA 쌍 복사 방지). 8.13: 코치의 직전 질문을 수정 턴 문맥으로 전달
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가

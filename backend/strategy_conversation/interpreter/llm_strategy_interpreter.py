@@ -46,6 +46,8 @@ from strategy_conversation.interpreter.output_repair import (
     misfiled_trading_value_fields,
     split_bollinger_recovery_error,
     split_bollinger_recovery_fields,
+    ungrounded_quote_error,
+    ungrounded_quote_fields,
     salvage_unsupported_features,
     extract_json_object,
     salvage_clarification_questions,
@@ -605,6 +607,25 @@ class StrategyInterpreter:
                         build_repair_prompt(user_input, current_raw, error_message, draft),
                     )
                     _log_llm(f"◀ 매수·매도 중복 재생성 응답({attempts}회차)", current_raw.strip())
+                    continue
+                # 출력 형식 위반 — 입력에 없는 표기를 인용으로 달았다(ungrounded_quote_fields).
+                # 같은 레인으로 1회 재생성한다. 남으면 그대로 진행한다(환각 게이트가 맡는다).
+                # 생성·수정 턴 모두 본다 — 수정 패치의 인용 오기가 패치 전체를 버리게 만든다.
+                ungrounded = ungrounded_quote_fields(intent, user_input)
+                if (ungrounded and format_fallback_raw is None
+                        and attempts < config.MAX_REPAIR_ATTEMPTS):
+                    paths = [path for path, _quote in ungrounded]
+                    format_fallback_raw = current_raw
+                    format_protected_conditions = _unaffected_conditions(intent, paths)
+                    format_original_other_slots = _other_strategy_slots(intent)
+                    attempts += 1
+                    error_message = ungrounded_quote_error(ungrounded)
+                    _log_llm(f"⟳ 인용 오기 재생성 요청({attempts}회차)", error_message)
+                    current_raw = self._chat(
+                        self._system_prompt,
+                        build_repair_prompt(user_input, current_raw, error_message, draft),
+                    )
+                    _log_llm(f"◀ 인용 오기 재생성 응답({attempts}회차)", current_raw.strip())
                     continue
                 # 스키마 복구본이 조건의 매수/매도 칸을 원출력과 다르게 바꿨다(복구 계약 위반 — 복사·이동).
                 # 재생성 한도가 남지 않으므로 원출력의 칸으로 결정적으로 되돌린다

@@ -53,7 +53,8 @@ bash .claude/skills/news-strategy-test/scripts/run_test.sh $D/photos   # result.
 - `post1.txt`: SKILL.md 글 형식 1·4-1·6·6-1·7을 따른다. 직전 3~4편의 `~/nullstock-cf/myth-*/post1.txt`·`post2_reply.txt`를 읽고 표현·소제목·순서를 겹치지 않게 새로 쓴다(X API로 읽지 않는다 — 로컬 파일이 같은 내용).
   링크는 `uv run python -c "import sys; sys.path.insert(0,'scripts'); from post_to_x import strategy_open_url; print(strategy_open_url(open('prompt.txt').read(), 'myth-<NN>'))"`로 만든 주소를 내 문구 안에 넣는다.
 - `post2_reply.txt` + 사진 2~4장: `photos/shot_b_overview.png` 필수 + 이번 특징에 맞고 **직전 편과 다른 조합**(myth_series.md의 `사진=` 기록과 대조).
-- 게시 전 자기 점검: 두 글에서 `추천|유망|권장|전망|적합|우수|유리|기대|보장|수혜|맞았|틀렸|대기 시간|위 수치는 과거 데이터로|미래 수익` 이 나오면 고쳐 쓴다. 숫자는 `result.json`·로그와 다시 대조한다.
+- 게시 전 자기 점검: 두 글에서 `추천|유망|권장|전망|적합|우수|유리|기대|보장|수혜|맞았|틀렸|대기 시간|위 수치는 과거 데이터로|미래 수익` 이 나오면 고쳐 쓴다.
+  같은 방식으로 `버튼|칩|탭|되묻기|그래프|노드|엔진|빈 자리|매도 사유|화면의|유니버스|팩터`가 나오면 서비스를 모르는 사람도 아는 말로 바꿔 쓴다(SKILL.md "먼저 지킬 것" — 쉬운 문장 규칙). 숫자는 `result.json`·로그와 다시 대조한다.
 
 ## 6. 게시
 

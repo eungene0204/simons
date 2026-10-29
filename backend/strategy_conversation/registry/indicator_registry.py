@@ -433,7 +433,9 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                value_range=(0, 100), recommended=20),
     _technical("roc", "ROC(변화율/모멘텀)", "percent", _COMPARISON_OPS,
                {"period": ParamSpec(default=20, minimum=2, maximum=250)},
-               value_range=(-100, 1000), recommended=0),
+               value_range=(-100, 1000), recommended=0,
+               notes="종목 자체의 N거래일 수익률(%) = 종가 ÷ N거래일 전 종가 − 1(시장 지수와 비교하지 않음). "
+                     "'최근 N일 동안 X% 이상 하락한'·'N일 수익률 -X% 이하'는 period=N, <=, -X"),
     _technical("disparity", "이격도(종가÷이동평균×100)", "point", _COMPARISON_OPS,
                {"period": ParamSpec(default=20, minimum=2, maximum=250)},
                value_range=(10, 500), recommended=110,
@@ -444,6 +446,7 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                {"period": ParamSpec(default=60, minimum=2, maximum=250)},
                value_range=(-100, 1000), recommended=0,
                notes="종목 N거래일 수익률 − 상장 시장 지수(코스피·코스닥) N거래일 수익률(%p). "
+                     "시장(지수)과 비교한다고 말했을 때만 쓴다 — 비교 없는 종목 자체 수익률 기준은 technical.roc. "
                      "'시장보다 덜 떨어진/강한/웃도는'은 > 0, '시장보다 더 떨어진'은 < 0. "
                      "period=거래일(3개월=63). 미국 시장은 지수 시계열이 없어 미지원. "
                      "'상대강도 상위 N%'는 이 지표가 아니라 ranking.return(수익률 랭킹)이다 — "

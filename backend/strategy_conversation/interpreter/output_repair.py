@@ -249,6 +249,50 @@ def whole_input_quote_error(fields: list) -> str:
     )
 
 
+def ungrounded_quote_fields(intent, user_input: Optional[str]) -> list:
+    """입력에 없는 표기를 인용(source_text)으로 단 조건·패치의 (필드 경로, 인용) 목록(형식 위반).
+
+    규칙 4는 source_text를 입력 조각을 **글자 그대로** 옮긴 것으로 정한다. 공백을 빼고도 입력에
+    없는 인용은 출처 주장이 성립하지 않는다 — 하류의 환각 게이트가 그 조건·패치를 조용히 버린다.
+    2026-10-30 실측(nemotron-3.5-super-vl, temperature=0): 수정 턴 "데드크로스 나오면 팔아"의
+    인용을 "…팔어"로 한 글자 틀리게 옮겨 패치 전체가 거부되고 "해석하지 못했어요"가 났다
+    (프롬프트의 무관한 한 줄 차이로 같은 입력이 오기·정상을 오갔다). 생성 턴에선 입력에 없는
+    "20일선"을 인용으로 단 이동평균 조건을 지어냈다. LLM 출력과 입력의 문자열 대조다 — 원문의
+    의미를 읽지 않는다(계약 § 3-1). 고치는 일은 LLM 재생성이 한다(결정론이 인용을 보정하지 않는다).
+    """
+    from engine.nl_parser import _compact
+
+    compact_input = _compact(user_input or "")
+    if not compact_input:
+        return []
+
+    def ungrounded(quote) -> bool:
+        return isinstance(quote, str) and bool(_compact(quote)) and _compact(quote) not in compact_input
+
+    found = []
+    strategy = getattr(intent, "strategy", None)
+    if strategy is not None:
+        for role in ("entry_conditions", "exit_conditions"):
+            for index, cond in enumerate(getattr(strategy, role)):
+                if ungrounded(cond.source_text):
+                    found.append((f"strategy.{role}[{index}].source_text", cond.source_text))
+    for index, patch in enumerate(getattr(intent, "patches", None) or []):
+        if ungrounded(patch.source_text):
+            found.append((f"patches[{index}].source_text", patch.source_text))
+        if isinstance(patch.value, dict) and ungrounded(patch.value.get("source_text")):
+            found.append((f"patches[{index}].value.source_text", patch.value["source_text"]))
+    return found
+
+
+def ungrounded_quote_error(fields: list) -> str:
+    """형식 위반을 LLM에 되돌려줄 검증 오류 문구(build_repair_prompt의 error_message)."""
+    return "\n".join(
+        f"{path}: '{quote}'는 입력 문장에 없는 표기입니다. source_text는 입력의 조각을 글자 그대로 "
+        "옮겨 적으세요(규칙 4). 그 내용을 말한 조각이 입력에 없으면 그 조건·패치를 출력하지 마세요."
+        for path, quote in fields
+    )
+
+
 _AMOUNT_SINK_FACTOR = "fundamental.trading_value"
 
 

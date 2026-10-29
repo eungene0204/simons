@@ -65,7 +65,7 @@ def build(folder: Path) -> str:
     if period:
         out.append(f"- 실제 데이터 구간: {period.group(1)} ~ {period.group(2)}")
     if r.get("answered"):
-        out.append(f"- 문장에 없어 버튼으로 고른 값: {' · '.join(r['answered'])}")
+        out.append(f"- 문장에 없던 나머지 설정: {' · '.join(r['answered'])}")
 
     diff = num(m["roi"]) - num(m["benchmark"])
     out += ["", "결과 (과거 데이터 기준)",

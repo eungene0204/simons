@@ -93,7 +93,7 @@ def build(folder: Path) -> str:
 
     out = [f"{name} 전략을 백테스트 해봤습니다.", "", "널스탁에 이렇게 입력 했습니다", f"“{r['prompt']}”", ""]
     out.append((f"널스탁은 '{uni.group(1)}'을 관련 상장사 {uni.group(2)}곳으로 해석해 지정 종목에 담았습니다. " if uni else f"투자 대상: {', '.join(parts['universe_items']) or parts['universe']}. ")
-               + "문장에 없던 설정은 버튼으로 골랐습니다.")
+               + "문장에 없던 나머지 설정은 아래와 같습니다.")
     out += [f"- {l}" for l in settings_lines(parts, r["answered"], log)]
     out += ["", "결과 (과거 데이터 기준)"]
     if capital:

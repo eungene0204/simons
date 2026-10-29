@@ -1479,6 +1479,16 @@ class StrategyIntent(BaseModel):
         status = data.get("status")
         if isinstance(status, str):
             data = {**data, "status": status.strip().upper()}
+        # strategy 괄호가 일찍 닫혀 전략 칸이 최상위로 밀린 드리프트(2026-10-30 실측
+        # nemotron-3.5-super-vl: entry_conditions 뒤에서 닫혀 portfolio.hold_period_days가
+        # 버려짐) → strategy 안에 없는 칸만 되돌린다.
+        strategy = data.get("strategy")
+        if isinstance(strategy, dict):
+            stray = {k: v for k, v in data.items()
+                     if k in StrategySpec.model_fields and k not in cls.model_fields and k not in strategy}
+            if stray:
+                data = {k: v for k, v in data.items() if k not in stray}
+                data["strategy"] = {**strategy, **stray}
         # clarification_questions가 문자열 배열이면 구조화 형태로 승격
         cq = data.get("clarification_questions")
         if isinstance(cq, list):
