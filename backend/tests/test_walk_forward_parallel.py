@@ -94,6 +94,8 @@ def test_parallel_windows_match_sequential_and_report_aggregated_progress(mock_d
     # 병렬 진행률: 창별 시도 이벤트를 합산한 필드가 붙는다
     window_events = [e for e in par_events if e.get("stage") == "window"]
     assert window_events, "창 진행 이벤트가 있어야 한다"
+    # 워커가 첫 창을 집기 전에 '구간 0개 완료' 진행이 먼저 나가 화면이 기간 확인 문구에 묶이지 않는다.
+    assert window_events[0]["windows_done"] == 0 and window_events[0]["active_windows"] == []
     assert all("trials_done" in e and "windows_done" in e and e.get("workers") == min(2, len(seq["windows"])) for e in window_events)
     last = window_events[-1]
     assert last["windows_done"] == len(seq["windows"])

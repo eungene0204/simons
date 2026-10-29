@@ -374,6 +374,9 @@ class WalkForwardRequest(BaseModel):
     # UI가 보여준 학습/검증 거래일 수 그대로 사용하는 명시적 분할 (지정 시 n_splits/train_pct보다 우선)
     is_bars: Optional[int] = Field(default=None, ge=1)
     oos_bars: Optional[int] = Field(default=None, ge=1)
+    # 화면에 표시된 백테스트 결과의 거래일 목록(result.dates). 있으면 분할 기준 날짜를 얻으려고
+    # 전체 백테스트를 다시 돌리지 않는다. 형식이 어긋나면 서버가 백테스트로 다시 구한다.
+    backtest_dates: Optional[List[str]] = Field(default=None, max_length=20000)
 
 
 class WalkForwardWindowResult(BaseModel):

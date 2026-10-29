@@ -1,28 +1,27 @@
-import { render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import { isLoginReturn, LoginReturnVeil } from "./LoginReturnVeil";
+import { render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { LoginReturnVeil } from "./LoginReturnVeil";
 
-afterEach(() => window.history.replaceState({}, "", "/"));
-
-describe("isLoginReturn", () => {
-  it("recognises the OAuth return (token in the hash, or a code in the query)", () => {
-    expect(isLoginReturn("#access_token=abc&token_type=bearer", "")).toBe(true);
-    expect(isLoginReturn("#foo=1&access_token=abc", "")).toBe(true);
-    expect(isLoginReturn("", "?code=xyz")).toBe(true);
-  });
-
-  it("does not trigger on an ordinary visit", () => {
-    expect(isLoginReturn("", "")).toBe(false);
-    expect(isLoginReturn("#how-it-works", "?utm_source=x")).toBe(false);
-  });
+afterEach(() => {
+  vi.unstubAllGlobals();
+  window.history.replaceState({}, "", "/");
 });
 
 describe("LoginReturnVeil", () => {
   it("covers the page with a 'logging in' screen only while returning from Google", () => {
-    window.history.replaceState({}, "", "/#access_token=abc");
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+    window.history.replaceState({}, "", "/#access_token=pending");
     render(<LoginReturnVeil />);
     expect(screen.getByTestId("login-return-veil")).toHaveTextContent("로그인 중입니다");
     expect(screen.getByTestId("login-return-spinner")).toBeInTheDocument();
+  });
+
+  // 회귀: 교환이 실패해도 가림막을 걷는 길이 없어 스피너만 끝없이 돌았다.
+  it("lifts the veil when the login exchange fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, json: async () => ({}) }));
+    window.history.replaceState({}, "", "/#access_token=rejected");
+    render(<LoginReturnVeil />);
+    await waitFor(() => expect(screen.queryByTestId("login-return-veil")).not.toBeInTheDocument());
   });
 
   it("renders nothing on an ordinary visit", () => {

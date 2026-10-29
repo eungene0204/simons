@@ -10,6 +10,17 @@ import { ensureUserBootstrap } from '@/lib/get-user'
 import { isEmailSignupEnabled } from '@/lib/server/email-verification'
 import { cookies } from 'next/headers'
 
+// 앱 DB가 원격(Supabase us-west-1)이라 순차 쿼리 단계 수가 곧 로그인 지연이다 — 서로 무관한 두 쓰기를 한 왕복에 보낸다.
+async function recordLogin(userId: number) {
+  await Promise.all([
+    ensureUserBootstrap(userId),
+    prisma.user.update({
+      where: { id: userId },
+      data: { lastLoginAt: new Date() },
+    }),
+  ])
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -71,12 +82,7 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      await ensureUserBootstrap(user.id)
-
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { lastLoginAt: new Date() },
-      })
+      await recordLogin(user.id)
 
       const token = generateToken(user.id, { avatarUrl: identity.avatarUrl })
 
@@ -140,12 +146,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    await ensureUserBootstrap(user.id)
-
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
-    })
+    await recordLogin(user.id)
 
     // Generate token
     const token = generateToken(user.id)

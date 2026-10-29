@@ -201,6 +201,8 @@ describe("WalkForwardModal", () => {
           method: "bayesian",
           is_bars: 84,
           oos_bars: 28,
+          // 표시 중인 결과의 거래일 목록을 함께 보내 백엔드의 날짜 확인 백테스트를 건너뛴다
+          backtest_dates: buildDates(240),
           // 디스크립터 모드: 설정 키는 라벨이 아니라 실제 탐색 경로(path)
           parameter_steps: {
             "entry.conditions.0.params.value": 0.5,
@@ -636,6 +638,7 @@ describe("WalkForwardModal", () => {
           method: "bayesian",
           is_bars: 120,
           oos_bars: 40,
+          backtest_dates: buildDates(240),
         },
         expect.any(AbortSignal),
         expect.any(Function)
@@ -859,11 +862,12 @@ describe("WalkForwardModal", () => {
   });
 
   it("실행 전 기준 백테스트 실측 속도로 예상 소요 시간을 미리 보여준다", async () => {
-    // 240일 백테스트, 기본 설정: n_splits=3, 베이지안 30시도 → 총 준비 1 + 3×(30+1)=94회.
+    // 240일 백테스트, 기본 설정: n_splits=3, 베이지안 30시도 → 총 3×(30+1)=93회.
+    // (거래일 목록을 함께 보내므로 백엔드의 날짜 확인 준비 백테스트는 없다.)
     // 백테스트 1회 비용은 구간 길이와 거의 무관(고정비 지배)하므로 기준 실측 10s를 쓴다.
     // 백엔드 최적화 세션이 구간 안 반복 시도의 데이터 준비를 재사용하므로 전체 비용은
-    // 준비 1 + 구간 3×(첫 시도 1 + OOS 1) = 7회, 나머지 87회는 10% 비용(8.7회분) → 15.7회 × 10s = 157s.
-    // 범위(0.7~1.4배) = 약 2분 ~ 4분.
+    // 구간 3×(첫 시도 1 + OOS 1) = 6회, 나머지 87회는 10% 비용(8.7회분) → 14.7회 × 10s = 147s.
+    // 범위(0.7~1.4배) = 약 2분 ~ 3분.
     await act(async () => {
       render(
         <WalkForwardModal
@@ -879,13 +883,36 @@ describe("WalkForwardModal", () => {
     });
 
     expect(screen.getAllByText("예상 소요 시간").length).toBeGreaterThan(0);
-    expect(screen.getByText("약 2분 ~ 4분 소요될 것으로 예상됩니다.")).toBeInTheDocument();
-    expect(screen.getByText("총 94회")).toBeInTheDocument();
+    expect(screen.getByText("약 2분 ~ 3분 소요될 것으로 예상됩니다.")).toBeInTheDocument();
+    expect(screen.getByText("총 93회")).toBeInTheDocument();
     expect(screen.getByTestId("walk-forward-run-capacity-badge")).toHaveClass("text-gray-400");
     expect(
       screen.getByText(/시간이 오래 걸리는 작업입니다/)
     ).toBeInTheDocument();
     expect(screen.queryByTestId("walk-forward-run-blocked-reason")).not.toBeInTheDocument();
+  });
+
+  it("예상 시간이 10분을 넘는 설정은 실행 전에 막고 실행 가능한 설정을 안내한다", async () => {
+    // 기준 백테스트 1회 45s → 기본 설정(구간 3개 × 30시도) 예상 14.7회분 ≈ 662s, 20회로 줄이면 11.7회분 ≈ 527s
+    const onRun = vi.fn();
+    await act(async () => {
+      render(
+        <WalkForwardModal
+          open
+          onOpenChange={() => {}}
+          onRun={onRun}
+          backtestDates={buildDates(240)}
+          baseStrategy={baseStrategy}
+          baseBacktestSeconds={45}
+          optimizationTargets={[{ id: "summary-0", label: "PBR" }]}
+        />
+      );
+    });
+
+    expect(screen.getByTestId("walk-forward-run-blocked-reason")).toHaveTextContent("검증 시간이 너무 오래 걸리는 설정입니다");
+    expect(screen.getByTestId("walk-forward-run-suggestions")).toHaveTextContent("시도 횟수 20회");
+    expect(screen.getByRole("button", { name: "워크포워드 분석 시작" })).toBeDisabled();
+    expect(onRun).not.toHaveBeenCalled();
   });
 
   it("실행 조건이 충족되지 않으면 예상 소요 시간 영역에 원인을 표시한다", async () => {

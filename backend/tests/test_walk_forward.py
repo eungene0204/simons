@@ -670,3 +670,45 @@ class TestBayesianBacktestBudget:
         n_windows = len(result["windows"])
         assert n_windows == 2
         assert engine.backtest_calls == n_windows * (n_trials + 1)
+
+
+class TestClientProvidedBacktestDates:
+    """화면이 표시 중인 결과의 거래일 목록을 보내면 분할 기준 날짜를 얻으려고 전체 백테스트를 다시 돌리지 않는다.
+
+    회귀: 준비 단계('백테스트 기간 데이터를 확인하는 중...')가 날짜 목록 하나를 얻으려고 신호·시뮬레이션·결과
+    정리까지 전부 도는 백테스트를 한 번 더 실행해, 전 시장 전략에서는 그 대기만 원래 백테스트 시간만큼 걸렸다.
+    """
+
+    def test_given_dates_skip_the_date_backtest(self):
+        engine = PeriodAwareEngine(backtest_days=240, full_days=3360)
+        events = []
+        result = WalkForwardAnalyzer(engine).analyze(
+            base_request={**_base_request(), "period": "1Y"},
+            ranges=_ranges(),
+            method="grid",
+            is_bars=84,
+            oos_bars=28,
+            backtest_dates=engine.backtest_dates,
+            progress_callback=events.append,
+        )
+
+        assert result["status"] == "ok"
+        assert len(result["windows"]) == 5
+        assert result["windows"][0]["is_period"].startswith(engine.backtest_dates[0])
+        # 창별 IS/OOS 호출만 있다 — 기간을 그대로 둔 날짜 확인 호출('1y')이 없어야 한다.
+        assert "1y" not in engine.requested_periods
+        assert not any(e.get("stage") == "prepare" for e in events)
+
+    def test_malformed_dates_fall_back_to_the_date_backtest(self):
+        for bad in (["2024-01-02", "2024-01-01"], ["2024/01/01", "2024/01/02"], ["2024-01-01"]):
+            engine = PeriodAwareEngine(backtest_days=240, full_days=3360)
+            result = WalkForwardAnalyzer(engine).analyze(
+                base_request={**_base_request(), "period": "1Y"},
+                ranges=_ranges(),
+                method="grid",
+                is_bars=84,
+                oos_bars=28,
+                backtest_dates=bad,
+            )
+            assert result["status"] == "ok"
+            assert engine.requested_periods[0] == "1y"

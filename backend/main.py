@@ -374,6 +374,7 @@ def walk_forward_analysis(request: WalkForwardRequest):
             method=request.method,
             is_bars=request.is_bars,
             oos_bars=request.oos_bars,
+            backtest_dates=request.backtest_dates,
         ))
         if result.get("status") == "error":
             raise HTTPException(status_code=400, detail=result.get("message"))
@@ -403,6 +404,7 @@ async def walk_forward_stream(request: WalkForwardRequest):
             ranges=request.ranges, n_splits=request.n_splits, train_pct=request.train_pct,
             anchor=request.anchor, target_metric=request.target_metric, n_trials=request.n_trials,
             method=request.method, is_bars=request.is_bars, oos_bars=request.oos_bars,
+            backtest_dates=request.backtest_dates,
         )
         return StreamingResponse(
             backtest_executor.iter_walk_forward_stream(payload),
@@ -430,6 +432,7 @@ async def walk_forward_stream(request: WalkForwardRequest):
                 method=request.method,
                 is_bars=request.is_bars,
                 oos_bars=request.oos_bars,
+                backtest_dates=request.backtest_dates,
                 progress_callback=progress_q.put,
                 should_cancel=cancel_event.is_set,
             )

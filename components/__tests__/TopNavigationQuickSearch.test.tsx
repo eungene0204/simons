@@ -431,6 +431,21 @@ describe("TopNavigation quick search", () => {
       await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/analytics"));
     });
 
+    // 회귀: 복귀 직후에도 `/api/user` → Supabase 세션 확인 → `/api/login`이 차례로 돌아 로그인 화면이 오래 떠 있었다.
+    it("주소 해시에 토큰을 싣고 돌아오면 `/api/user`·Supabase 확인 없이 곧바로 교환한다", async () => {
+      mockSessionExchange();
+      window.history.replaceState({}, "", "/#access_token=hash-token&token_type=bearer");
+      renderWithQueryClient(<TopNavigation />);
+
+      await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/analytics"));
+      expect(fetchMock).not.toHaveBeenCalledWith("/api/user", expect.anything());
+      expect(getSessionMock).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/login",
+        expect.objectContaining({ body: JSON.stringify({ supabaseAccessToken: "hash-token" }) })
+      );
+    });
+
     it("다른 화면에서 세션을 교환한 경우에는 이동시키지 않는다", async () => {
       mockSessionExchange();
       window.history.pushState({}, "", "/pricing");

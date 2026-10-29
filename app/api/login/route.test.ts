@@ -113,6 +113,21 @@ describe("/api/login Google(Supabase) 경로", () => {
     );
   });
 
+  // 회귀: 원격 DB라 쿼리 단계마다 왕복이 쌓인다 — 부트스트랩과 lastLoginAt 기록은 서로를 기다리지 않는다.
+  it("부트스트랩과 lastLoginAt 기록을 동시에 보낸다", async () => {
+    verifySupabaseAccessToken.mockResolvedValue(validIdentity);
+    userFindUnique.mockResolvedValue({ id: 7, email: "user@example.com", name: "Tester", status: "ACTIVE" });
+    let releaseBootstrap;
+    ensureUserBootstrap.mockReturnValue(new Promise((resolve) => (releaseBootstrap = resolve)));
+    userUpdate.mockResolvedValue({});
+
+    const pending = POST(req({ supabaseAccessToken: "valid-token" }));
+    await vi.waitFor(() => expect(userUpdate).toHaveBeenCalled());
+    releaseBootstrap();
+
+    expect((await pending).status).toBe(200);
+  });
+
   it("정지(SUSPENDED) 계정은 유효한 토큰이라도 403으로 차단한다", async () => {
     verifySupabaseAccessToken.mockResolvedValue(validIdentity);
     userFindUnique.mockResolvedValue({

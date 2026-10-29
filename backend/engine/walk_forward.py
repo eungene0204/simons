@@ -16,6 +16,7 @@ Anchored/Expanding 방식 (anchor=True):
 import copy
 import math
 import os
+import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from engine.grid_optimizer import optimization_session, set_nested_value
 from engine.phase1_pool import RESOURCE_EXHAUSTED_MESSAGE
@@ -60,6 +61,20 @@ def _finite(value: Any) -> Optional[float]:
     return f if math.isfinite(f) else None
 
 
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _valid_backtest_dates(dates: Optional[List[str]]) -> Optional[List[str]]:
+    """클라이언트가 보낸 거래일 목록의 형식만 검증한다 — 어긋나면 None(서버가 백테스트로 다시 구한다)."""
+    if not dates or len(dates) < 2:
+        return None
+    if not all(isinstance(d, str) and _ISO_DATE.fullmatch(d) for d in dates):
+        return None
+    if any(a >= b for a, b in zip(dates, dates[1:])):
+        return None
+    return list(dates)
+
+
 class WalkForwardAnalyzer:
     def __init__(self, engine):
         """
@@ -83,6 +98,7 @@ class WalkForwardAnalyzer:
         method: str = "bayesian",
         is_bars: Optional[int] = None,
         oos_bars: Optional[int] = None,
+        backtest_dates: Optional[List[str]] = None,
         progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
         should_cancel: Optional[Callable[[], bool]] = None,
     ) -> Dict[str, Any]:
@@ -96,12 +112,12 @@ class WalkForwardAnalyzer:
         with optimization_session(self.engine):
             return self._analyze(
                 base_request, ranges, n_splits, train_pct, anchor, target_metric,
-                n_trials, method, is_bars, oos_bars, progress_callback, should_cancel,
+                n_trials, method, is_bars, oos_bars, backtest_dates, progress_callback, should_cancel,
             )
 
     def _analyze(
         self, base_request, ranges, n_splits, train_pct, anchor, target_metric,
-        n_trials, method, is_bars, oos_bars, progress_callback, should_cancel,
+        n_trials, method, is_bars, oos_bars, backtest_dates, progress_callback, should_cancel,
     ) -> Dict[str, Any]:
         """
         Returns:
@@ -140,7 +156,7 @@ class WalkForwardAnalyzer:
         try:
             return self._analyze_with_pool(
                 pool, base_request, ranges, n_splits, train_pct, anchor, target_metric,
-                n_trials, method, is_bars, oos_bars, _notify, should_cancel,
+                n_trials, method, is_bars, oos_bars, backtest_dates, _notify, should_cancel,
             )
         finally:
             if pool is not None:
@@ -154,11 +170,15 @@ class WalkForwardAnalyzer:
 
     def _analyze_with_pool(
         self, pool, base_request, ranges, n_splits, train_pct, anchor, target_metric,
-        n_trials, method, is_bars, oos_bars, _notify, should_cancel,
+        n_trials, method, is_bars, oos_bars, backtest_dates, _notify, should_cancel,
     ) -> Dict[str, Any]:
-        # 1. 백테스트 날짜 범위 획득 (표시=실행: 화면에 보인 기간과 동일)
-        _notify({"stage": "prepare", "message": "백테스트 기간 데이터를 확인하는 중..."})
-        dates = self._get_backtest_dates(base_request)
+        # 1. 백테스트 날짜 범위 획득 (표시=실행: 화면에 보인 기간과 동일).
+        # 화면이 표시 중인 결과의 거래일 목록을 보냈으면 그대로 쓴다 — 날짜를 얻으려고 전체 백테스트
+        # (신호·시뮬레이션·결과 정리)를 한 번 더 돌리던 것이 준비 단계 대기의 전부였다.
+        dates = _valid_backtest_dates(backtest_dates)
+        if dates is None:
+            _notify({"stage": "prepare", "message": "백테스트 기간 데이터를 확인하는 중..."})
+            dates = self._get_backtest_dates(base_request)
         if not dates:
             return {"status": "error", "message": "데이터를 불러올 수 없습니다."}
 
@@ -362,6 +382,10 @@ class WalkForwardAnalyzer:
                 if st.get("trial_total"):
                     st["trial"] = st["trial_total"]
             _emit_progress(w)
+
+        # 워커가 첫 창을 집기 전(프로세스 기동·첫 시도 준비)에도 화면이 '기간 확인' 문구에 머물지 않게
+        # 구간 분할이 끝났음을 먼저 알린다.
+        _emit_progress(1)
 
         cancelled = False
         try:

@@ -1039,6 +1039,15 @@ describe("buildWalkForwardRequest — 사용자 범위·제외·명시적 분할
     expect(request.is_bars).toBe(504);
     expect(request.oos_bars).toBe(126);
   });
+
+  // 회귀: 백엔드가 분할 기준 날짜를 얻으려고 전체 백테스트를 다시 돌려 준비 단계가 오래 걸렸다.
+  it("표시 중인 결과의 거래일 목록을 백엔드 요청에 싣는다(없으면 생략)", () => {
+    const ranges = buildWalkForwardParameterRanges(baseStrategy);
+    const dates = ["2024-01-02", "2024-01-03"];
+
+    expect(buildWalkForwardRequest(baseStrategy, { ...settings, backtest_dates: dates }, ranges).backtest_dates).toEqual(dates);
+    expect(buildWalkForwardRequest(baseStrategy, settings, ranges)).not.toHaveProperty("backtest_dates");
+  });
 });
 
 describe("buildWalkForwardParameterDescriptors — path 기반 파라미터 칩", () => {

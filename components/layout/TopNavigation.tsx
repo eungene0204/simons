@@ -8,6 +8,7 @@ import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/firebase";
 import { useDialogBehavior } from "@/lib/hooks/useDialogBehavior";
 import { trackEvent } from "@/lib/analytics";
 import { OPEN_LOGIN_EVENT } from "@/lib/auth/loginEvents";
+import { completeLoginReturn, isLoginReturn, type LoginReturnUser } from "@/lib/auth/loginReturn";
 import {
   PENDING_STRATEGY_PROMPT_KEY,
 } from "@/components/strategy/strategyTemplateSession";
@@ -256,7 +257,51 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
       name: providedName || "사용자",
     };
 
+    const applyLoggedInUser = (user: LoginReturnUser) => {
+      const serverName = user.name?.trim();
+      const serverEmail = user.email?.trim();
+      const serverAvatarUrl = user.avatarUrl?.trim();
+      setAuthState("authenticated");
+      setUserProfile({
+        name:
+          serverName ||
+          serverEmail?.split("@")[0] ||
+          (isSpecificUserName(providedName) ? providedName : "") ||
+          providedName ||
+          "사용자",
+        email: serverEmail,
+        avatarUrl: serverAvatarUrl || undefined,
+      });
+    };
+
+    const setAnonymous = () => {
+      setUserProfile(fallbackProfile);
+      setAuthState("anonymous");
+    };
+
+    // 세션 교환 성공이 곧 로그인 성공 시점이다(앱 쿠키가 없을 때만 도달하므로 방문마다 중복 전송되지 않는다).
+    const finishSessionExchange = (user: LoginReturnUser) => {
+      trackEvent("login", { method: "google" });
+
+      // 소개 페이지(`/`)에서 시작한 로그인이면 소개 페이지로 되돌아오지 말고 전략연구소로 간다.
+      // 복귀 주소는 `/`(OAuth 허용 주소)라 서버는 이 시점까지 비로그인으로 그렸다.
+      if (region === "kr" && stripRegionPrefix(window.location.pathname) === "/" && !new URLSearchParams(window.location.search).has("legal")) {
+        router.replace(regionHref("/analytics"));
+      }
+
+      applyLoggedInUser(user);
+    };
+
     const hydrateUserProfile = async () => {
+      // Google 로그인 복귀 직후에는 앱 쿠키가 아직 없어 `/api/user`는 늘 비어 있다 — 묻지 않고 곧바로 교환한다.
+      if (isSupabaseConfigured() && isLoginReturn(window.location.hash, window.location.search)) {
+        const user = await completeLoginReturn();
+        if (!isMounted) return;
+        if (user) finishSessionExchange(user);
+        else setAnonymous();
+        return;
+      }
+
       try {
         const response = await fetch("/api/user", {
           cache: "no-store",
@@ -266,23 +311,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
         const currentUser = data.user;
 
         if (currentUser) {
-          const serverName = currentUser.name?.trim();
-          const serverEmail = currentUser.email?.trim();
-          const serverAvatarUrl = currentUser.avatarUrl?.trim();
-
-          if (isMounted) {
-            setAuthState("authenticated");
-            setUserProfile({
-              name:
-                serverName ||
-                serverEmail?.split("@")[0] ||
-                (isSpecificUserName(providedName) ? providedName : "") ||
-                providedName ||
-                "사용자",
-              email: serverEmail,
-              avatarUrl: serverAvatarUrl || undefined,
-            });
-          }
+          if (isMounted) applyLoggedInUser(currentUser);
           return;
         }
       } catch {
@@ -290,10 +319,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
       }
 
       if (!isSupabaseConfigured()) {
-        if (isMounted) {
-          setUserProfile(fallbackProfile);
-          setAuthState("anonymous");
-        }
+        if (isMounted) setAnonymous();
         return;
       }
 
@@ -303,8 +329,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
 
         const accessToken = data.session?.access_token;
         if (!accessToken) {
-          setUserProfile(fallbackProfile);
-          setAuthState("anonymous");
+          setAnonymous();
           return;
         }
 
@@ -321,42 +346,13 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
         if (!isMounted) return;
 
         if (!loginResponse.ok || !loginData.user) {
-          setUserProfile(fallbackProfile);
-          setAuthState("anonymous");
+          setAnonymous();
           return;
         }
 
-        const hydratedName = loginData.user.name?.trim();
-        const hydratedEmail = loginData.user.email?.trim();
-        const hydratedAvatarUrl = loginData.user.avatarUrl?.trim();
-
-        // 이 분기는 앱 쿠키가 없고 Supabase 세션만 있을 때(구글 OAuth 복귀 직후)만
-        // 도달한다 — 세션 교환 성공이 곧 로그인 성공 시점이다. 이후 방문은 위의
-        // 쿠키 경로에서 조기 반환되므로 페이지 로드마다 중복 전송되지 않는다.
-        trackEvent("login", { method: "google" });
-
-        // 소개 페이지(`/`)에서 시작한 로그인이면 소개 페이지로 되돌아오지 말고 전략연구소로 간다.
-        // 복귀 주소는 `/`(OAuth 허용 주소)라 서버는 이 시점까지 비로그인으로 그렸다.
-        if (region === "kr" && stripRegionPrefix(window.location.pathname) === "/" && !new URLSearchParams(window.location.search).has("legal")) {
-          router.replace(regionHref("/analytics"));
-        }
-
-        setAuthState("authenticated");
-        setUserProfile({
-          name:
-            hydratedName ||
-            hydratedEmail?.split("@")[0] ||
-            (isSpecificUserName(providedName) ? providedName : "") ||
-            providedName ||
-            "사용자",
-          email: hydratedEmail,
-          avatarUrl: hydratedAvatarUrl || undefined,
-        });
+        finishSessionExchange(loginData.user);
       } catch {
-        if (isMounted) {
-          setUserProfile(fallbackProfile);
-          setAuthState("anonymous");
-        }
+        if (isMounted) setAnonymous();
       }
     };
 

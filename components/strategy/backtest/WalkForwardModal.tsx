@@ -14,6 +14,17 @@ import {
 } from "../../../app/analytics/new/parsedStrategyMerge";
 import ResultPlainSummary, { buildWalkForwardPlainSummary } from "./ResultPlainSummary";
 import RunProgressModal from "./RunProgressModal";
+import {
+  MAX_GRID_COMBINATIONS,
+  MAX_WALK_FORWARD_RUN_SECONDS,
+  MAX_WALK_FORWARD_WINDOWS,
+  MIN_WALK_FORWARD_TOTAL_BARS,
+  deriveSplitCount,
+  estimateWalkForwardSeconds,
+  judgeWalkForwardRun,
+  splitWindowBars,
+  type WalkForwardSuggestion,
+} from "./walkForwardRunLimits";
 import SaveValidationButton from "./SaveValidationButton";
 import { saveValidation, buildWalkForwardSummary } from "../../../lib/validation-storage";
 import { t } from "@/lib/i18n";
@@ -30,6 +41,8 @@ export interface WalkForwardSettings {
   // 슬라이더에서 고른 학습/검증 거래일 수 — 백엔드가 그대로 창 분할에 사용
   is_bars?: number;
   oos_bars?: number;
+  // 화면에 표시된 결과의 거래일 목록 — 백엔드가 분할 기준 날짜를 얻으려고 백테스트를 다시 돌리지 않는다
+  backtest_dates?: string[];
   // 최적화에서 제외할 파라미터 라벨 (해당 파라미터는 원래 설정값으로 고정)
   excluded_parameters?: string[];
 }
@@ -139,8 +152,6 @@ interface WalkForwardFormState {
 const FALLBACK_TOTAL_BARS = 252 * 5;
 // 기준 백테스트 실측 시간이 없을 때 쓰는 백테스트 1회당 기본 소요(초). 대략적 폴백값.
 const FALLBACK_PER_BACKTEST_SEC = 0.6;
-// 최적화 세션의 Phase1 캐시 적중 시도 1회 비용 비율(전체 백테스트 대비). 실측 ≈ 0.06, 보수적으로 0.1.
-const CACHED_TRIAL_COST_RATIO = 0.1;
 type OptimizationMethod = "bayesian" | "grid";
 
 // 초 단위를 "약 3분", "약 1시간 20분", "1분 미만"처럼 사람이 읽는 문구로 바꾼다.
@@ -163,10 +174,6 @@ function formatDurationRange(seconds: number): string {
   if (lowMin === highMin) return t("약 {0}", fmt(lowMin));
   return t("약 {0} ~ {1}", fmt(lowMin), fmt(highMin));
 }
-// 백엔드 engine/grid_optimizer.py의 MAX_GRID_COMBINATIONS와 동일한 값으로 유지한다.
-const MAX_GRID_COMBINATIONS = 500;
-// 백엔드 engine/walk_forward.py의 MAX_WINDOWS와 동일한 값으로 유지한다.
-const MAX_WALK_FORWARD_WINDOWS = 24;
 // 이보다 짧은 검증 창은 CAGR 연환산 잡음이 커진다(약 3개월 미만) — 실행은 막지 않고 안내만 한다.
 // 한 구간 안에서 학습이 차지하는 비율의 조절 범위 — 양 끝에서 한쪽이 최소 구간보다
 // 짧아지지 않도록 폭을 제한한다.
@@ -301,13 +308,6 @@ function formatApproxDuration(bars: number) {
 
 function deriveMinWindowBars(totalBars: number) {
   return Math.max(5, Math.min(20, Math.floor(totalBars / 4) || 5));
-}
-
-// 백엔드 _split_windows(is_bars/oos_bars)와 같은 규칙 — 롤링·확장 모두 검증 길이를 다 채우는 창만
-// 센다(조각 창 없음). 여기 표시된 구간 수가 실제 실행 구간 수다(표시=실행).
-function deriveSplitCount(totalBars: number, trainBars: number, validationBars: number) {
-  if (validationBars <= 0 || totalBars <= trainBars) return 1;
-  return Math.max(1, Math.floor((totalBars - trainBars) / validationBars));
 }
 
 function deriveTrainPct(totalBars: number, trainBars: number, validationBars: number, anchor: boolean) {
@@ -709,7 +709,9 @@ export function WalkForwardPanel({
     target_metric: formState.target_metric,
     n_trials: formState.n_trials,
     method: formState.optimizationMethod,
-    ...(hasRealDates ? { is_bars: formState.trainBars, oos_bars: formState.validationBars } : {}),
+    ...(hasRealDates
+      ? { is_bars: formState.trainBars, oos_bars: formState.validationBars, backtest_dates: backtestDates }
+      : {}),
     ...(activeTargets.length > 0 ? { parameter_steps: parameterSteps } : {}),
     ...(Object.keys(parameterRanges).length > 0 ? { parameter_ranges: parameterRanges } : {}),
     ...(excludedLabels.length > 0 ? { excluded_parameters: excludedLabels } : {}),
@@ -727,17 +729,8 @@ export function WalkForwardPanel({
   // 구간 길이와 학습 비중에서 두 기간을 함께 확정한다 — 한쪽만 바뀌는 경로를 두지 않는다.
   const applyWindow = (nextWindowBars: number, nextTrainRatioPct: number) => {
     const windowBars = clamp(Math.round(nextWindowBars), windowSliderMin, windowSliderMax);
-    const ratio = clamp(nextTrainRatioPct, TRAIN_RATIO_MIN_PCT, TRAIN_RATIO_MAX_PCT) / 100;
-    const trainBars = clamp(
-      Math.round(windowBars * ratio),
-      minWindowBars,
-      Math.max(minWindowBars, windowBars - minWindowBars)
-    );
-    setFormState((current) => ({
-      ...current,
-      trainBars,
-      validationBars: Math.max(minWindowBars, windowBars - trainBars),
-    }));
+    const ratioPct = clamp(nextTrainRatioPct, TRAIN_RATIO_MIN_PCT, TRAIN_RATIO_MAX_PCT);
+    setFormState((current) => ({ ...current, ...splitWindowBars(windowBars, ratioPct, minWindowBars) }));
   };
 
   const applyWindowBars = (value: number) => applyWindow(value, currentTrainRatioPct);
@@ -971,8 +964,9 @@ export function WalkForwardPanel({
 
   // ── 예상 소요 시간 ──────────────────────────────────────────
   // 총 백테스트 수 = 준비 1회(백엔드가 창 분할 전에 기준 기간을 확인하는 백테스트) + 구간 수 × (구간당 백테스트 수 + OOS 1회).
+  // 결과의 거래일 목록을 함께 보내면 백엔드는 준비 백테스트를 건너뛴다(0회).
   // 구간당 백테스트 수: 그리드=조합 수, 베이지안=시도 수(홀드아웃 부가 실행 없음 — 2026-08-19 감사로 제거).
-  const PREPARE_BACKTESTS = 1;
+  const PREPARE_BACKTESTS = hasRealDates ? 0 : 1;
   const backtestsPerWindow = isGridMethod ? gridSearchEstimate : formState.n_trials;
   const totalBacktests = backtestsPerWindow > 0
     ? PREPARE_BACKTESTS + derivedSettings.n_splits * (backtestsPerWindow + 1)
@@ -984,14 +978,13 @@ export function WalkForwardPanel({
   const perBacktestSec = baseBacktestSeconds && baseBacktestSeconds > 0
     ? baseBacktestSeconds
     : FALLBACK_PER_BACKTEST_SEC;
-  // 백엔드는 최적화 세션 동안 종목별 데이터 준비(Phase1)를 재사용한다 — 한 구간의 두 번째
-  // 시도부터는 전체 비용의 일부만 든다(2026-08-19 실측 ≈ 6%, 보수적으로 10%). 전체 비용은
-  // 준비 1회 + 구간마다 첫 시도 1회 + OOS 1회.
-  const fullCostBacktests = totalBacktests > 0
-    ? PREPARE_BACKTESTS + derivedSettings.n_splits * 2
-    : 0;
-  const cachedTrialBacktests = Math.max(0, totalBacktests - fullCostBacktests);
-  const estimatedRunSeconds = (fullCostBacktests + cachedTrialBacktests * CACHED_TRIAL_COST_RATIO) * perBacktestSec;
+  // 백엔드는 최적화 세션 동안 종목별 데이터 준비(Phase1)를 재사용한다 — 비용 모델은 walkForwardRunLimits.
+  const estimatedRunSeconds = estimateWalkForwardSeconds({
+    windows: derivedSettings.n_splits,
+    backtestsPerWindow,
+    prepareBacktests: PREPARE_BACKTESTS,
+    perBacktestSec,
+  });
   const estimatedDurationLabel = formatDurationRange(estimatedRunSeconds);
 
   // 실행 중 남은 시간(라이브 ETA): 완료 백테스트 수를 빼고 실측 평균으로 곱한다.
@@ -1009,12 +1002,46 @@ export function WalkForwardPanel({
   const liveEtaSeconds = avgBacktestSec != null && totalBacktests > 0
     ? (remainingBacktests * avgBacktestSec) / parallelWorkers
     : null;
-  const runDisabledReason = gridSearchExceedsCap
-    ? t("조합 수({0}개)가 상한({1}개)을 초과했습니다. 파라미터 범위나 step을 조정해 주세요.", gridSearchEstimate.toLocaleString(), MAX_GRID_COMBINATIONS.toLocaleString())
-    : windowCountExceedsCap
-      ? t("구간 수({0}개)가 상한({1}개)을 초과했습니다. 구간 길이를 늘려 주세요.", derivedSettings.n_splits, MAX_WALK_FORWARD_WINDOWS)
-      : disabledReason;
-  const isRunBlocked = !onRun || !canRun || gridSearchExceedsCap || windowCountExceedsCap;
+  // 서버가 실행할 수 없는 설정(기간 부족·구간/조합 상한)과 너무 오래 걸리는 설정을 실행 전에 막는다.
+  const runVerdict = judgeWalkForwardRun({
+    totalBars,
+    minWindowBars,
+    windowBars: currentWindowBars,
+    windowBarsMax: windowSliderMax,
+    trainRatioPct: currentTrainRatioPct,
+    windows: derivedSettings.n_splits,
+    method: formState.optimizationMethod,
+    nTrials: formState.n_trials,
+    gridCombinations: gridSearchEstimate,
+    prepareBacktests: PREPARE_BACKTESTS,
+    perBacktestSec,
+  });
+  const maxRunMinutes = Math.round(MAX_WALK_FORWARD_RUN_SECONDS / 60);
+  const verdictReason =
+    runVerdict.status === "too_short"
+      ? t("백테스트 기간이 {0}거래일로 너무 짧아 워크포워드를 실행할 수 없습니다. {1}거래일 이상인 결과에서 실행해 주세요.", runVerdict.totalBars.toLocaleString(), MIN_WALK_FORWARD_TOTAL_BARS)
+      : runVerdict.status === "too_many_combinations"
+        ? t("조합 수({0}개)가 상한({1}개)을 초과했습니다. 파라미터 범위나 step을 조정해 주세요.", runVerdict.combinations.toLocaleString(), MAX_GRID_COMBINATIONS.toLocaleString())
+        : runVerdict.status === "too_many_windows"
+          ? t("구간 수({0}개)가 상한({1}개)을 초과했습니다. 구간 길이를 늘려 주세요.", runVerdict.windows, MAX_WALK_FORWARD_WINDOWS)
+          : runVerdict.status === "too_long"
+            ? t("검증 시간이 너무 오래 걸리는 설정입니다(예상 {0}). {1}분 안에 끝나는 설정으로 바꿔 주세요.", formatDurationRange(runVerdict.seconds), maxRunMinutes)
+            : null;
+  const runSuggestions: WalkForwardSuggestion[] = "suggestions" in runVerdict ? runVerdict.suggestions : [];
+  const describeSuggestion = (suggestion: WalkForwardSuggestion) => {
+    switch (suggestion.kind) {
+      case "trials":
+        return t("시도 횟수 {0}회 — 예상 {1}", suggestion.trials, formatDurationApprox(suggestion.seconds));
+      case "switch_to_bayesian":
+        return t("베이지안 최적화 {0}회로 변경 — 예상 {1}", suggestion.trials, formatDurationApprox(suggestion.seconds));
+      case "window_bars":
+        return t("구간 길이 {0} 이상(구간 {1}개) — 예상 {2}", formatBarsLabel(suggestion.windowBars), suggestion.windows, formatDurationApprox(suggestion.seconds));
+      case "shrink_strategy":
+        return t("기준 백테스트 1회가 약 {0}초 걸려 설정만으로는 {1}분 안에 끝낼 수 없습니다. 종목 범위나 백테스트 기간을 줄인 전략에서 실행해 주세요.", Math.round(perBacktestSec), maxRunMinutes);
+    }
+  };
+  const runDisabledReason = verdictReason ?? disabledReason;
+  const isRunBlocked = !onRun || !canRun || runVerdict.status !== "ok";
   const isRunDisabled = isRunning || isRunBlocked;
   const canShowEstimate = totalBacktests > 0;
 
@@ -1467,7 +1494,9 @@ export function WalkForwardPanel({
                                     {t("예상 소요 시간")}
                                   </span>
                                   <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
-                                    {t("총 {0}회 백테스트(준비 1회 + 구간 {1}개 × 구간당 {2}회)를 기준 백테스트 실측 속도로 추정한 값입니다. 같은 구간의 반복 시도는 종목별 데이터 준비를 재사용해 첫 시도보다 훨씬 빠릅니다.", totalBacktests.toLocaleString(), derivedSettings.n_splits, (backtestsPerWindow + 1).toLocaleString())}
+                                    {PREPARE_BACKTESTS > 0
+                                      ? t("총 {0}회 백테스트(준비 1회 + 구간 {1}개 × 구간당 {2}회)를 기준 백테스트 실측 속도로 추정한 값입니다. 같은 구간의 반복 시도는 종목별 데이터 준비를 재사용해 첫 시도보다 훨씬 빠릅니다.", totalBacktests.toLocaleString(), derivedSettings.n_splits, (backtestsPerWindow + 1).toLocaleString())
+                                      : t("총 {0}회 백테스트(구간 {1}개 × 구간당 {2}회)를 기준 백테스트 실측 속도로 추정한 값입니다. 같은 구간의 반복 시도는 종목별 데이터 준비를 재사용해 첫 시도보다 훨씬 빠릅니다.", totalBacktests.toLocaleString(), derivedSettings.n_splits, (backtestsPerWindow + 1).toLocaleString())}
                                   </span>
                                   <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
                                     {t("실제 시간은 데이터 로딩·서버 상황·조건 조합에 따라 달라질 수 있으며, 실행을 시작하면 실측값으로 남은 시간을 다시 계산합니다.")}
@@ -1475,7 +1504,7 @@ export function WalkForwardPanel({
                                 </HelpTooltip>
                               </div>
                               <p className="mt-2 text-sm font-black leading-6 text-white">
-                                {isRunBlocked
+                                {isRunBlocked && runVerdict.status !== "too_long"
                                   ? t("현재 상태에서는 실행할 수 없습니다.")
                                   : t("{0} 소요될 것으로 예상됩니다.", estimatedDurationLabel)}
                               </p>
@@ -1499,12 +1528,26 @@ export function WalkForwardPanel({
                             </p>
                           )}
                           {isRunBlocked ? (
-                            <p
-                              data-testid="walk-forward-run-blocked-reason"
-                              className="mt-3 text-xs font-bold leading-5 text-amber-300"
-                            >
-                              {t("충족되지 않은 조건: {0}", runDisabledReason)}
-                            </p>
+                            <>
+                              <p
+                                data-testid="walk-forward-run-blocked-reason"
+                                className="mt-3 text-xs font-bold leading-5 text-amber-300"
+                              >
+                                {t("충족되지 않은 조건: {0}", runDisabledReason)}
+                              </p>
+                              {runSuggestions.length > 0 && (
+                                <div data-testid="walk-forward-run-suggestions" className="mt-3 rounded-lg bg-white/[0.03] p-3">
+                                  <p className="text-[10px] font-black uppercase tracking-widest text-gray-500">
+                                    {t("실행 가능한 설정")}
+                                  </p>
+                                  <ul className="mt-2 space-y-1.5 text-xs font-bold leading-5 text-gray-200">
+                                    {runSuggestions.map((suggestion) => (
+                                      <li key={suggestion.kind}>· {describeSuggestion(suggestion)}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </>
                           ) : (
                             <p className="mt-3 text-xs font-bold leading-5 text-gray-400">
                               {t("시간이 오래 걸리는 작업입니다. 실행 중에는 창을 닫지 말고 진행 상황을 확인해 주세요.")}

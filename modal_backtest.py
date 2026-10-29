@@ -181,7 +181,7 @@ def _wfa_kwargs(request: dict) -> dict:
     """
     kwargs = {"base_request": request["base_request"], "ranges": request.get("ranges")}
     for key in ("n_splits", "train_pct", "anchor", "target_metric",
-                "n_trials", "method", "is_bars", "oos_bars"):
+                "n_trials", "method", "is_bars", "oos_bars", "backtest_dates"):
         if request.get(key) is not None:
             kwargs[key] = request[key]
     return kwargs

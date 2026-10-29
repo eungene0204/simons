@@ -1326,7 +1326,9 @@ Dataset에 정답 전략을 두지 않는다 — **되묻기는 실패가 아니
 > (`modal_backtest.py` — 단일 실행 8코어, 최적화/워크포워드 잡 16코어)에서 실행하고,
 > 로컬 dev·테스트·가상매매는 종전대로 인프로세스다. `/walk-forward/stream`은 워커 SSE를
 > 백엔드가 그대로 통과시킨다(이벤트 형식 동일, 연결 종료 = 협조적 취소). 원격 실패는 로컬로
-> 재시도하지 않는다. 결과 동일성은
+> 재시도하지 않는다. 워크포워드 요청의 `backtest_dates`(표시 중 결과의 거래일)는 `modal_backtest.py`
+> `_wfa_kwargs`가 통과시키므로 **워커를 재배포해야** 날짜 확인 백테스트 생략이 적용된다(재배포 전에는
+> 종전 폴백). 결과 동일성은
 > `scripts/qa_backtest_modal_equivalence.py`(단일 실행 전수 + `--jobs` 픽스처)로 보증한다.
 >
 > **단일 백테스트 = 박스 우선, 넘치면 Modal (2026-09-17)**: `/backtest`·`/strategy/backtest-stream`은
@@ -2006,6 +2008,7 @@ cd backend && pytest tests/ \
 | `backtestSummarizeRoute.test.ts` | 백테스트 요약 API 라우트 |
 | `monthlyReturns.test.ts` | 월별 수익률 계산 로직 |
 | `TopNavigationQuickSearch.test.tsx` | 상단 내비게이션 및 빠른 검색 |
+| `lib/auth/__tests__/loginReturn.test.ts` | 구글 로그인 복귀 — 해시 토큰을 `/api/login`에 직행(Supabase 확인·`/api/user` 왕복 생략), 실패 시 가림막 해제 |
 | `OrderBook.test.tsx` | 호가창 컴포넌트 |
 | `StrategyAdvisorPanel.request.test.tsx` | 후보 백테스트 결과와 evaluation context가 advisor 요청에 포함되는지 검증 |
 | `app/api/news/fetch-body/route.test.ts` | Next.js 뉴스 본문 fetch 프록시 SSRF 입력 차단 |

@@ -39,6 +39,8 @@ export interface AdvisorWalkForwardSettings {
   // UI에서 고른 학습/검증 거래일 수 — 백엔드가 그대로 창 분할에 사용한다.
   is_bars?: number;
   oos_bars?: number;
+  // 화면에 표시된 결과의 거래일 목록 — 있으면 백엔드가 분할 기준 날짜를 얻는 백테스트를 건너뛴다.
+  backtest_dates?: string[];
   // 최적화에서 제외할 파라미터 라벨 — 해당 파라미터는 원래 설정값으로 고정된다.
   excluded_parameters?: string[];
 }
@@ -506,6 +508,7 @@ export function buildWalkForwardRequest(
     method: settings.method ?? "bayesian",
     ...(settings.is_bars ? { is_bars: settings.is_bars } : {}),
     ...(settings.oos_bars ? { oos_bars: settings.oos_bars } : {}),
+    ...(settings.backtest_dates?.length ? { backtest_dates: settings.backtest_dates } : {}),
   };
 }
 
