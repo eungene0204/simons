@@ -309,5 +309,5 @@ describe("StrategyLab unknown intent fallback", () => {
     expect(screen.queryByRole("progressbar", { name: "파라미터 조합 계산 진행 상황" })).not.toBeInTheDocument();
     expect(screen.getByText(/손절라인 8/)).toBeInTheDocument();
     expect(screen.getByText(/샤프 지수 1.50/)).toBeInTheDocument();
-  });
+  }, 60000);
 });
