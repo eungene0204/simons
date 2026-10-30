@@ -10,6 +10,7 @@ function makeStats(overrides: Partial<PortfolioStats> = {}): PortfolioStats {
     totalValue: 1000000,
     totalProfit: 0,
     totalReturnPct: 0,
+    currency: "KRW",
     accountCount: 1,
     dailyPnl: 0,
     ...overrides,
@@ -17,6 +18,18 @@ function makeStats(overrides: Partial<PortfolioStats> = {}): PortfolioStats {
 }
 
 describe("PortfolioSummaryBar", () => {
+  it("formats a dollar total with $ instead of 원", () => {
+    render(
+      <PortfolioSummaryBar
+        initialStats={makeStats({ currency: "USD", totalInvested: 10_000, totalValue: 10_500, totalProfit: 500 })}
+      />
+    );
+
+    expect(screen.getByText("$10,000")).toBeInTheDocument();
+    expect(screen.getByText("+$500")).toBeInTheDocument();
+    expect(screen.queryByText(/원/)).not.toBeInTheDocument();
+  });
+
   it("uses a mobile-first grid and restores the desktop summary row", () => {
     render(<PortfolioSummaryBar initialStats={makeStats()} />);
 

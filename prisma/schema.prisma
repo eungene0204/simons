@@ -680,6 +680,7 @@ model VirtualAccount {
   DelistingAuditLog  DelistingAuditLog[]
   AssetLedger        AssetLedger[]
   VirtualCashEvent   VirtualCashEvent[]
+  VirtualAccountSnapshot VirtualAccountSnapshot[]
 
   @@index([userId, createdAt])
   @@index([userId, status])
@@ -700,6 +701,21 @@ model VirtualCashEvent {
 
   @@unique([accountId, date])
   @@index([accountId, createdAt])
+}
+
+// 가상계좌 일별 총 자산(2026-10-30) — 일별 수익률 그래프의 정본. 스케줄러가 체결·입금 내역과 일별 종가로
+// 장 마감 기준 총 자산(현금 + 보유 수량 × 종가)과 그날까지의 총 납입액을 복원해 한 날짜 한 줄로 남긴다
+// (lib/server/accountDailySnapshots.ts). takenAt 은 계좌 시장 기준 날짜의 00:00 UTC 이고,
+// (accountId, takenAt) 유니크가 '하루 한 번'의 정본이다. 오늘 값은 저장하지 않고 화면이 현재가로 붙인다.
+model VirtualAccountSnapshot {
+  id               String         @id @default(cuid())
+  accountId        String
+  takenAt          DateTime
+  totalValue       Decimal
+  totalContributed Decimal
+  VirtualAccount   VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, takenAt])
 }
 
 model AssetLedger {

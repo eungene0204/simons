@@ -4,6 +4,9 @@ import { getCurrentUser } from '@/lib/get-user'
 import { cache } from '@/lib/cache'
 import { prisma } from '@/lib/prisma'
 import { getAccountSettlementValues, moneyToNumber, resolveAccountTotalValue } from '@/lib/server/assetService'
+import { fetchLivePriceMap, positionsMarketValue } from '@/lib/server/accountValuation'
+import { getRequestRegion } from '@/lib/geo/server'
+import { REGION_CURRENCY } from '@/lib/geo/region'
 
 export async function GET(request: NextRequest) {
   try {
@@ -17,7 +20,9 @@ export async function GET(request: NextRequest) {
     }
 
     // Check cache first
-    const cacheKey = `user:info:${user.id}`
+    // 수익률은 이 화면 지역의 통화 계좌만 합산한다(원화·달러를 환율 없이 섞지 않는다).
+    const currency = REGION_CURRENCY[getRequestRegion()]
+    const cacheKey = `user:info:${user.id}:${currency}`
     const cached = cache.get(cacheKey)
     if (cached) {
       console.log('Returning cached user info')
@@ -29,10 +34,11 @@ export async function GET(request: NextRequest) {
         where: { userId: user.id },
       }),
       prisma.virtualAccount.findMany({
-        where: { userId: user.id },
+        where: { userId: user.id, currency },
         include: {
           VirtualPosition: {
             select: {
+              symbol: true,
               quantity: true,
               avgPrice: true,
               currentPrice: true,
@@ -43,19 +49,18 @@ export async function GET(request: NextRequest) {
       prisma.user.count(),
     ])
 
-    const settlementValues = await getAccountSettlementValues(prisma, accounts.map((account) => account.id))
+    const [settlementValues, priceMap] = await Promise.all([
+      getAccountSettlementValues(prisma, accounts.map((account) => account.id)),
+      fetchLivePriceMap(accounts.flatMap((account) => account.VirtualPosition.map((p) => p.symbol))),
+    ])
 
     const accountCount = accounts.length
     // 수익률의 분모는 총 납입액이다(정액 적립식 — 납입이 없는 계좌는 초기 자본과 같다).
     const totalInitialCash = accounts.reduce(
       (sum, account) => sum + totalContributed(account.initialCash, account.contributedCash), 0)
     const totalValue = accounts.reduce((sum, account) => {
-      const positionsValue = account.VirtualPosition.reduce((positionSum, position) => {
-        const currentPrice = moneyToNumber(position.currentPrice ?? position.avgPrice)
-        return positionSum + position.quantity * currentPrice
-      }, 0)
-
-      const liveValue = moneyToNumber(account.currentCash) + positionsValue
+      const liveValue =
+        moneyToNumber(account.currentCash) + positionsMarketValue(account.VirtualPosition, priceMap)
       return sum + resolveAccountTotalValue(account, liveValue, settlementValues)
     }, 0)
 

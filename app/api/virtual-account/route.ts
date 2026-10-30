@@ -2,8 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { resolveTrackedSymbolsForStrategy } from '@/lib/strategy-tracked-symbols';
 import { createFundedAccount, moneyToNumber, toMoney } from '@/lib/server/assetService';
-import { fetchStockPriceSnapshots } from '@/lib/server/stock-prices';
-import type { StockPriceSnapshot } from '@/lib/stock-prices';
+import { fetchLivePriceMap, positionsMarketValue } from '@/lib/server/accountValuation';
 import { getPlan } from '@/lib/plans';
 import { getRequestRegion } from '@/lib/geo/server';
 import { US_PRICING } from '@/lib/pricing/us';
@@ -23,10 +22,7 @@ import {
 function mapAccount(a: any, priceMap: Record<string, number>) {
   const currentCash = moneyToNumber(a.currentCash);
   const positions = a.VirtualPosition ?? [];
-  const holdingsValue = positions.reduce((sum: number, p: any) => {
-    const currentPrice = priceMap[p.symbol] ?? moneyToNumber(p.currentPrice ?? p.avgPrice);
-    return sum + p.quantity * currentPrice;
-  }, 0);
+  const holdingsValue = positionsMarketValue(positions, priceMap);
   const holdingsCost = positions.reduce(
     (sum: number, p: any) => sum + p.quantity * moneyToNumber(p.avgPrice),
     0
@@ -62,16 +58,8 @@ export async function GET() {
       orderBy: { createdAt: 'desc' },
     });
 
-    const symbols = [...new Set(accounts.flatMap((account) =>
-      account.VirtualPosition.map((position) => position.symbol)
-    ))];
-    const snapshots: Record<string, StockPriceSnapshot> = symbols.length > 0
-      ? await fetchStockPriceSnapshots(symbols, { mode: "realtime", subscribe: false }).catch(() => ({}))
-      : {};
-    const priceMap = Object.fromEntries(
-      Object.entries(snapshots)
-        .filter(([, snapshot]) => snapshot.price > 0)
-        .map(([symbol, snapshot]) => [symbol, snapshot.price])
+    const priceMap = await fetchLivePriceMap(
+      accounts.flatMap((account) => account.VirtualPosition.map((position) => position.symbol))
     );
 
     return NextResponse.json(accounts.map((account) => mapAccount(account, priceMap)));

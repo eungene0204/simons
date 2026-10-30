@@ -11,6 +11,7 @@
  *   09:30 ET   — 미국장 개장: USD auto 계좌 자동 시작 (평일, 서머타임 자동 반영)
  *   16:00 ET   — 미국장 마감: 실행 중인 USD 계좌 일시정지 (평일)
  *   04:00 KST  — 보존기간 지난 개인정보·운영 로그 파기 (매일)
+ *   06:30 KST  — 가상계좌 일별 수익률 저장: 체결·입금 내역과 일별 종가로 빠진 날짜를 복원 (매일, 서버 시작 때도 1회)
  *
  * 장중 시그널 평가·체결(자동매매)은 이 스케줄러가 하지 않는다 — 정본은 FastAPI
  * 백엔드의 VirtualTrader(backend/engine/virtual_trader.py, 30초 간격)다.
@@ -117,6 +118,25 @@ async function runBillingRenewal(ts: string): Promise<void> {
   }
 }
 
+// 가상계좌 일별 수익률 — 빠진 날짜(개설일~어제)를 복원해 저장한다. 이미 저장된 날짜는 건드리지 않는다.
+// 06:30 KST 는 국내 전날 장과 미국 전날 정규장이 모두 끝나고 야간 데이터 동기화가 돈 뒤다.
+async function runAccountDailySnapshots(ts: string): Promise<void> {
+  try {
+    const [{ syncAccountDailySnapshots }, { prisma }] = await Promise.all([
+      import("@/lib/server/accountDailySnapshots"),
+      import("@/lib/prisma"),
+    ]);
+    const result = await syncAccountDailySnapshots(prisma);
+    if (result.written > 0 || result.mismatched.length > 0 || result.fetchFailed.length > 0) {
+      console.log(
+        `[Scheduler] ${ts} KST — 계좌 일별 수익률: ${result.written}일치 저장, 장부 불일치로 건너뜀 ${result.mismatched.length}개 계좌, 종가 조회 실패로 다음에 재시도 ${result.fetchFailed.length}개 계좌`
+      );
+    }
+  } catch (e) {
+    console.error(`[Scheduler] ${ts} KST — 계좌 일별 수익률 잡 실패:`, e);
+  }
+}
+
 // 보존기간 파기 — 기한이 지난 개인정보·운영 로그를 하루 한 번 지운다.
 // 기간 표와 근거는 lib/server/dataRetention.ts 한 곳에만 둔다.
 async function runRetentionPurge(ts: string): Promise<void> {
@@ -155,6 +175,13 @@ function tick(): void {
   if (m === 0 && !firedToday.has(billingRenewalKey)) {
     firedToday.add(billingRenewalKey);
     void runBillingRenewal(formatKST(kst));
+  }
+
+  // 06:30 KST — 계좌 일별 수익률 저장 (미국 금요일 장은 KST 토요일 새벽에 끝나 주말 가드보다 먼저 체크)
+  const dailySnapshotKey = `${dateStr}_account_daily_snapshot`;
+  if (h === 6 && m === 30 && !firedToday.has(dailySnapshotKey)) {
+    firedToday.add(dailySnapshotKey);
+    void runAccountDailySnapshots(formatKST(kst));
   }
 
   // 04:00 KST — 보존기간 파기 (주말 포함이라 평일 가드보다 먼저 체크)
@@ -224,6 +251,8 @@ export function startScheduler(): void {
 
   // 시작 직후 한 번 실행 (서버 재시작 시 놓친 이벤트 처리)
   tick();
+  // 일별 수익률은 빠진 날짜만 채우므로 시작 때마다 돌려도 안전하다 — 배포 직후 과거 구간이 바로 채워진다.
+  void runAccountDailySnapshots(formatKST(kst));
 
   intervalId = setInterval(tick, CHECK_INTERVAL_MS);
 }

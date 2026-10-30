@@ -7,12 +7,18 @@ import type { TradingStatusData } from "@/app/api/dashboard/trading-status/route
 import type { AccountMonthlyData } from "@/app/api/dashboard/account-monthly/route";
 import type { VirtualAccountListData, VirtualAccountListItem } from "@/app/api/dashboard/virtual-account-list/route";
 import type { DashboardBacktestRecord } from "@/types/dashboard";
+import type { AccountCurrency } from "@/lib/account-money";
+import { fetchLivePriceMap, positionsMarketValue } from "@/lib/server/accountValuation";
+import { getRequestRegion } from "@/lib/geo/server";
+import { REGION_CURRENCY } from "@/lib/geo/region";
 
 export interface PortfolioStats {
   totalInvested: number;
   totalValue: number;
   totalProfit: number;
   totalReturnPct: number;
+  /** 합계의 통화 — 이 화면 지역의 통화 계좌만 더한다. */
+  currency: AccountCurrency;
   accountCount: number;
   dailyPnl: number;
 }
@@ -25,7 +31,10 @@ export interface DashboardInitialData {
   backtestRecords: DashboardBacktestRecord[];
 }
 
-async function fetchDashboardFromDB(userId: number | null): Promise<DashboardInitialData> {
+async function fetchDashboardFromDB(
+  userId: number | null,
+  currency: AccountCurrency
+): Promise<DashboardInitialData> {
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
 
@@ -37,6 +46,10 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
   const accountIds = accounts.map((a) => a.id);
   // userId==null(비인증/테스트)이면 기존처럼 전역 집계를 유지한다.
   const accountScope = userId == null ? {} : { accountId: { in: accountIds } };
+  // 금액 합계는 이 화면 지역의 통화 계좌만 더한다 — 원화와 달러를 환율 없이 더하면 숫자가 무의미하다.
+  const sameCurrencyAccounts = accounts.filter((a) => (a.currency ?? "KRW") === currency);
+  const sameCurrencyScope =
+    userId == null ? {} : { accountId: { in: sameCurrencyAccounts.map((a) => a.id) } };
 
   // 백테스트 목록은 사용자별 "내 목록"(UserBacktestHistory)에서 가져온다.
   // userId==null(비인증/테스트)이면 레거시 전역(isVisible) 조회로 폴백한다.
@@ -61,11 +74,12 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
     backtestHistory,
     sellOrders,
     settlementValues,
+    priceMap,
   ] = await Promise.all([
     prisma.virtualMarketState.count({ where: { status: "running", ...accountScope } }),
     prisma.virtualOrder.count({ where: { status: "FILLED", filledAt: { gte: todayStart }, ...accountScope } }),
     prisma.virtualOrder.aggregate({
-      where: { status: "FILLED", side: "SELL", filledAt: { gte: todayStart }, ...accountScope },
+      where: { status: "FILLED", side: "SELL", filledAt: { gte: todayStart }, ...sameCurrencyScope },
       _sum: { realizedPnl: true },
     }),
     backtestHistoryPromise,
@@ -81,6 +95,7 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
       select: { accountId: true, realizedPnl: true, filledAt: true },
     }),
     getAccountSettlementValues(prisma, accountIds),
+    fetchLivePriceMap(accounts.flatMap((a) => (a.VirtualPosition ?? []).map((p) => p.symbol))),
   ]);
 
   // 계좌 단위 집계는 별도 쿼리 없이 accounts에서 파생
@@ -90,16 +105,17 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
 
   // ── PortfolioStats ──────────────────────────────────────────
   // 삭제(CLOSED)된 계좌는 요약 통계에서 제외한다 — 운용중인 계좌만 집계.
-  const activeAccounts = accounts.filter((a) => a.status !== "CLOSED");
+  const activeAccounts = sameCurrencyAccounts.filter((a) => a.status !== "CLOSED");
   const dailyPnl = moneyToNumber(dailyPnlAgg._sum.realizedPnl);
-  const totalInvested = activeAccounts.reduce((s, a) => s + moneyToNumber(a.initialCash), 0);
-  const totalValue = activeAccounts.reduce((s, a) => {
-    const posValue = (a.VirtualPosition ?? []).reduce(
-      (sum, p) => sum + p.quantity * moneyToNumber(p.currentPrice ?? p.avgPrice),
-      0
-    );
-    return s + moneyToNumber(a.currentCash) + posValue;
-  }, 0);
+  // 수익률의 분모는 총 납입액이다(정액 적립식 — 초기 자본만 세면 납입액이 수익으로 잡힌다).
+  const totalInvested = activeAccounts.reduce(
+    (s, a) => s + totalContributed(a.initialCash, a.contributedCash),
+    0
+  );
+  const totalValue = activeAccounts.reduce(
+    (s, a) => s + moneyToNumber(a.currentCash) + positionsMarketValue(a.VirtualPosition, priceMap),
+    0
+  );
   const totalProfit = totalValue - totalInvested;
   const totalReturnPct = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0;
 
@@ -108,6 +124,7 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
     totalValue,
     totalProfit,
     totalReturnPct,
+    currency,
     accountCount: activeAccounts.length,
     dailyPnl,
   };
@@ -157,10 +174,7 @@ async function fetchDashboardFromDB(userId: number | null): Promise<DashboardIni
 
   // ── VirtualAccountList ──────────────────────────────────────
   const accountItems: VirtualAccountListItem[] = accounts.map((a) => {
-    const posValue = (a.VirtualPosition ?? []).reduce(
-      (sum, p) => sum + p.quantity * moneyToNumber(p.currentPrice ?? p.avgPrice),
-      0
-    );
+    const posValue = positionsMarketValue(a.VirtualPosition, priceMap);
     const initialAmount = moneyToNumber(a.initialCash);
     const liveValue = moneyToNumber(a.currentCash) + posValue;
     const tv = resolveAccountTotalValue(a, liveValue, settlementValues);
@@ -222,6 +236,7 @@ function getMockDashboardData(): DashboardInitialData {
       totalValue:     29_320_000,
       totalProfit:     3_320_000,
       totalReturnPct:      12.77,
+      currency:          "KRW",
       accountCount:            4,
       dailyPnl:          84_000,
     },
@@ -257,9 +272,9 @@ const MOCK_ACCOUNT_MONTHLY: AccountMonthlyData = {
   ],
 };
 
-// userId를 인자로 받아 캐시 키가 사용자별로 분리되게 한다(전역 캐시 누출 방지).
+// userId·통화를 인자로 받아 캐시 키가 사용자·지역별로 분리되게 한다(전역 캐시 누출 방지).
 const getCachedDashboardData = unstable_cache(
-  (userId: number | null) => fetchDashboardFromDB(userId),
+  (userId: number | null, currency: AccountCurrency) => fetchDashboardFromDB(userId, currency),
   ["dashboard-initial-data"],
   { revalidate: 30 }
 );
@@ -270,5 +285,5 @@ export async function getDashboardInitialData(
   if (process.env.DASHBOARD_MOCK === "true") {
     return getMockDashboardData();
   }
-  return getCachedDashboardData(userId);
+  return getCachedDashboardData(userId, REGION_CURRENCY[getRequestRegion()]);
 }

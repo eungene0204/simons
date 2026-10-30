@@ -24,6 +24,7 @@ import { getMarketLogs, type VirtualMarketLog } from "@/lib/virtual-market";
 import { Globe, Lock, Plus, Robot, Spinner, TrendUp } from "phosphor-react";
 import OrderBook from "@/components/order/OrderBook";
 import PortfolioPerformanceChart from "@/components/portfolio/PortfolioPerformanceChart";
+import AccountReturnChart from "@/components/portfolio/AccountReturnChart";
 import StockSearchModal from "@/components/stock/StockSearchModal";
 import StrategyReplaceModal from "@/components/ui/StrategyReplaceModal";
 import AutoTradingStrategyMissingModal from "@/components/virtual-account/AutoTradingStrategyMissingModal";
@@ -701,6 +702,8 @@ export default function VirtualAccountDetailPage() {
     profit,
     profitPercent,
     holdingsCost,
+    accountProfit,
+    accountProfitPercent,
     todayPnl,
     todayPnlPct,
     performanceData,
@@ -712,7 +715,7 @@ export default function VirtualAccountDetailPage() {
   } = useMemo(() => {
     if (!account) {
       return {
-        profit: 0, profitPercent: 0, holdingsCost: 0, todayPnl: 0, todayPnlPct: 0,
+        profit: 0, profitPercent: 0, holdingsCost: 0, accountProfit: 0, accountProfitPercent: 0, todayPnl: 0, todayPnlPct: 0,
         performanceData: [], hasCompletePerformanceHistory: true, activeDays: 0, investedValue: 0, cashRatio: 0, filledTradeCount: 0,
       };
     }
@@ -720,6 +723,9 @@ export default function VirtualAccountDetailPage() {
     const holdingsCost = holdings.reduce((sum, holding) => sum + holding.quantity * holding.averagePrice, 0);
     const p = holdings.reduce((sum, holding) => sum + holding.profit, 0);
     const pp = holdingsCost > 0 ? (p / holdingsCost) * 100 : 0;
+    // 계좌 전체 손익(매도로 확정된 손익 포함) — 목록 카드와 같은 기준이다.
+    const accountProfit = account.totalValue - basis;
+    const accountProfitPercent = basis > 0 ? (accountProfit / basis) * 100 : 0;
     const timeZone = isUsdAccount(account.currency) ? "America/New_York" : "Asia/Seoul";
     const todayStr = marketDateKey(new Date().toISOString(), timeZone);
     const todayPnl = transactions
@@ -744,7 +750,7 @@ export default function VirtualAccountDetailPage() {
     const investedValue = Math.max(0, account.totalValue - account.currentBalance);
     const cashRatio = account.totalValue > 0 ? (account.currentBalance / account.totalValue) * 100 : 0;
     const filledTradeCount = transactions.filter((tv) => tv.status === "FILLED").length;
-    return { profit: p, profitPercent: pp, holdingsCost, todayPnl, todayPnlPct, performanceData, hasCompletePerformanceHistory, activeDays: days, investedValue, cashRatio, filledTradeCount };
+    return { profit: p, profitPercent: pp, holdingsCost, accountProfit, accountProfitPercent, todayPnl, todayPnlPct, performanceData, hasCompletePerformanceHistory, activeDays: days, investedValue, cashRatio, filledTradeCount };
   }, [account, holdings, transactions]);
 
   if (!account && isPublicNotFound) {
@@ -1074,7 +1080,13 @@ export default function VirtualAccountDetailPage() {
                   >
                     {formatPrice(account.totalValue)}
                   </p>
-                  <p className="mt-1 text-[10px] font-bold text-gray-500">{isUsdAccount(account?.currency) ? "USD" : t("원")}</p>
+                  <p
+                    data-testid="account-total-change"
+                    className={`mt-1 text-[10px] font-bold tabular-nums ${accountProfit === 0 ? "text-gray-500" : accountProfit > 0 ? "text-[var(--main-red)]" : "text-[var(--main-blue)]"}`}
+                  >
+                    {formatAccountSignedMoney(accountProfit, account.currency)} ({formatSignedPercent(accountProfitPercent)})
+                    <span className="ml-1 font-bold text-gray-500">{basisLabel}</span>
+                  </p>
                 </div>
                 <div className="border-r border-b border-white/[0.08] px-5 py-4">
                   <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">{t("주문 가능")}</span>
@@ -1113,6 +1125,19 @@ export default function VirtualAccountDetailPage() {
                   >
                     {formatAccountSignedMoney(profit, account.currency)}
                   </p>
+                </div>
+              </div>
+
+              {/* 일별 수익률 — 계좌 전체(현금 + 보유 종목) 기준, 장 마감 기준 복원·저장값 + 오늘 현재 값. 탭과 무관하게 항상 보인다. */}
+              <div className="border-b border-white/[0.08] p-5">
+                <div className="mb-4">
+                  <h2 className="text-base font-black uppercase tracking-widest font-outfit text-white">{t("수익률 변화")}</h2>
+                  <p className="mt-0.5 text-xs font-bold text-gray-500">
+                    {t("계좌 개설 이후 일별 계좌 전체 수익률 ({0})", hasContributions ? t("총 납입액 대비") : t("초기 자본 대비"))}
+                  </p>
+                </div>
+                <div className="h-64">
+                  <AccountReturnChart accountId={account.id} />
                 </div>
               </div>
 

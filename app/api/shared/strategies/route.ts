@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { getOwnershipContext, isUnauthorizedAccessError } from '@/lib/get-user';
 import { getAccountSettlementValues } from '@/lib/server/assetService';
 import { buildSharedStrategyCards } from '@/lib/server/sharedStrategies';
+import { fetchLivePriceMap } from '@/lib/server/accountValuation';
 
 // '전략공유' 목록 — 사용자들이 공개로 전환한 저장 전략과, 그 전략을 쓰는 공개 계좌의 수익률.
 export async function GET() {
@@ -20,9 +21,14 @@ export async function GET() {
             include: { VirtualPosition: true },
           })
         : [];
-    const settlementValues = await getAccountSettlementValues(prisma, accounts.map((a) => a.id));
+    const [settlementValues, priceMap] = await Promise.all([
+      getAccountSettlementValues(prisma, accounts.map((a) => a.id)),
+      fetchLivePriceMap(accounts.flatMap((a) => a.VirtualPosition.map((p) => p.symbol))),
+    ]);
 
-    return NextResponse.json({ strategies: buildSharedStrategyCards(strategies, accounts, settlementValues) });
+    return NextResponse.json({
+      strategies: buildSharedStrategyCards(strategies, accounts, settlementValues, priceMap),
+    });
   } catch (error) {
     if (isUnauthorizedAccessError(error)) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

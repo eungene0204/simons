@@ -24,6 +24,9 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
+const fetchStockPriceSnapshots = vi.fn().mockResolvedValue({});
+vi.mock("@/lib/server/stock-prices", () => ({ fetchStockPriceSnapshots }));
+
 vi.mock("@/lib/get-user", () => ({
   withOwnership: (where, userId) => ({ ...where, userId }),
 }));
@@ -95,6 +98,73 @@ describe("getDashboardInitialData portfolio stats", () => {
     const closedItem = data.accountList.accounts.find((a) => a.id === "acc-closed");
     expect(closedItem?.status).toBe("CLOSED");
     expect(closedItem?.totalValue).toBe(5_500_000);
+  });
+});
+
+describe("getDashboardInitialData 적립식 계좌", () => {
+  it("총 모의 투자금에 적립 납입액을 포함해 납입액을 수익으로 세지 않는다", async () => {
+    // 2026-10-30: 계좌 카드·목록은 총 납입액 기준인데 대시보드 합계만 초기 자본 기준이었다.
+    virtualAccountFindMany.mockResolvedValue([
+      makeAccount({ initialCash: 1_000_000, contributedCash: 500_000, currentCash: 1_450_000 }),
+    ]);
+    marketStateCount.mockResolvedValue(0);
+    orderCount.mockResolvedValue(0);
+    orderAggregate.mockResolvedValue({ _sum: { realizedPnl: null } });
+    orderFindMany.mockResolvedValue([]);
+    userBacktestFindMany.mockResolvedValue([]);
+    assetLedgerFindMany.mockResolvedValue([]);
+
+    const data = await getDashboardInitialData(1);
+
+    expect(data.portfolioStats.totalInvested).toBe(1_500_000);
+    expect(data.portfolioStats.totalProfit).toBe(-50_000);
+    expect(data.portfolioStats.totalReturnPct).toBeCloseTo(-3.333, 2);
+  });
+});
+
+describe("getDashboardInitialData 통화·현재가", () => {
+  function mockEmptyQueries() {
+    marketStateCount.mockResolvedValue(0);
+    orderCount.mockResolvedValue(0);
+    orderAggregate.mockResolvedValue({ _sum: { realizedPnl: null } });
+    orderFindMany.mockResolvedValue([]);
+    userBacktestFindMany.mockResolvedValue([]);
+    assetLedgerFindMany.mockResolvedValue([]);
+  }
+
+  it("합계에 다른 통화(달러) 계좌를 환율 없이 섞지 않는다", async () => {
+    virtualAccountFindMany.mockResolvedValue([
+      makeAccount(),
+      makeAccount({ id: "acc-usd", currency: "USD", initialCash: 10_000, currentCash: 11_000 }),
+    ]);
+    mockEmptyQueries();
+
+    const data = await getDashboardInitialData(1);
+
+    expect(data.portfolioStats.currency).toBe("KRW");
+    expect(data.portfolioStats.totalInvested).toBe(10_000_000);
+    expect(data.portfolioStats.totalValue).toBe(12_000_000);
+    expect(data.portfolioStats.accountCount).toBe(1);
+    // 오늘 실현손익 집계도 같은 통화 계좌로 한정한다.
+    expect(orderAggregate.mock.calls.at(-1)[0].where.accountId).toEqual({ in: ["acc-active"] });
+    // 계좌 목록은 통화와 무관하게 전부 보여 준다.
+    expect(data.accountList.accounts.map((a) => a.id)).toEqual(["acc-active", "acc-usd"]);
+  });
+
+  it("보유 종목은 저장된 현재가가 아니라 실시간 시세로 평가한다", async () => {
+    virtualAccountFindMany.mockResolvedValue([
+      makeAccount({
+        currentCash: 9_000_000,
+        VirtualPosition: [{ symbol: "005930", quantity: 10, avgPrice: 100_000, currentPrice: 90_000 }],
+      }),
+    ]);
+    mockEmptyQueries();
+    fetchStockPriceSnapshots.mockResolvedValueOnce({ "005930": { price: 120_000 } });
+
+    const data = await getDashboardInitialData(1);
+
+    expect(data.portfolioStats.totalValue).toBe(10_200_000);
+    expect(data.accountList.accounts[0].totalValue).toBe(10_200_000);
   });
 });
 

@@ -8,6 +8,7 @@ import {
   withOwnership,
 } from "@/lib/get-user";
 import { moneyToNumber, resolveAccountTotalValue } from "@/lib/server/assetService";
+import { fetchLivePriceMap, positionsMarketValue } from "@/lib/server/accountValuation";
 
 function calcScore(m: { cagr?: number; maxDrawdown?: number; sharpe?: number; profitFactor?: number | null; winRate?: number }): number {
   const scoreCagr = (v?: number) => { if (v == null) return 50; if (v >= 20) return 100; if (v >= 10) return 70; return Math.max(0, Math.round(v / 10 * 70)); };
@@ -105,6 +106,7 @@ export async function GET() {
         settlementValues[entry.accountId] = moneyToNumber(entry.amount);
       }
     }
+    const priceMap = await fetchLivePriceMap(positions.map((position) => position.symbol));
     const positionsByAccount = new Map<string, typeof positions>();
     for (const position of positions) {
       const list = positionsByAccount.get(position.accountId) ?? [];
@@ -161,10 +163,7 @@ export async function GET() {
       }
 
       const stats = accs.map((a) => {
-        const posValue = (positionsByAccount.get(a.id) ?? []).reduce(
-          (sum, p) => sum + p.quantity * moneyToNumber(p.currentPrice ?? p.avgPrice),
-          0
-        );
+        const posValue = positionsMarketValue(positionsByAccount.get(a.id), priceMap);
         // 수익률의 분모는 총 납입액이다(정액 적립식 — 납입이 없는 계좌는 초기 자본과 같다).
         const initialCash = totalContributed(a.initialCash, a.contributedCash);
         const liveValue = moneyToNumber(a.currentCash) + posValue;

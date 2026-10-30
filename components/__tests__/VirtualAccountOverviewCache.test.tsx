@@ -34,7 +34,7 @@ const valuedAccount = {
   ...cachedAccount,
   totalContributed: 10_000_000,
   holdingsCost: 1_000_000,
-  holdingsProfit: -100_000,
+  holdingsProfit: 100_000,
 };
 
 beforeEach(() => {
@@ -47,19 +47,20 @@ afterEach(() => {
 });
 
 describe("VirtualAccountOverview cache", () => {
-  it("shows held-position P&L and return instead of the change in total assets", () => {
-    setCachedVirtualAccounts([valuedAccount]);
+  it("shows the account-wide change even when held positions are in profit", () => {
+    // 2026-10-30 사고: 매도로 손실이 확정돼 총 자산이 원금 아래인데, 남은 보유 종목의
+    // 평가이익만 보여 카드가 수익(+3.66%)으로 표시됐다.
+    setCachedVirtualAccounts([{ ...valuedAccount, totalValue: 9_800_000 }]);
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
 
     render(<VirtualAccountOverview />);
 
-    expect(screen.getByText("-100,000원 (-10.00%)")).toBeInTheDocument();
-    expect(screen.queryByText("+500,000원 (+5.00%)")).not.toBeInTheDocument();
+    expect(screen.getByText("-200,000원 (-2.00%)")).toBeInTheDocument();
+    expect(screen.queryByText("+100,000원 (+10.00%)")).not.toBeInTheDocument();
   });
 
-  it("shows zero holdings return when there are no open positions", () => {
-    const emptyAccount = { ...valuedAccount, holdingsCost: 0, holdingsProfit: 0 };
-    setCachedVirtualAccounts([emptyAccount]);
+  it("measures the change against total contributions", () => {
+    setCachedVirtualAccounts([{ ...valuedAccount, totalContributed: 10_500_000 }]);
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
 
     render(<VirtualAccountOverview />);

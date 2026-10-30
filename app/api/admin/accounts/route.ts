@@ -2,12 +2,14 @@ import { totalContributed } from '@/lib/virtual-account/contributions';
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin, writeAuditLog } from '@/lib/server/adminAuth'
+import { getAccountSettlementValues, resolveAccountTotalValue } from '@/lib/server/assetService'
+import { fetchLivePriceMap, positionsMarketValue } from '@/lib/server/accountValuation'
 
 export const dynamic = 'force-dynamic'
 
 const PAGE_SIZE = 20
 
-// GET: 가상계좌 목록 (평가금은 캐시된 포지션 현재가 기준 근사치)
+// GET: 가상계좌 목록 (평가금은 사용자 화면과 같은 실시간 현재가, 닫은 계좌는 정산금 기준)
 export async function GET(request: NextRequest) {
   const admin = await requireAdmin()
   if (!admin) return NextResponse.json({ error: 'Not Found' }, { status: 404 })
@@ -39,10 +41,15 @@ export async function GET(request: NextRequest) {
           strategyName: true,
           createdAt: true,
           User: { select: { id: true, email: true } },
-          VirtualPosition: { select: { quantity: true, currentPrice: true, avgPrice: true } },
+          VirtualPosition: { select: { symbol: true, quantity: true, currentPrice: true, avgPrice: true } },
           _count: { select: { VirtualOrder: true } },
         },
       }),
+    ])
+
+    const [settlementValues, priceMap] = await Promise.all([
+      getAccountSettlementValues(prisma, accounts.map((a) => a.id)),
+      fetchLivePriceMap(accounts.flatMap((a) => a.VirtualPosition.map((p) => p.symbol))),
     ])
 
     return NextResponse.json({
@@ -50,14 +57,10 @@ export async function GET(request: NextRequest) {
       page,
       pageSize: PAGE_SIZE,
       accounts: accounts.map((a) => {
-        const positionsValue = a.VirtualPosition.reduce(
-          (sum, p) =>
-            sum + p.quantity * Number(p.currentPrice ?? p.avgPrice),
-          0
-        )
         const initialCash = Number(a.initialCash)
         const basis = totalContributed(a.initialCash, a.contributedCash)
-        const totalValue = Number(a.currentCash) + positionsValue
+        const liveValue = Number(a.currentCash) + positionsMarketValue(a.VirtualPosition, priceMap)
+        const totalValue = resolveAccountTotalValue(a, liveValue, settlementValues)
         return {
           id: a.id,
           name: a.name,

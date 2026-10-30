@@ -1,12 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { formatKrwCompact } from "@/lib/account-money";
+import { formatAccountMoney, formatAccountSignedMoney, formatKrwCompact, isUsdAccount } from "@/lib/account-money";
 import { Wallet, Vault, TrendUp, CurrencyKrw, ArrowUpRight, ArrowDownRight, Info, CalendarBlank } from "phosphor-react";
 import type { PortfolioStats } from "@/lib/dashboard-data";
 import { t } from "@/lib/i18n";
 
-const formatKRW = (v: number): string => formatKrwCompact(v);
+// 원화는 억·만 축약, 달러 합계(/us)는 $ 표기 — 합계는 한 통화의 계좌만 더한 값이다.
+const formatMoney = (v: number, currency: PortfolioStats["currency"]): string =>
+  isUsdAccount(currency) ? formatAccountMoney(v, currency) : t("{0}원", formatKrwCompact(v));
+const formatSignedMoney = (v: number, currency: PortfolioStats["currency"]): string =>
+  isUsdAccount(currency)
+    ? formatAccountSignedMoney(v, currency)
+    : t("{0}원", formatKrwCompact(v, { signed: true }));
 
 function profitColorClass(value: number): string {
   if (value > 0) return "text-[var(--main-red)]";
@@ -43,9 +49,9 @@ export default function PortfolioSummaryBar({ initialStats }: { initialStats: Po
   const cards = [
     {
       label: t("총 모의 투자금"),
-      description: t("운용중인 가상계좌에 설정된 초기 모의 투자금 합계입니다. 삭제된 계좌는 제외됩니다."),
+      description: t("운용중인 가상계좌의 초기 모의 투자금과 적립 납입액 합계입니다. 삭제된 계좌는 제외됩니다."),
       icon: Wallet,
-      value: t("{0}원", formatKRW(stats.totalInvested)),
+      value: formatMoney(stats.totalInvested, stats.currency),
       valueColor: "text-white",
       badge: t("운용중 {0}개", stats.accountCount),
       badgeIsPositive: true,
@@ -55,7 +61,7 @@ export default function PortfolioSummaryBar({ initialStats }: { initialStats: Po
       label: t("총 평가금액"),
       description: t("운용중인 계좌의 현금과 보유 포지션 평가액을 합산한 현재 가치입니다. 삭제된 계좌는 제외됩니다."),
       icon: Vault,
-      value: t("{0}원", formatKRW(stats.totalValue)),
+      value: formatMoney(stats.totalValue, stats.currency),
       valueColor: "text-white",
       badge: "",
       badgeIsPositive: true,
@@ -75,7 +81,7 @@ export default function PortfolioSummaryBar({ initialStats }: { initialStats: Po
       label: t("총 수익금"),
       description: t("운용중인 계좌의 총 평가금액에서 총 모의 투자금을 뺀 평가손익입니다."),
       icon: CurrencyKrw,
-      value: t("{0}원", `${isPositive ? "+" : ""}${formatKRW(stats.totalProfit)}`),
+      value: formatSignedMoney(stats.totalProfit, stats.currency),
       valueColor: profitColorClass(stats.totalProfit),
       badge: "",
       badgeIsPositive: isPositive,
@@ -85,7 +91,7 @@ export default function PortfolioSummaryBar({ initialStats }: { initialStats: Po
       label: t("일간 손익"),
       description: t("오늘 매도 체결로 확정된 실현손익 합계입니다."),
       icon: CalendarBlank,
-      value: t("{0}원", `${isDailyPos && stats.dailyPnl !== 0 ? "+" : ""}${formatKRW(stats.dailyPnl)}`),
+      value: formatSignedMoney(stats.dailyPnl, stats.currency),
       valueColor: profitColorClass(stats.dailyPnl),
       badge: t("오늘"),
       badgeIsPositive: isDailyPos,

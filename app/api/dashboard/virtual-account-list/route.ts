@@ -7,6 +7,7 @@ import {
   withOwnership,
 } from "@/lib/get-user";
 import { getAccountSettlementValues, moneyToNumber, resolveAccountTotalValue } from "@/lib/server/assetService";
+import { fetchLivePriceMap, positionsMarketValue } from "@/lib/server/accountValuation";
 
 export interface VirtualAccountListItem {
   id: string;
@@ -34,13 +35,13 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
 
-    const settlementValues = await getAccountSettlementValues(prisma, accounts.map((a) => a.id));
+    const [settlementValues, priceMap] = await Promise.all([
+      getAccountSettlementValues(prisma, accounts.map((a) => a.id)),
+      fetchLivePriceMap(accounts.flatMap((a) => (a.VirtualPosition ?? []).map((p) => p.symbol))),
+    ]);
 
     const result: VirtualAccountListItem[] = accounts.map((a) => {
-      const posValue = (a.VirtualPosition ?? []).reduce(
-        (sum, p) => sum + p.quantity * moneyToNumber(p.currentPrice ?? p.avgPrice),
-        0
-      );
+      const posValue = positionsMarketValue(a.VirtualPosition, priceMap);
       const initialAmount = moneyToNumber(a.initialCash);
       const liveValue = moneyToNumber(a.currentCash) + posValue;
       const totalValue = resolveAccountTotalValue(a, liveValue, settlementValues);

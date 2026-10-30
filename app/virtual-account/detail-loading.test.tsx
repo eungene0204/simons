@@ -343,6 +343,67 @@ describe("VirtualAccountDetailPage loading", () => {
     expect(screen.getByText("+20,000원")).toBeInTheDocument();
   });
 
+  it("shows the account-wide change next to total assets even when holdings are in profit", async () => {
+    // 2026-10-30 사고: 목록 카드(계좌 전체 +1.93%)와 상세(보유 종목 수익률 마이너스)가 엇갈렸다 —
+    // 상세에는 계좌 전체 손익이 어디에도 없었다.
+    window.sessionStorage.setItem(
+      "virtual-account-detail:account-123",
+      JSON.stringify({
+        account: {
+          id: "account-123",
+          name: "테스트 계좌",
+          initialAmount: 1_000_000,
+          currentBalance: 830_000,
+          totalValue: 950_000,
+          tradingMode: "manual",
+          createdAt: "2026-06-01T00:00:00.000Z",
+          updatedAt: "2026-06-01T00:00:00.000Z",
+        },
+        holdings: [{
+          symbol: "005930", name: "삼성전자", quantity: 10,
+          averagePrice: 10_000, currentPrice: 12_000,
+          totalValue: 120_000, profit: 20_000, profitPercent: 20,
+        }],
+        transactions: [],
+        trackedSymbols: [],
+      })
+    );
+
+    render(<VirtualAccountDetailPage />);
+
+    const change = await screen.findByTestId("account-total-change");
+    expect(change).toHaveTextContent("-50,000원 (-5.00%)");
+    expect(change).toHaveTextContent("초기 자본 대비");
+    expect((screen.getByText("보유 종목 수익률")).closest("div")).toHaveTextContent("+20.00%");
+  });
+
+  it("shows the hourly return chart on the default tab without opening the performance tab", async () => {
+    // 2026-10-30: 처음엔 '성과 분석' 탭 안에 넣어 사용자가 찾지 못했다 — 상단 KPI 아래에 항상 보여야 한다.
+    window.sessionStorage.setItem(
+      "virtual-account-detail:account-123",
+      JSON.stringify({
+        account: {
+          id: "account-123",
+          name: "테스트 계좌",
+          initialAmount: 1_000_000,
+          currentBalance: 1_000_000,
+          totalValue: 1_000_000,
+          tradingMode: "manual",
+          createdAt: "2026-06-01T00:00:00.000Z",
+          updatedAt: "2026-06-01T00:00:00.000Z",
+        },
+        holdings: [],
+        transactions: [],
+        trackedSymbols: [],
+      })
+    );
+
+    render(<VirtualAccountDetailPage />);
+
+    expect(await screen.findByRole("heading", { name: "수익률 변화" })).toBeInTheDocument();
+    expect(screen.queryByText("분석 요약")).not.toBeInTheDocument();
+  });
+
   it("keeps detail help tooltips inside the mobile viewport and focus-accessible", async () => {
     window.sessionStorage.setItem(
       "virtual-account-detail:account-123",

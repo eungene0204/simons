@@ -600,6 +600,13 @@ export const en: Record<string, string> = {
   "평가금액": "Valuation",
   // ── app/backtest/BacktestHistoryLoading.tsx
   "불러오는 중...": "Loading...",
+  "수익률 변화": "Return over time",
+  "계좌 개설 이후 일별 계좌 전체 수익률 ({0})": "Daily whole-account return since the account opened ({0})",
+  "총 납입액 대비": "vs. total contributions",
+  "조회 기간": "Time range",
+  "일별 수익률": "Daily return",
+  "수익률 변화를 불러오지 못했습니다.": "Could not load the return history.",
+  "아직 표시할 일별 기록이 없습니다. 장 마감 기준으로 하루에 한 점씩 채워집니다.": "No daily records to show yet. One point is added per trading day at the market close.",
   // ── app/backtest/BacktestHistoryView.tsx
   "{0} 기록 삭제": "Delete record {0}",
   "기록 삭제": "Delete record",
@@ -870,7 +877,7 @@ export const en: Record<string, string> = {
   "오늘": "Today",
   "오늘 매도 체결로 확정된 실현손익 합계입니다.": "Sum of realized P&L confirmed by today's sell fills.",
   "운용중 {0}개": "{0} active",
-  "운용중인 가상계좌에 설정된 초기 모의 투자금 합계입니다. 삭제된 계좌는 제외됩니다.": "Sum of the initial simulated capital set on active virtual accounts. Deleted accounts are excluded.",
+  "운용중인 가상계좌의 초기 모의 투자금과 적립 납입액 합계입니다. 삭제된 계좌는 제외됩니다.": "Sum of the initial simulated capital and recurring contributions of active virtual accounts. Deleted accounts are excluded.",
   "운용중인 계좌 기준으로 총 수익금을 총 모의 투자금으로 나눈 평가 수익률입니다.": "Valuation return: total profit divided by total simulated capital across active accounts.",
   "운용중인 계좌의 총 평가금액에서 총 모의 투자금을 뺀 평가손익입니다.": "Unrealized P&L: total valuation of active accounts minus total simulated capital.",
   "운용중인 계좌의 현금과 보유 포지션 평가액을 합산한 현재 가치입니다. 삭제된 계좌는 제외됩니다.": "Current value: cash plus valuation of open positions across active accounts. Deleted accounts are excluded.",

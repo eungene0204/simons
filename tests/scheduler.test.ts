@@ -11,6 +11,11 @@ vi.mock("@/lib/server/dataRetention", () => ({
   purgeExpiredRecords: vi.fn(),
 }));
 
+vi.mock("@/lib/server/accountDailySnapshots", () => ({
+  // 구현을 vi.fn 인자로 줘야 restoreAllMocks·mockReset 뒤에도 남는다 — 잡은 테스트가 끝난 뒤에도 비동기로 이어진다.
+  syncAccountDailySnapshots: vi.fn(async () => ({ accounts: 0, written: 0, mismatched: [], fetchFailed: [] })),
+}));
+
 // 같은 분(정각)에 구독 갱신 잡도 함께 발화하므로, 그 잡이 조용히 끝나도록 최소 형태만 준다.
 vi.mock("@/lib/prisma", () => ({
   prisma: { user: { findMany: async () => [] } },
@@ -18,6 +23,7 @@ vi.mock("@/lib/prisma", () => ({
 
 import { runSchedulerAction } from "@/lib/server/scheduler-actions";
 import { purgeExpiredRecords } from "@/lib/server/dataRetention";
+import { syncAccountDailySnapshots } from "@/lib/server/accountDailySnapshots";
 import { callSchedulerAPI, startScheduler, stopScheduler } from "@/lib/scheduler";
 
 const mockedRun = vi.mocked(runSchedulerAction);
@@ -158,5 +164,58 @@ describe("tick — 보존기간 파기 발화", () => {
     startScheduler();
 
     expect(mockedPurge).not.toHaveBeenCalled();
+  });
+});
+
+// 일별 수익률 저장 — 빠진 날짜만 채우므로 서버 시작 때 한 번, 그리고 매일 06:30 KST(주말 포함)에 돈다.
+describe("일별 수익률 저장 발화", () => {
+  const mockedSync = vi.mocked(syncAccountDailySnapshots);
+
+  beforeEach(() => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mockedRun.mockReset();
+    mockedRun.mockResolvedValue({ action: "noop" });
+    mockedSync.mockClear();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    stopScheduler();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("서버 시작 때 한 번 돈다 — 배포 직후 과거 구간이 바로 채워진다", async () => {
+    vi.setSystemTime(new Date("2026-09-14T05:07:05Z")); // 월 14:07 KST
+
+    startScheduler();
+
+    await vi.waitFor(() => expect(mockedSync).toHaveBeenCalledTimes(1));
+  });
+
+  it("06:30 KST 에 다시 돈다 — 토요일에도 (미국 금요일 장 반영)", async () => {
+    // 2026-09-19(토) 06:29 KST 에 시작(시작 실행 1회) → 1분 뒤 06:30 tick(2회째)
+    vi.setSystemTime(new Date("2026-09-18T21:29:05Z"));
+
+    startScheduler();
+    await vi.waitFor(() => expect(mockedSync).toHaveBeenCalledTimes(1));
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.waitFor(() => expect(mockedSync).toHaveBeenCalledTimes(2));
+
+    await vi.advanceTimersByTimeAsync(60_000); // 06:31 — 다시 발화하지 않는다
+    expect(mockedSync).toHaveBeenCalledTimes(2);
+  });
+
+  it("잡이 실패해도 스케줄러는 계속 돈다 (콘솔 error 로만 남긴다)", async () => {
+    mockedSync.mockRejectedValueOnce(new Error("db down"));
+    vi.setSystemTime(new Date("2026-09-20T05:07:05Z"));
+
+    expect(() => startScheduler()).not.toThrow();
+
+    await vi.waitFor(() =>
+      expect(console.error).toHaveBeenCalledWith(expect.stringContaining("계좌 일별 수익률 잡 실패"), expect.any(Error))
+    );
   });
 });
