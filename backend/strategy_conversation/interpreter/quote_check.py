@@ -22,7 +22,7 @@ no를 답했다. 인용이 이동평균도 볼린저도 신고가도 아닌 **�
 결정론 코드의 몫: ① 조건을 문장으로 옮겨 적기(LLM 출력 필드의 표기 변환) ② 응답이 정해진
 enum인지 확인 ③ enum 값에 따른 분기. 인용 문자열은 읽지 않는다.
 
-호출 범위: 결과를 바꿀 수 있는 조건(이동평균 계열·볼린저)만. 제거 판정은 별도 호출로 한 번
+호출 범위: 결과를 바꿀 수 있는 조건(이동평균 계열·볼린저·그 밖의 기술 신호)만. 제거 판정은 별도 호출로 한 번
 재확인하며 두 판정이 일치할 때만 제거한다. 그런 조건이 없으면 호출이 없다.
 
 실패 동작: 호출 오류·JSON 불성립·항목 수 불일치는 **판정 없음(None)** — 교정도 제거도 하지 않는다
@@ -59,6 +59,27 @@ BOLLINGER_FACTORS = (BOLLINGER_FACTOR, *BOLLINGER_BAND_NAMES, BOLLINGER_MIDDLE_R
 # 영업이익 성장률이 20% 이상인 종목을 매수하고")에 인용 "매수"를 달아 이 조건을 지어냈다(거래 110→3회).
 BUY_AT_START_FACTOR = "technical.buy_at_start"
 CHECKED_FACTORS = MA_FACTORS + BOLLINGER_FACTORS + (BUY_AT_START_FACTOR,)
+# 그 밖의 기술 신호·합성 개념(2026-10-30 뉴스 전략 '한미반도체'): 재무 필터만 말한 문장("영업이익 성장률이
+# 30% 이상인 종목을 매수하고, 분기마다 리밸런싱")에 형태 견본의 '필터 + 신호' 두 줄을 흉내 내 MACD 골든크로스
+# (인용 "매수")·종가 63거래일 연속 상승(인용 = 리밸런싱 구절)을 지어냈다(nemotron-3.5-super-vl, 거래 0회).
+# 지표를 하나씩 목록에 더하는 대신 사건형 신호 계열 전체(레지스트리 value_type="event"인 기술 신호, 온톨로지의
+# LLM 출력 개념)를 같은 판정에 태운다. 기준값을 갖는 지표(RSI·초과수익률)는 대상이 아니다. 필수 판정도 아니다 —
+# 두 번 확인된 거절만 빼고, 판정 실패·unclear는 남긴다(값 없는 시가총액과 같은 계약).
+
+
+def is_generic_signal(factor: Optional[str]) -> bool:
+    """위 전용 목록 밖의 사건형 기술 신호·합성 개념인가 — LLM 출력 factor ID로 정본 선언만 조회한다."""
+    from strategy_conversation.registry.concept_ontology import concept_spec
+    from strategy_conversation.registry.indicator_registry import REGISTRY
+
+    factor = _canonical_factor(factor)
+    if not factor or factor in CHECKED_FACTORS:
+        return False
+    concept = concept_spec(factor)
+    if concept is not None:
+        return bool(concept.llm_output)
+    spec = REGISTRY.get(factor)
+    return spec is not None and spec.category == "technical" and spec.value_type == "event"
 # 값 없는 시가총액 조건(2026-10-28): 인터프리터가 "KOSPI 종목"을 인용으로 달아 시총 조건을 지어내고
 # (nemotron-3.5-super-vl 3회 중 2회) 사용자에게 시총 기준값을 되물었다. 값이 있으면 사용자가 수치를
 # 말한 것이라 묻지 않는다.
@@ -218,6 +239,8 @@ def render_condition(cond: Any, role: str) -> str:
     if factor == MARKET_CAP_FACTOR:
         bound = "이하" if op in ("<", "<=") else "이상"
         return f"{side} 대상 — 시가총액(회사 규모)이 기준값 {bound}인 종목만"
+    if is_generic_signal(factor):
+        return f"{side} — {_signal_phrase(factor, cond)}"
     line = "지수이동평균선(EMA)" if factor == "technical.ema" else "이동평균선"
     short, long_ = _period(params.get("short_period")), _period(params.get("long_period"))
     subject = "종가가" if short in (None, 1) else f"{short}일 {line}이"
@@ -225,18 +248,33 @@ def render_condition(cond: Any, role: str) -> str:
     return f"{side} — {subject} {target}을 {motion}"
 
 
+def _signal_phrase(factor: str, cond: Any) -> str:
+    """사건형 신호 조건의 평이한 문장 — 정본 이름 + 파라미터 표기 변환."""
+    from strategy_conversation.registry.concept_ontology import concept_spec
+    from strategy_conversation.registry.indicator_registry import REGISTRY
+
+    concept = concept_spec(factor)
+    spec = REGISTRY.get(factor)
+    name = concept.name if concept is not None else (spec.display_name if spec is not None else factor)
+    params = ", ".join(f"{k}={v}" for k, v in (cond.parameters or {}).items() if v is not None)
+    return f"{name}({params}) 신호가 나오면" if params else f"{name} 신호가 나오면"
+
+
 def conditions_to_check(
     strategy: Any, only: Optional[List[Any]] = None,
     skip: Callable[[Any], bool] = lambda _c: False,
 ) -> List[Tuple[Any, str]]:
-    """물어볼 (조건, 역할) 목록 — 이동평균 계열·볼린저·시작일 매수·값 없는 시가총액이고 인용이 있는 조건만."""
+    """물어볼 (조건, 역할) 목록 — 이동평균 계열·볼린저·시작일 매수·그 밖의 기술 신호·값 없는 시가총액이고
+    인용이 있는 조건만."""
     targets: List[Tuple[Any, str]] = []
     for role in ("entry_conditions", "exit_conditions"):
         for cond in getattr(strategy, role):
             if only is not None and not any(cond is c for c in only):
                 continue
             factor = _canonical_factor(cond.factor)
-            checked = (factor in CHECKED_FACTORS
+            # 그 밖의 기술 신호는 생성 턴만 — 형태 견본 흉내는 1차 해석의 사고이고, 수정 턴의 추가 조건은
+            # 패치 환각 게이트가 맡는다.
+            checked = (factor in CHECKED_FACTORS or (only is None and is_generic_signal(factor))
                        or (factor == MARKET_CAP_FACTOR and cond.value is None))
             if checked and cond.source_text and not skip(cond):
                 targets.append((cond, role))
@@ -281,7 +319,7 @@ def check_quotes(
     compact_input = _compact(user_input)
     removed = [(c, role) for c, role in targets
                if quote_does_not_express(verdicts, c)
-               and _canonical_factor(c.factor) in MA_FACTORS
+               and (_canonical_factor(c.factor) in MA_FACTORS or is_generic_signal(c.factor))
                and _compact(c.source_text or "") in compact_input]
     kinds = _request_kinds(user_input, removed, chat) if removed else None
     if not kinds:
@@ -491,12 +529,14 @@ def quote_does_not_express(verdicts: Optional[QuoteVerdicts], cond: Any) -> bool
     옮겨 적어 조작 제거 0/12라 기각했다. unclear·enum 밖·판정 없음은 False(남긴다). 신고가
     돌파는 제거가 아니라 교정 대상이다(quote_describes_breakout). 값 없는 시가총액 조건도
     같은 규칙으로 뺀다(인용이 회사 규모가 아닌 시장 이름일 때 — MARKET_CAP_FACTOR). 시작일 매수도
-    같다(인용이 '매수'처럼 다른 매수 기준을 받는 말일 때 — BUY_AT_START_FACTOR).
+    같다(인용이 '매수'처럼 다른 매수 기준을 받는 말일 때 — BUY_AT_START_FACTOR). 그 밖의 기술 신호도
+    같다(is_generic_signal — 형태 견본을 흉내 내 지어낸 신호, 2026-10-30).
     """
     verdict = _verdict(verdicts, cond)
     return (verdict is not None and verdict.expresses == "no"
             and verdict.describes in ("other", "ranking")
-            and _canonical_factor(cond.factor) in (*MA_FACTORS, MARKET_CAP_FACTOR, BUY_AT_START_FACTOR))
+            and (_canonical_factor(cond.factor) in (*MA_FACTORS, MARKET_CAP_FACTOR, BUY_AT_START_FACTOR)
+                 or is_generic_signal(cond.factor)))
 
 
 def quote_describes_ranking(verdicts: Optional[QuoteVerdicts], cond: Any) -> bool:

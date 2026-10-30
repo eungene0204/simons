@@ -1040,6 +1040,25 @@ def test_trading_value_ratio_quote_is_not_a_substitution():
             cond, indicator_registry.resolve(factor), indicator_registry) is substituted
 
 
+def test_operating_income_growth_rate_quote_is_not_a_substitution():
+    # 사고(2026-10-29~30, 뉴스 전략 테스트 '한미반도체'): "영업이익 성장률 30% 이상"을 LLM이
+    # operating_income_growth로 정확히 냈는데, 별칭 표에 '성장률' 표기가 없어 인용이 '영업이익'
+    # (ebit)만 부른 것으로 읽혀 "영업이익증가율로 가깝게 반영했어요" 거짓 근사 안내가 나갔다.
+    # 금액 지표(ebit)를 넣은 것은 계속 대체다.
+    from strategy_conversation.primary import _substituted_factor
+    from strategy_conversation.registry import indicator_registry
+    from strategy_conversation.interpreter.models import StrategyCondition
+
+    quote = "영업이익 성장률이 30% 이상"
+    for factor, substituted in (
+        ("fundamental.operating_income_growth", False),
+        ("fundamental.operating_margin", True),
+    ):
+        cond = StrategyCondition(factor=factor, source_text=quote)
+        assert _substituted_factor(
+            cond, indicator_registry.resolve(factor), indicator_registry) is substituted
+
+
 def test_pending_source_text_double_report_covered():
     # 사고(2026-08-14, '매출성장·PBR 추세 조건' 예시): LLM이 값-대기 조건을
     # unsupported_features에도 사용자 표현으로 이중 기입 — 라벨("매출액증가율")과 표기가
@@ -7215,8 +7234,9 @@ def test_20_day_low_exit_is_breakout_not_moving_average():
              "parameters": {"short_period": 1, "long_period": 20},
              "source_text": "20일 저가 아래로 내려오면 매도"}],
     ))
+    # 매수 신고가 돌파도 인용 대조 대상이다(그 밖의 기술 신호, 2026-10-30) — 항목은 매수·매도 순.
     verdicts = _stub_quote_verdicts(
-        user_input, intent, _items(("no", "new_high_breakout")))
+        user_input, intent, _items(("yes", "new_high_breakout"), ("no", "new_high_breakout")))
     _fill_deterministic_condition_params(intent, verdicts)
     validated, report = run_validation(intent)
     parsed, dropped, _pending = compile_partial(validated, report, user_input)

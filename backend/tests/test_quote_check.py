@@ -315,3 +315,109 @@ def test_requested_buy_at_start_is_kept():
     verdicts = primary._check_condition_quotes(intent, text, lambda *a, **k: response("yes", "other"))
     primary._drop_fabricated_conditions(intent, text, verdicts)
     assert [c.factor for c in intent.strategy.entry_conditions] == ["technical.buy_at_start"]
+
+
+SEMI_TEXT = ("반도체 후공정 관련주 중 영업이익 성장률이 30% 이상인 종목을 매수하고, "
+             "분기마다 리밸런싱해 조건에서 벗어난 종목은 매도하는 전략")
+
+
+def fabricated_signal_intent(factor, quote, parameters=None):
+    # 2026-10-30 트레이스(nemotron-3.5-super-vl): 재무 필터만 말한 문장에 형태 견본의 '필터 + 신호'를 흉내 내
+    # MACD 골든크로스(인용 "매수")·종가 63거래일 연속 상승(인용 = 리밸런싱 구절)을 지어냈다(거래 0회).
+    return StrategyIntent.model_validate({"intent": "CREATE_STRATEGY", "strategy": {
+        "universe": {"markets": ["KOSPI", "KOSDAQ"], "sectors": ["반도체 후공정"]},
+        "entry_conditions": [
+            {"factor": "fundamental.operating_income_growth", "operator": ">=", "value": 30.0,
+             "unit": "percent", "source_text": "영업이익 성장률이 30% 이상인"},
+            {"factor": factor, "parameters": parameters, "source_text": quote},
+        ],
+        "portfolio": {"rebalance_frequency": "quarterly"},
+    }})
+
+
+@pytest.mark.parametrize("factor,quote,parameters,kind", [
+    ("concept.macd_golden_cross", "매수", None, "signal"),
+    ("technical.consecutive_up", "분기마다 리밸런싱해 조건에서 벗어난 종목은 매도하는 전략",
+     {"period": 63}, "rebalance"),
+])
+def test_fabricated_generic_signal_is_removed_silently(factor, quote, parameters, kind):
+    intent = fabricated_signal_intent(factor, quote, parameters)
+    calls = []
+
+    def chat(system, user, **kwargs):
+        calls.append((system, user))
+        if system == quote_check._KIND_SYSTEM:
+            return json.dumps({"items": [{"kind": kind}]})
+        return response("no", "other")
+
+    verdicts = primary._check_condition_quotes(intent, SEMI_TEXT, chat)
+    notices = primary._drop_fabricated_conditions(intent, SEMI_TEXT, verdicts)
+    assert notices == []
+    assert [c.factor for c in intent.strategy.entry_conditions] == ["fundamental.operating_income_growth"]
+
+
+def test_fabricated_sole_generic_signal_still_notices():
+    # 남은 매수 기준이 없으면 사용자의 말이 어디에도 안 들어간 것이라 알린다.
+    text = "코스피 종목 중 거래가 활발할 때 매수하는 전략"
+    intent = StrategyIntent.model_validate({"intent": "CREATE_STRATEGY", "strategy": {
+        "entry_conditions": [{"factor": "concept.macd_golden_cross", "source_text": "거래가 활발할 때 매수"}],
+    }})
+
+    def chat(system, user, **kwargs):
+        if system == quote_check._KIND_SYSTEM:
+            return json.dumps({"items": [{"kind": "signal"}]})
+        return response("no", "other")
+
+    verdicts = primary._check_condition_quotes(intent, text, chat)
+    notices = primary._drop_fabricated_conditions(intent, text, verdicts)
+    assert intent.strategy.entry_conditions == []
+    assert len(notices) == 1
+
+
+@pytest.mark.parametrize("confirmation", [
+    response("yes", "other"), response("unclear", "other"), RuntimeError("checker unavailable"),
+])
+def test_generic_signal_kept_without_confirmed_rejection(confirmation):
+    intent = fabricated_signal_intent("concept.macd_golden_cross", "매수")
+    calls = []
+
+    def chat(system, user, **kwargs):
+        calls.append(system)
+        if len(calls) == 1:
+            return response("no", "other")
+        if isinstance(confirmation, Exception):
+            raise confirmation
+        return confirmation
+
+    verdicts = primary._check_condition_quotes(intent, SEMI_TEXT, chat)
+    primary._drop_fabricated_conditions(intent, SEMI_TEXT, verdicts)
+    assert [c.factor for c in intent.strategy.entry_conditions] == [
+        "fundamental.operating_income_growth", "concept.macd_golden_cross"]
+
+
+def test_generic_signal_is_not_a_required_verdict():
+    # 판정 실패·unclear로 정상 MACD·RSI 조건이 보류 질문이 되면 안 된다 — 확인된 거절만 뺀다.
+    from strategy_conversation.interpreter.required_checks import RequiredChecks
+
+    intent = fabricated_signal_intent("concept.macd_golden_cross", "매수")
+    quotes, _trading = RequiredChecks().conditions(intent, SEMI_TEXT)
+    assert quotes == []
+    assert [c.factor for c, _ in quote_check.targets_for_intent(intent, SEMI_TEXT)] == [
+        "concept.macd_golden_cross"]
+
+
+def test_generic_signal_rendered_in_plain_words():
+    intent = StrategyIntent.model_validate({"intent": "CREATE_STRATEGY", "strategy": {
+        "entry_conditions": [{"factor": "technical.consecutive_up", "parameters": {"period": 5},
+                              "source_text": "5거래일 연속 상승하면"},
+                             {"factor": "concept.macd_golden_cross", "source_text": "MACD 골든크로스"}],
+    }})
+    up, macd = intent.strategy.entry_conditions
+    assert quote_check.render_condition(up, "entry_conditions") == "매수 — 종가 연속 상승(period=5) 신호가 나오면"
+    assert quote_check.render_condition(macd, "entry_conditions") == "매수 — MACD 골든크로스 신호가 나오면"
+
+
+def test_valued_indicators_are_not_generic_signals():
+    # 기준값을 갖는 지표·미등록 개념은 대상이 아니다(재생 픽스처: 초과수익률 필터·보유 기간 청산).
+    for factor in ("technical.rsi", "technical.relative_return", "concept.time_based_exit", "fundamental.per"):
+        assert not quote_check.is_generic_signal(factor)

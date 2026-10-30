@@ -67,12 +67,14 @@ class RequiredChecks:
                                "field": field, **(row or {"status": status})})
 
     def conditions(self, intent, user_input, only=None):
-        from .quote_check import MARKET_CAP_FACTOR, _canonical_factor, targets_for_intent
+        from .quote_check import MARKET_CAP_FACTOR, _canonical_factor, is_generic_signal, targets_for_intent
         from .trading_value_check import conditions_to_check
         # 값 없는 시가총액 조건은 필수 판정이 아니다 — 확인된 거절만 빼고(출처 대조 가드) 판정
         # 실패·unclear는 남긴다. 필수로 두면 '소형주'가 판정 실패 하나로 보류 질문이 된다.
+        # 그 밖의 기술 신호(MACD·RSI 등)도 같다 — 지어낸 신호를 거르는 그물이지 정상 신호의 관문이 아니다.
         quotes = [(c, role) for c, role in targets_for_intent(intent, user_input, only)
-                  if _canonical_factor(c.factor) != MARKET_CAP_FACTOR]
+                  if _canonical_factor(c.factor) != MARKET_CAP_FACTOR
+                  and not is_generic_signal(c.factor)]
         targets = (quotes,
                    conditions_to_check(intent.strategy, only) if intent.strategy else [])
         self.plan("quote", [c for c, _ in targets[0]])

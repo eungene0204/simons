@@ -576,6 +576,7 @@ _ALIASES: Dict[str, str] = {
     "매출액증가율": "fundamental.revenue_growth", "매출증가율": "fundamental.revenue_growth",
     "revenue_growth": "fundamental.revenue_growth",
     "영업이익증가율": "fundamental.operating_income_growth",
+    "영업이익성장률": "fundamental.operating_income_growth",
     "operating_income_growth": "fundamental.operating_income_growth",
     "순이익증가율": "fundamental.net_income_growth", "net_income_growth": "fundamental.net_income_growth",
     "eps증가율": "fundamental.eps_growth", "eps_growth": "fundamental.eps_growth",

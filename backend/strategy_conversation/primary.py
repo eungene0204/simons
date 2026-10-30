@@ -1741,6 +1741,16 @@ def _drop_fabricated_conditions(
                     shape_copies.append({"role": role, "factor": cond.factor,
                                          "quote": cond.source_text, "buy_at_start": False})
                     continue
+                # 같은 방식으로 지어낸 기술 신호(2026-10-30 MACD 골든크로스, 인용 "매수") — 남은 매수 조건·랭킹이
+                # 사용자의 매수 기준을 이미 담고 있을 때만 안내를 생략한다. 매수 기준이 그 신호뿐이면 알린다.
+                if (role == "entry_conditions" and quote_check.is_generic_signal(cond.factor)
+                        and (strategy.ranking or any(
+                            other is not cond
+                            and not quote_check.quote_does_not_express(quote_verdicts, other)
+                            for other in strategy.entry_conditions))):
+                    shape_copies.append({"role": role, "factor": cond.factor,
+                                         "quote": cond.source_text, "other_buy_basis": True})
+                    continue
                 # 인용이 순위 선정 구절이고 전략에 랭킹이 있으면 그 구절은 랭킹으로 반영됐다 —
                 # "매수 신호의 근거로 확인되지 않아"는 반영된 구절에 붙는 거짓 딱지다(2026-10-07
                 # 예시 57·70, 120B 3/6). 판정은 LLM(describes=ranking), 반영 확인은 랭킹 칸 구조.

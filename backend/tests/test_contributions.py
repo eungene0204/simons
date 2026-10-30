@@ -914,6 +914,14 @@ def test_dropped_plan_turn_is_fully_interpreted(monkeypatch):
     from strategy_conversation.interpreter import liquidity_exclusion_check
 
     def chat(system, user, **_kw):
+        # 인용 대조는 이동평균·RSI 조건 수만큼 항목을 받는다(그 밖의 기술 신호 포함, 2026-10-30).
+        if system == quote_check.build_system_prompt():
+            return json.dumps({"items": quote_reply["items"][:1] * user.count('인용: "')})
+        if system == check_batch._SYSTEM:
+            ids = json.loads(user)["checks"]["quote"]["item_ids"]
+            batched = json.loads(replies[system])
+            batched["checks"]["quote"] = {"items": [{**quote_reply["items"][0], "id": i} for i in ids]}
+            return json.dumps(batched)
         if system in replies:
             return replies[system]
         # 미지원 보고가 남은 턴은 유동성 제외 대조도 부른다(2026-10-07) — 이 문장의 보고는 유동성이 아니다.
