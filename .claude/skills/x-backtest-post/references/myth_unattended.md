@@ -50,7 +50,7 @@ bash .claude/skills/news-strategy-test/scripts/run_test.sh $D/photos   # result.
 
 ## 5. 글
 
-- `post1.txt`: SKILL.md 글 형식 1·4-1·6·6-1·7을 따른다. 직전 3~4편의 `~/nullstock-cf/myth-*/post1.txt`·`post2_reply.txt`를 읽고 표현·소제목·순서를 겹치지 않게 새로 쓴다(X API로 읽지 않는다 — 로컬 파일이 같은 내용).
+- `post1.txt`: SKILL.md 글 형식 1·4-1·6·6-1·**6-2(결과 해석 — 항상)**·7을 따른다. 게시 전에 `post1.txt`에 결과 해석 문단(승·패와 평균 크기, 곡선 모양, 벤치마크 차이, 한계)이 있는지 확인하고 없으면 써 넣는다 — 지표 풀이만 있는 글은 올리지 않는다. 직전 3~4편의 `~/nullstock-cf/myth-*/post1.txt`·`post2_reply.txt`를 읽고 표현·소제목·순서를 겹치지 않게 새로 쓴다(X API로 읽지 않는다 — 로컬 파일이 같은 내용).
   링크는 `uv run python -c "import sys; sys.path.insert(0,'scripts'); from post_to_x import strategy_open_url; print(strategy_open_url(open('prompt.txt').read(), 'myth-<NN>'))"`로 만든 주소를 내 문구 안에 넣는다.
 - `post2_reply.txt` + 사진 2~4장: `photos/shot_b_overview.png` 필수 + 이번 특징에 맞고 **직전 편과 다른 조합**(myth_series.md의 `사진=` 기록과 대조).
 - 게시 전 자기 점검: 두 글에서 `추천|유망|권장|전망|적합|우수|유리|기대|보장|수혜|맞았|틀렸|대기 시간|위 수치는 과거 데이터로|미래 수익` 이 나오면 고쳐 쓴다.
@@ -71,4 +71,4 @@ uv run python scripts/post_to_x.py --file $OUT/post2_reply.txt --long --image �
 
 - `references/myth_series.md`에 기존 줄과 같은 형식으로 한 줄 더한다(게시 id·영상 길이·링크 `myth-NN`·`사진=` 조합·검증 사실). 접은 후보도 `—` 번호로 이유와 함께 남긴다.
 - 보고서 `~/nullstock-cf/myth-daily-<YYYY-MM-DD>.md`(게시하지 않은 날도 쓴다): 첫 줄은 `게시함: <링크>` 또는 `게시 안 함: <이유 한 줄>`.
-  이어서 핵심 수치, 접은 후보와 이유, 내가 정한 값(주제·문장·칩), **연구노트 추가 대기**, 소리를 직접 못 들었다는 것. 알림·파일 열기는 `myth_daily.sh`가 한다.
+  이어서 핵심 수치, 결과 해석 문단 포함 여부, 접은 후보와 이유, 내가 정한 값(주제·문장·칩), **연구노트 추가 대기**, 소리를 직접 못 들었다는 것. 알림·파일 열기는 `myth_daily.sh`가 한다.
