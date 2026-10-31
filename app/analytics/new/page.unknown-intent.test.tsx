@@ -111,6 +111,45 @@ describe("StrategyLab unknown intent fallback", () => {
     expect(classifyCall?.[1]?.headers).toMatchObject({ "x-nullstock-region": "kr" });
   });
 
+  // 회귀(2026-10-31): 분류 요청이 서버 무응답(프록시 시간 초과·503)으로 실패했는데
+  // "조금 다르게 표현해 주세요"가 나가 사용자 입력 탓으로 보였다 — 서버 장애로 안내한다.
+  it("tells the user the server failed, not that the wording was bad, when classify fails", async () => {
+    const userRequest = "KOSPI에서 5거래일 연속 상승한 종목을 매수 조건으로 설정해 주세요";
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/model/status") {
+        return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
+      }
+      if (url === "/api/user") {
+        return Promise.resolve(
+          createJsonResponse({ user: { name: "Tester", email: "tester@example.com" } })
+        );
+      }
+      if (url === "/api/query/classify") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ detail: "LLM 서버 응답 실패" }), {
+            status: 503,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+      }
+      return Promise.resolve(createJsonResponse({}));
+    });
+
+    render(<StrategyLabPage />);
+
+    const textarea = await screen.findByRole("textbox");
+    fireEvent.change(textarea, { target: { value: userRequest } });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+
+    expect(await screen.findByText(/해석 서버\(AI 모델\)가 응답하지 않아/)).toBeInTheDocument();
+    expect(screen.queryByText(/조금 다르게 표현해 주시겠어요/)).not.toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input).includes("/api/strategy/parse"))
+    ).toBe(false);
+  });
+
   it("starts a metric research conversation by asking for the market", async () => {
     const userRequest = "샤프지수를 최대화할 수 있는 전략을 만들어줘";
 

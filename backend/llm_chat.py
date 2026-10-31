@@ -77,10 +77,13 @@ class OpenRouterUpstreamUnavailable(RuntimeError):
     한도 소진(OpenRouterQuotaExhausted)과 달리 프로세스 전체를 전환하지 않는다 — 다음
     요청은 다시 OpenRouter로 간다(상류 과부하는 초 단위로 풀리는 순간 장애다)."""
 
-    def __init__(self, code: int, body: bytes):
+    def __init__(self, code: int, body: bytes, *, slow: bool = False):
         super().__init__(f"openrouter 상류 일시 오류 {code}가 재시도 예산을 넘김: {body[:200]!r}")
         self.code = code
         self.body = body
+        # 상류가 붙잡고 있다가 낸 실패(무응답 시간 초과·~120초 뒤 504) — 순간 장애가 아니라
+        # 모델 쿨다운 대상이다(다음 요청이 같은 대기를 반복하지 않게).
+        self.slow = slow
 
 
 class OpenRouterModelUnavailable(RuntimeError):
@@ -177,10 +180,14 @@ def _open_with_model_fallback(payload: dict[str, Any], open_fn):
     """OpenRouter 모델 체인(주 모델 → 폴백)을 순서대로 시도한다.
 
     모델이 사라졌거나(404) 일시 오류가 재시도 예산을 넘기면 같은 요청을 다음 모델로 보낸다.
-    404 모델은 쿨다운 동안 건너뛴다. 한도 소진(OpenRouterQuotaExhausted)은 계정 단위라 모델을
-    바꿔도 소용없으므로 그대로 올린다. 체인이 끝나면 마지막 예외를 올려 호출부가 Ollama로 넘긴다."""
+    404 모델은 쿨다운 동안 뒤로 미루고, 응답 지연으로 실패한 모델은 쿨다운 동안 아예 시도하지 않는다.
+    한도 소진(OpenRouterQuotaExhausted)은 계정 단위라 모델을 바꿔도 소용없으므로 그대로 올린다.
+    체인이 끝나면 마지막 예외를 올려 호출부가 Ollama로 넘긴다."""
     last_error: Exception | None = None
     for model in llm_backend.candidate_models():
+        if llm_backend.model_is_slow(model):
+            last_error = OpenRouterUpstreamUnavailable(408, b"model cooling down after slow failure", slow=True)
+            continue
         with llm_backend.openrouter_model_for_this_request(model):
             _log_lane(payload)
             try:
@@ -194,7 +201,12 @@ def _open_with_model_fallback(payload: dict[str, Any], open_fn):
                                model, llm_backend.MODEL_GONE_COOLDOWN_S)
             except OpenRouterUpstreamUnavailable as exc:
                 last_error = exc
-                logger.warning("OpenRouter 모델 %s 상류 일시 오류(code=%s) — 다음 모델로 보낸다", model, exc.code)
+                if exc.slow:
+                    llm_backend.mark_model_slow(model)
+                    logger.warning("OpenRouter 모델 %s 응답 지연 실패(code=%s) — %.0f초간 건너뛰고 다음 모델로 보낸다",
+                                   model, exc.code, llm_backend.MODEL_GONE_COOLDOWN_S)
+                else:
+                    logger.warning("OpenRouter 모델 %s 상류 일시 오류(code=%s) — 다음 모델로 보낸다", model, exc.code)
         cancellation.raise_if_cancelled()
     assert last_error is not None
     raise last_error
@@ -332,6 +344,10 @@ def _open_with_transient_retry(open_fn, payload: dict[str, Any], probe):
                     raise
                 # 상태 코드로 온 상류 일시 오류도 본문 error와 같은 재시도·모델 폴백을 탄다.
                 code, raw, result = exc.code, _read_error_body(exc), None
+            except TimeoutError as exc:
+                # 상류가 응답 없이 시도 상한을 넘겼다 — 같은 모델 재시도 없이 다음 모델·Ollama로.
+                cancellation.raise_if_cancelled()
+                raise OpenRouterUpstreamUnavailable(408, repr(exc).encode(), slow=True) from exc
             if code is None:
                 return result
             if code == 404:
@@ -343,7 +359,7 @@ def _open_with_transient_retry(open_fn, payload: dict[str, Any], probe):
                     "openrouter 상류 오류(code=%s)가 %.0f초 만에 옴 — 순간 장애가 아니라 같은 모델 재시도 생략",
                     code, time.monotonic() - started,
                 )
-                raise OpenRouterUpstreamUnavailable(code, raw)
+                raise OpenRouterUpstreamUnavailable(code, raw, slow=True)
             delay = _TRANSIENT_RETRY_BACKOFF_S[attempt]
             attempt += 1
             logger.warning(

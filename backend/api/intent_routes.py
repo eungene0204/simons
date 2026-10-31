@@ -24,6 +24,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 import cancellation
+import llm_backend
 import llm_progress
 import ui_language
 from intent.classifier import classify, format_history_context
@@ -52,9 +53,13 @@ def _chat(
     max_tokens: int,
     temperature: float,
     top_p: float,
+    raise_errors: bool = False,
 ) -> str:
     """coach와 동일한 공유 parser를 inference lock 안에서 호출한다. 없으면 빈 문자열.
-    백엔드(mlx/ollama)와 무관하게 등록된 공유 파서를 사용한다."""
+    백엔드(mlx/ollama)와 무관하게 등록된 공유 파서를 사용한다.
+
+    raise_errors=True면 LLM 호출 실패를 빈 응답으로 바꾸지 않고 올린다 — 호출부가 서버 장애와
+    해석 실패를 구분해 안내할 수 있게(의도 분류)."""
     main_mod = _main_module()
     if main_mod is None:
         return ""
@@ -70,6 +75,8 @@ def _chat(
                 max_tokens=max_tokens, temperature=temperature, top_p=top_p,
             ) or ""
     except Exception as e:  # noqa: BLE001 — 실패는 빈 응답으로 보고하되 원인은 콘솔에 남긴다
+        if raise_errors:
+            raise
         # 종전 debug 로그는 basicConfig 없는 앱에서 버려져, OpenRouter 상류 502가 분류
         # 트레이스에 "구조화 출력 해석 실패"로만 남았다(2026-09-08 — 원인이 열흘 넘게 안 보였다).
         logger.warning("LLM 호출 실패 — 빈 응답으로 보고(분류는 해석 실패로 끝난다): %r", e)
@@ -96,6 +103,22 @@ def _mlx_llm_structured(system_prompt: str, user_msg: str, *, max_tokens: int = 
     return _chat(system_prompt, user_msg, max_tokens=max_tokens, temperature=0.0, top_p=1.0)
 
 
+# 의도 분류 한 번에 OpenRouter 시도 하나가 기다릴 상한. 상류 장애 중에는 응답 없이 ~120초를
+# 붙잡고 있다가 502를 낸다(2026-10-31 실측) — 그대로 기다리면 폴백(다음 모델 → Ollama)까지
+# 135초가 걸려 프록시 예산(120초)을 넘긴다. 정상 분류는 p95 ~18초다.
+# 주 모델 40초 + 폴백 모델 40초 + Ollama ~15초가 프록시 예산 안에 들어간다.
+_CLASSIFY_OPENROUTER_ATTEMPT_TIMEOUT_S = 40
+
+
+def _classify_llm(system_prompt: str, user_msg: str) -> str:
+    """의도 분류용 — greedy 구조화 출력, 짧은 시도 상한, 호출 실패는 올린다(서버 장애 보고)."""
+    with llm_backend.openrouter_attempt_timeout_for_this_request(_CLASSIFY_OPENROUTER_ATTEMPT_TIMEOUT_S):
+        return _chat(
+            system_prompt, user_msg,
+            max_tokens=400, temperature=0.0, top_p=1.0, raise_errors=True,
+        )
+
+
 def _mlx_llm_prose(system_prompt: str, user_msg: str, *, max_tokens: int = 400) -> str:
     """자연어 설명용 — 표현이 매번 달라지도록 샘플링한다."""
     return _chat(system_prompt, user_msg, max_tokens=max_tokens, temperature=0.3, top_p=0.9)
@@ -119,7 +142,7 @@ async def classify_query(req: IntentRequest) -> IntentResult:
     # clarify_target + fact_metric + list_scope + list_count_only)을 담을 만큼의 토큰을
     # 준다. 필드가 늘면 JSON이 절단돼 해석 실패(UNKNOWN)로 떨어지므로 여유를 둔다
     # (2026-10-14: structured KR turn axes use a 400-token output budget).
-    llm = (lambda s, u: _mlx_llm_structured(s, u, max_tokens=400)) if _llm_available() else None
+    llm = _classify_llm if _llm_available() else None
     # 관찰 전용 span — 전략 파싱 레인(NullStock Strategy Agent)과 달리 이 레인은
     # Trace가 없어 "예상 못한 질문이 어느 라벨로 떨어졌나"를 사후 조회할 수 없었다.
     # 실행 경로는 건드리지 않는다(관찰 계층 계약: 읽기만).
@@ -136,16 +159,23 @@ async def classify_query(req: IntentRequest) -> IntentResult:
         },
         root=True,
     ) as trace:
-        result = await asyncio.to_thread(
-            classify,
-            req.query,
-            last_symbol=req.last_symbol,
-            llm=llm,
-            history=req.history,
-            active_strategy=req.active_strategy,
-            workflow_status=req.workflow_status,
-            pending_question=req.pending_question,
-        )
+        try:
+            result = await asyncio.to_thread(
+                classify,
+                req.query,
+                last_symbol=req.last_symbol,
+                llm=llm,
+                history=req.history,
+                active_strategy=req.active_strategy,
+                workflow_status=req.workflow_status,
+                pending_question=req.pending_question,
+            )
+        except Exception as e:  # noqa: BLE001 — LLM 호출 실패는 해석 실패가 아니라 서버 장애다
+            # 해석 실패(UNKNOWN)로 돌려주면 화면이 "조금 다르게 표현해 주세요"로 사용자 탓을
+            # 한다(2026-10-31) — 503으로 올려 프론트가 서버 장애 안내를 띄우게 한다.
+            logger.warning("의도 분류 LLM 호출 실패 — 503으로 보고: %r", e)
+            trace.output(llm_call_failed=True, error=repr(e)[:300])
+            raise HTTPException(status_code=503, detail="LLM 서버 응답 실패") from e
         trace.output(
             intent=result.intent.value,
             deterministic=result.deterministic,

@@ -102,6 +102,9 @@ export type SemanticClassification = {
   // 다르다 — 실패는 실패로 안내해야 하며, 일반 지식 답변으로 보내면 정의 설명이
   // 답변으로 위장된다(2026-08-03 사고).
   interpretationFailed?: boolean;
+  // 분류 요청 자체가 실패했다(LLM 서버 무응답·503·프록시 시간 초과). 해석 실패의 한 갈래지만
+  // 원인이 입력이 아니라 서버라 "다르게 표현해 주세요"로 안내하지 않는다(2026-10-31).
+  serverUnavailable?: boolean;
   turnAction?: "run_backtest" | "follow_up" | "horizon_compare" | "research_metric" | null;
   researchMetric?: "sharpe" | "sortino" | "calmar" | "treynor" | "choose" | null;
   backtestPeriodYears?: number | null;
@@ -916,6 +919,18 @@ export function decideConversationTurn(
   // 진행 중인 전략이 있으면 종전대로 L5 파스 레인에 맡긴다 — 파서(9B)가 자체 해석하므로
   // 실패 안내로 끊는 것보다 낫고, 기존 동작 유지라 회귀 위험이 없다.
   if (intent === "UNKNOWN" && classification.interpretationFailed && !context.hasCurrentStrategy) {
+    if (classification.serverUnavailable) {
+      return {
+        action: "respond",
+        speechAct: "unknown",
+        topic: "general",
+        confidence: 1,
+        reason: "server_unavailable",
+        message:
+          t("죄송해요, 지금 해석 서버(AI 모델)가 응답하지 않아 답을 받지 못했어요. 서버 쪽 일시적인 문제이니 잠시 후 같은 문장으로 다시 시도해 주세요."),
+        preservesOpenQuestion: true,
+      };
+    }
     return {
       action: "respond",
       speechAct: "unknown",
