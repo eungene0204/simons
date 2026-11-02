@@ -99,3 +99,44 @@ def test_video_title_card_text_includes_sector_and_max_holdings(mods):
     )
     assert "업종: 조선" in meta["subtitle"] and "최대 10종목 보유" in meta["subtitle"]
     assert "업종: 조선" in meta["end_title"]
+
+
+LAB_SUMMARY = """전략 진행률
+유니버스
+매수 조건
+매도 조건
+리밸런싱
+백테스트 기간
+초기 자본
+
+전쟁 관련주 투자 전략을 만들어줘
+현재까지 이해한 전략입니다
+
+유니버스
+방위산업/전쟁 및 테러
+종목 66개 펼쳐보기
+매수 조건
+거래량 20일 평균의 1.5배 이상
+매도 조건
+20일 저점 이탈
+포트폴리오
+지정 종목 66개 균등 투자
+리밸런싱
+설정 안 함
+백테스트 기간
+5년
+초기 자본
+10,000,000원
+리스크 관리
+손절 안 함 · 익절 안 함"""
+
+
+def test_lab_summary_headers_are_read(mods):
+    """2026-11-02 사고: 전략 연구소 요약은 칸 제목이 달라(유니버스·매수 조건·포트폴리오, 값은 다음 줄) 글이 "투자 대상: ."로 나갔다."""
+    parts = mods["make_plan"].summary_parts(LAB_SUMMARY)
+    assert parts["universe_items"] == ["방위산업/전쟁 및 테러"]
+    assert parts["buy"] == "거래량 20일 평균의 1.5배 이상" and parts["sell"] == "20일 저점 이탈"
+    assert parts["period"] == "5년" and parts["capital"] == "10,000,000원"
+    lines = mods["make_post"].settings_lines(parts, ["손절 안 함", "익절 안 함"], [])
+    assert "매수 조건: 거래량 20일 평균의 1.5배 이상" in lines
+    assert "투자 종목: 지정 종목 66개(균등 투자)" in lines

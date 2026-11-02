@@ -93,7 +93,12 @@ def summary_parts(text: str) -> dict:
     def rest(prefix: str):
         return next((l[len(prefix):].strip() for l in lines if l.startswith(prefix)), "")
 
-    headers = {"현재까지 이해한 전략", "투자 대상", "매수 규칙", "매도 규칙", "자금 배분", "리밸런싱"}
+    # 전략 연구소 요약은 칸 제목이 다르다(유니버스·매수 조건·매도 조건·포트폴리오, 기간·자본은 다음 줄에 값) — 두 표기를 모두 읽는다
+    headers = {"현재까지 이해한 전략", "투자 대상", "매수 규칙", "매도 규칙", "자금 배분", "리밸런싱",
+               "유니버스", "매수 조건", "매도 조건", "포트폴리오", "백테스트 기간", "초기 자본", "리스크 관리"}
+
+    def pick(*keys: str, last: bool = False) -> str:
+        return next((v for k in keys if (v := after(k, last))), "")
 
     def group(key: str) -> list[str]:
         """그래프 칸 제목 아래 항목 전부(다음 칸 제목 전까지). 제목 바로 다음 한 줄만 읽으면 `업종: 조선`·`최대 10종목 보유` 같은 두 번째 이후 항목이 글에서 빠진다(2026-10-20)."""
@@ -107,10 +112,13 @@ def summary_parts(text: str) -> dict:
             out.append(l)
         return out
 
-    universe_items = group("투자 대상")
-    return {"universe": after("투자 대상"), "universe_items": universe_items, "allocation_items": group("자금 배분"),
-            "buy": after("매수 규칙"), "sell": after("매도 규칙"),
-            "capital": rest("초기 자본 "), "period": rest("백테스트 기간 "), "rebalance": after("리밸런싱", last=True)}
+    universe_items = [i for i in (group("투자 대상") or group("유니버스")) if not i.endswith("펼쳐보기")]
+    # 진행률 막대에도 같은 칸 제목이 먼저 나오므로 별칭은 마지막 등장(실제 요약)을 읽는다
+    return {"universe": pick("투자 대상", "유니버스", last=True), "universe_items": universe_items,
+            "allocation_items": group("자금 배분") or group("포트폴리오"),
+            "buy": pick("매수 규칙", "매수 조건", last=True), "sell": pick("매도 규칙", "매도 조건", last=True),
+            "capital": rest("초기 자본 ") or after("초기 자본", last=True), "period": rest("백테스트 기간 ") or after("백테스트 기간", last=True),
+            "rebalance": after("리밸런싱", last=True)}
 
 
 def with_defaults(meta: dict, result: dict) -> dict:

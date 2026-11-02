@@ -38,6 +38,9 @@ def allocation_lines(items: list[str]) -> list[str]:
     held = next((m.group(1) for i in items if (m := re.fullmatch(r"최대 (\d+)종목 보유", i))), "")
     weight = next((m.group(1) for i in items if (m := re.fullmatch(r"종목당 비중 ([\d.]+%)", i))), "")
     method = next((m.group(1) for i in items if (m := re.fullmatch(r"비중 방식:\s*(.+)", i))), "")
+    fixed = next((m for i in items if (m := re.fullmatch(r"지정 종목 (\d+)개 (.+)", i))), None)
+    if fixed:
+        return [f"투자 종목: 지정 종목 {fixed.group(1)}개({fixed.group(2)})"]
     if not (held or weight or method):
         return []
     detail = ", ".join(x for x in (f"종목당 비중 {weight}" if weight else "", method) if x)
