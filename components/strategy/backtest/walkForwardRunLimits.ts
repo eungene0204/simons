@@ -11,9 +11,23 @@ export const MAX_WALK_FORWARD_WINDOWS = 24;
 export const MAX_GRID_COMBINATIONS = 500;
 // 베이지안 시도 횟수 선택지 — 화면 버튼과 같은 목록.
 export const BAYESIAN_TRIAL_OPTIONS = [20, 30, 50] as const;
-// 백엔드는 최적화 세션 동안 종목별 데이터 준비(Phase1)를 재사용한다 — 한 구간의 두 번째
-// 시도부터는 전체 비용의 일부만 든다(2026-08-19 실측 ≈ 6%, 보수적으로 10%).
-export const CACHED_TRIAL_COST_RATIO = 0.1;
+// 백엔드는 최적화 세션 동안 종목별 데이터 준비(Phase1)를 재사용한다 — 한 구간의 두 번째 시도부터는
+// 전체 비용의 일부만 든다. 그 비율은 종목 수에 따라 커진다(재사용해도 종목별 데이터 꺼내기·시뮬레이션은 남는다).
+// 실측: 코스피200 200종목 ≈ 6%(2026-08-19, 보수적으로 10%), 코스피 943종목 ≈ 34%(2026-11-03 — 기준 1회 9~10s,
+// 1창×30시도 116s, 재사용 시도 1회 ≈ 3.2s, 보수적으로 36%). 두 점 사이는 직선으로 잇고 바깥은 끝값으로 묶는다
+// (측정 밖으로 늘려 잡지 않는다). 종목 수를 모르면 큰 쪽 — 짧게 예상해 실행 중 기다림이 늘어나는 쪽보다 낫다.
+const CACHED_COST_POINTS = [
+  { symbols: 200, ratio: 0.1 },
+  { symbols: 943, ratio: 0.36 },
+] as const;
+
+export function cachedTrialCostRatio(symbolCount?: number): number {
+  const [low, high] = CACHED_COST_POINTS;
+  if (symbolCount == null || !Number.isFinite(symbolCount) || symbolCount <= 0) return high.ratio;
+  if (symbolCount <= low.symbols) return low.ratio;
+  if (symbolCount >= high.symbols) return high.ratio;
+  return low.ratio + ((symbolCount - low.symbols) / (high.symbols - low.symbols)) * (high.ratio - low.ratio);
+}
 
 // 총 백테스트 수 = 준비(0~1회) + 구간 수 × (구간당 백테스트 수 + OOS 1회).
 // 전체 비용은 준비 + 구간마다 첫 시도 1회 + OOS 1회, 나머지 시도는 캐시 재사용 비용.
@@ -22,12 +36,13 @@ export function estimateWalkForwardSeconds(input: {
   backtestsPerWindow: number;
   prepareBacktests: number;
   perBacktestSec: number;
+  symbolCount?: number;
 }): number {
-  const { windows, backtestsPerWindow, prepareBacktests, perBacktestSec } = input;
+  const { windows, backtestsPerWindow, prepareBacktests, perBacktestSec, symbolCount } = input;
   if (backtestsPerWindow <= 0) return 0;
   const total = prepareBacktests + windows * (backtestsPerWindow + 1);
   const fullCost = prepareBacktests + windows * 2;
-  return (fullCost + Math.max(0, total - fullCost) * CACHED_TRIAL_COST_RATIO) * perBacktestSec;
+  return (fullCost + Math.max(0, total - fullCost) * cachedTrialCostRatio(symbolCount)) * perBacktestSec;
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
@@ -60,6 +75,8 @@ export type WalkForwardRunState = {
   gridCombinations: number;
   prepareBacktests: number;
   perBacktestSec: number;
+  /** 기준 백테스트의 종목 수 — 재사용 시도 비용 비율을 정한다(모르면 큰 쪽). */
+  symbolCount?: number;
 };
 
 export type WalkForwardSuggestion =
@@ -85,6 +102,7 @@ const secondsFor = (state: WalkForwardRunState, overrides: Partial<WalkForwardRu
     backtestsPerWindow: backtestsPerWindow(next),
     prepareBacktests: next.prepareBacktests,
     perBacktestSec: next.perBacktestSec,
+    symbolCount: next.symbolCount,
   });
 };
 

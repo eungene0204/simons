@@ -187,19 +187,16 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
 
     await user.click(screen.getByRole("button", { name: "전략 최적화" }));
     expect(await screen.findByTestId("backtest-optimization-page")).toBeInTheDocument();
-    // 검증 연구소 레이아웃 — 툴바 + 왼쪽 레일(실험·검증 대상·방법 노트) + 본문(설계도 캔버스·노트)
+    // 검증 연구소 레이아웃 — 툴바(실험 탭) + 캔버스(검증 대상·방법 노트 참고 노드 + 실험 단계) + 조정 칸
     expect(screen.getByTestId("backtest-optimization-page")).toHaveClass("flex-col");
     expect(screen.getByTestId("validation-lab-toolbar")).toHaveTextContent("검증 연구소");
-    expect(screen.getByRole("button", { name: "워크포워드" }).closest("aside")).toHaveClass(
-      "w-full",
-      "lg:w-72"
-    );
-    expect(screen.getByTestId("validation-lab-method-notes")).toHaveTextContent("Pardo");
+    expect(within(screen.getByTestId("validation-lab-toolbar")).getByRole("tab", { name: "워크포워드" })).toBeInTheDocument();
+    expect(screen.queryByRole("complementary")).toBeNull();
 
     // 기본 선택은 워크포워드 — 선택 상태는 강조색이 아니라 중립 면(UI 가이드라인 §2)
-    expect(screen.getByRole("button", { name: "워크포워드" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "워크포워드" })).toHaveClass("bg-white/[0.06]");
-    expect(screen.getByRole("button", { name: "몬테카를로" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("tab", { name: "워크포워드" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "워크포워드" }).parentElement).toHaveClass("bg-white/[0.12]");
+    expect(screen.getByRole("tab", { name: "몬테카를로" })).toHaveAttribute("aria-selected", "false");
     expect(await screen.findByRole("button", { name: "워크포워드 분석 시작" })).toBeInTheDocument();
     expect(screen.getByTestId("backtest-walk-forward-section")).not.toHaveClass("py-4");
     expect(screen.getByTestId("backtest-walk-forward-section")).not.toHaveClass("flex-1");
@@ -208,10 +205,8 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
     expect(screen.getByText("익절라인")).toBeInTheDocument();
     expect(screen.getByText("보유기간")).toBeInTheDocument();
     expect(screen.getByText("보유종목수")).toBeInTheDocument();
-    // 검증 대상 전략은 왼쪽 레일에 두 실험 모두 보인다.
-    expect(screen.getByTestId("optimization-strategy-summary")).toHaveTextContent("PBR <= 1");
 
-    await user.click(screen.getByRole("button", { name: "몬테카를로" }));
+    await user.click(screen.getByRole("tab", { name: "몬테카를로" }));
     expect(screen.queryByText("Premium Validation")).not.toBeInTheDocument();
     expect(screen.queryByText("결과는 과거 데이터 기반 시뮬레이션이며 미래 성과를 보장하지 않습니다.")).not.toBeInTheDocument();
     expect(screen.getByText(/백테스트 결과를 여러 방식으로 다시 섞어 보며/)).toBeInTheDocument();
@@ -230,7 +225,13 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
     expect(screen.queryByText(/21거래일씩 묶어 섞어/)).not.toBeInTheDocument();
     expect(screen.queryByText(/21거래일 블록으로 이어 뽑아 자기상관을 보존합니다/)).not.toBeInTheDocument();
     expect(screen.getByTestId("validation-lab-canvas")).toBeInTheDocument();
+    // 검증 대상 전략은 왼쪽 레일이 아니라 캔버스의 참고 노드다.
+    const canvas = screen.getByTestId("validation-lab-canvas");
+    expect(within(canvas).getByTestId("experiment-node-strategy")).toContainElement(screen.getByTestId("optimization-strategy-summary"));
+    expect(screen.queryByTestId("validation-lab-method-notes")).toBeNull();
     expect(screen.getByTestId("monte-carlo-figure-placeholder")).toBeInTheDocument();
+    // 실행 버튼은 조정 칸이 아니라 툴바 오른쪽 끝에 있다.
+    expect(within(screen.getByTestId("validation-lab-run-slot")).getByRole("button", { name: "몬테카를로 실행" })).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "몬테카를로 실행" }));
 
     await waitFor(() => {
@@ -302,7 +303,7 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
     const optimizationPage = await screen.findByTestId("backtest-optimization-page");
 
     // 실행 전 설정 화면에는 '결과 닫기' 버튼이 없어야 한다.
-    await user.click(screen.getByRole("button", { name: "몬테카를로" }));
+    await user.click(screen.getByRole("tab", { name: "몬테카를로" }));
     // 결과는 모니터(React Flow) 노드 안에 그려진다 — jsdom은 레이아웃이 없어 노드가 '측정 전'(visibility:hidden)으로
     // 남고 숨김 글자는 접근성 이름에서 빠지므로 버튼의 title로 찾는다.
     expect(within(optimizationPage).queryByTitle("결과 닫기")).not.toBeInTheDocument();

@@ -1,7 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import type { ReactNode, Ref } from "react";
+import { useEffect, useImperativeHandle, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowsClockwise, ChartLine } from "phosphor-react";
 import {
@@ -27,6 +27,7 @@ import {
   type WalkForwardSuggestion,
 } from "./walkForwardRunLimits";
 import SaveValidationButton from "./SaveValidationButton";
+import type { WalkForwardDesign, WalkForwardEdit } from "@/components/strategy/validation-lab/experimentGraph";
 import { saveValidation, buildWalkForwardSummary } from "../../../lib/validation-storage";
 import { t } from "@/lib/i18n";
 
@@ -131,7 +132,8 @@ export interface WalkForwardDesignSnapshot {
   windows: number;
   methodLabel: string;
   targetMetricLabel: string;
-  parameters: Array<{ label: string; range: string; excluded: boolean }>;
+  parameters: Array<{ id: string; label: string; range: string; excluded: boolean }>;
+  edit: WalkForwardDesign["edit"];
   blockedAt: "split" | "optimize" | null;
   running: boolean;
   plan: { totalBacktests: number; estimateLabel: string; blockedReason: string | null; suggestions: string[]; note: string | null };
@@ -161,10 +163,18 @@ interface WalkForwardPanelProps {
   // 기준 백테스트(전체 기간)의 실측 소요 시간(초). 예상 소요 시간 보정에 사용한다.
   baseBacktestSeconds?: number;
   onDesignChange?: (snapshot: WalkForwardDesignSnapshot) => void;
+  /** 검증 연구소 캔버스 노드에서 고친 값을 이 패널의 컨트롤과 같은 경로로 넣는 손잡이. */
+  editRef?: Ref<WalkForwardEditor>;
   /** 검증 연구소 안에서 쓸 때 — 값만 보여 주는 요약·예상 시간 카드는 숨긴다(위 모니터가 비춘다). */
   monitorMode?: boolean;
+  /** 주면 '분석 시작' 버튼을 조정 칸 하단이 아니라 이 요소(검증 연구소 툴바)에 포털로 그린다. null이면 아직 없어 그리지 않는다. */
+  runButtonContainer?: HTMLElement | null;
   /** 결과를 이 요소(모니터의 결과 판)에 포털로 그린다. monitorMode에서 아직 없으면 결과를 그리지 않는다. */
   resultContainer?: HTMLElement | null;
+}
+
+export interface WalkForwardEditor {
+  apply: (edit: WalkForwardEdit) => void;
 }
 
 interface WalkForwardFormState {
@@ -180,6 +190,7 @@ const FALLBACK_TOTAL_BARS = 252 * 5;
 // 기준 백테스트 실측 시간이 없을 때 쓰는 백테스트 1회당 기본 소요(초). 대략적 폴백값.
 const FALLBACK_PER_BACKTEST_SEC = 0.6;
 type OptimizationMethod = "bayesian" | "grid";
+const TRIAL_OPTIONS = [20, 30, 50];
 
 // 초 단위를 "약 3분", "약 1시간 20분", "1분 미만"처럼 사람이 읽는 문구로 바꾼다.
 function formatDurationApprox(seconds: number): string {
@@ -616,8 +627,10 @@ export function WalkForwardPanel({
   cacheKey,
   baseBacktestSeconds,
   onDesignChange,
+  editRef,
   monitorMode = false,
   resultContainer = null,
+  runButtonContainer,
 }: WalkForwardPanelProps) {
   const totalBars = backtestDates.length > 1 ? backtestDates.length : FALLBACK_TOTAL_BARS;
   const minWindowBars = deriveMinWindowBars(totalBars);
@@ -1009,11 +1022,14 @@ export function WalkForwardPanel({
     ? baseBacktestSeconds
     : FALLBACK_PER_BACKTEST_SEC;
   // 백엔드는 최적화 세션 동안 종목별 데이터 준비(Phase1)를 재사용한다 — 비용 모델은 walkForwardRunLimits.
+  // 재사용 시도의 비용은 종목 수에 따라 달라 기준 전략의 종목 수를 함께 넘긴다.
+  const symbolCount = baseStrategy?.symbols?.length;
   const estimatedRunSeconds = estimateWalkForwardSeconds({
     windows: derivedSettings.n_splits,
     backtestsPerWindow,
     prepareBacktests: PREPARE_BACKTESTS,
     perBacktestSec,
+    symbolCount,
   });
   const estimatedDurationLabel = formatDurationRange(estimatedRunSeconds);
 
@@ -1045,6 +1061,7 @@ export function WalkForwardPanel({
     gridCombinations: gridSearchEstimate,
     prepareBacktests: PREPARE_BACKTESTS,
     perBacktestSec,
+    symbolCount,
   });
   const maxRunMinutes = Math.round(MAX_WALK_FORWARD_RUN_SECONDS / 60);
   const verdictReason =
@@ -1091,6 +1108,7 @@ export function WalkForwardPanel({
       const range = currentParameterRangeForTarget(target);
       const unit = getParameterStepConfig(target.label).unit;
       return {
+        id: target.id,
         label: t(target.label),
         excluded: excludedTargetIds.has(target.id),
         range: range?.values
@@ -1100,6 +1118,19 @@ export function WalkForwardPanel({
             : "",
       };
     }),
+    // 결과가 있으면 설정 칸이 사라지고, 실행 중에는 값을 바꾸지 않는다 — 노드도 같은 때만 고칠 수 있다.
+    edit:
+      result || isRunning
+        ? null
+        : {
+            windowBarsMin: windowSliderMin,
+            windowBarsMax: windowSliderMax,
+            trainRatioMin: TRAIN_RATIO_MIN_PCT,
+            trainRatioMax: TRAIN_RATIO_MAX_PCT,
+            method: formState.optimizationMethod,
+            trials: formState.n_trials,
+            trialOptions: TRIAL_OPTIONS,
+          },
     blockedAt:
       runVerdict.status === "too_short" || runVerdict.status === "too_many_windows"
         ? "split"
@@ -1142,6 +1173,63 @@ export function WalkForwardPanel({
   useEffect(() => {
     onDesignChange?.(designRef.current);
   }, [designKey, onDesignChange]);
+
+  useImperativeHandle(editRef, () => ({
+    apply: (edit) => {
+      switch (edit.field) {
+        case "anchor":
+          setFormState((current) => ({ ...current, anchor: edit.value }));
+          return;
+        case "windowBars":
+          applyWindowBars(edit.value);
+          return;
+        case "trainRatioPct":
+          applyTrainRatioPct(edit.value);
+          return;
+        case "method":
+          setFormState((current) => ({
+            ...current,
+            optimizationMethod: edit.method,
+            ...(edit.trials !== undefined ? { n_trials: edit.trials } : {}),
+          }));
+          return;
+        case "parameter": {
+          const target = visibleTargets.find((item) => item.id === edit.id);
+          if (target) openStepModal(target);
+        }
+      }
+    },
+  }));
+
+  // 툴바에 올릴 때는 툴바 버튼 크기에 맞춘다.
+  const runButton = (
+    <button
+      onClick={handleRun}
+      disabled={isRunDisabled}
+      title={isRunDisabled && !isRunning ? runDisabledReason : undefined}
+      className={`inline-flex items-center gap-2 rounded-md bg-[var(--main-blue)] font-black text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 ${
+        runButtonContainer ? "px-3 py-1.5 text-xs" : "px-4 py-2 text-sm"
+      }`}
+    >
+      {isRunning ? (
+        <>
+          <ArrowsClockwise className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+          {runProgress?.stage === "window" && runProgress.total
+            ? isParallelProgress
+              // 창 병렬이면 window는 '방금 이벤트를 낸 창 번호'라 진행 창의 완료 수와 어긋난다
+              // ("0/3 구간 완료" 옆에 "(2/3 구간)" — 2026-09-17 실측). 완료 수로 맞춘다.
+              ? t("분석 중... ({0}/{1} 구간 완료)", runProgress.windows_done ?? 0, runProgress.total)
+              : t("분석 중... ({0}/{1} 구간)", runProgress.window, runProgress.total)
+            : t("분석 중... ({0}개 구간)", derivedSettings.n_splits)}
+        </>
+      ) : (
+        <>
+          <ChartLine className="h-4 w-4" />
+          {t("워크포워드 분석 시작")}
+        </>
+      )}
+    </button>
+  );
 
   return (
         <div data-testid="walk-forward-panel" className="w-full overflow-hidden rounded-xl border border-white/[0.08] bg-[var(--background)]">
@@ -1572,7 +1660,7 @@ export function WalkForwardPanel({
                         </HelpTooltip>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
-                        {[20, 30, 50].map((value) => (
+                        {TRIAL_OPTIONS.map((value) => (
                           <button
                             key={value}
                             tabIndex={isGridMethod ? -1 : undefined}
@@ -2228,6 +2316,7 @@ export function WalkForwardPanel({
             </div>
           )}
 
+          {(result || onClose || runButtonContainer === undefined) && (
           <div className="flex items-center justify-end gap-2 border-t border-white/[0.08] px-5 py-4">
             {result && (
               <>
@@ -2269,33 +2358,10 @@ export function WalkForwardPanel({
                 {t("닫기")}
               </button>
             )}
-            {!result && (
-              <button
-                onClick={handleRun}
-                disabled={isRunDisabled}
-                title={isRunDisabled && !isRunning ? runDisabledReason : undefined}
-                className="inline-flex items-center gap-2 rounded-md bg-[var(--main-blue)] px-4 py-2 text-sm font-black text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isRunning ? (
-                  <>
-                    <ArrowsClockwise className="h-4 w-4 animate-spin motion-reduce:animate-none" />
-                    {runProgress?.stage === "window" && runProgress.total
-                      ? isParallelProgress
-                        // 창 병렬이면 window는 '방금 이벤트를 낸 창 번호'라 진행 창의 완료 수와 어긋난다
-                        // ("0/3 구간 완료" 옆에 "(2/3 구간)" — 2026-09-17 실측). 완료 수로 맞춘다.
-                        ? t("분석 중... ({0}/{1} 구간 완료)", runProgress.windows_done ?? 0, runProgress.total)
-                        : t("분석 중... ({0}/{1} 구간)", runProgress.window, runProgress.total)
-                      : t("분석 중... ({0}개 구간)", derivedSettings.n_splits)}
-                  </>
-                ) : (
-                  <>
-                    <ChartLine className="h-4 w-4" />
-                    {t("워크포워드 분석 시작")}
-                  </>
-                )}
-              </button>
-            )}
+            {!result && runButtonContainer === undefined && runButton}
           </div>
+          )}
+          {!result && runButtonContainer && createPortal(runButton, runButtonContainer)}
         </div>
   );
 }

@@ -24,6 +24,10 @@ const baseStrategy = {
   },
 };
 
+// 예상 시간 테스트용 — 재사용 시도 비용 비율이 종목 수로 정해지므로 종목 수를 명시한다.
+const symbolsOf = (n: number) => Array.from({ length: n }, (_, i) => String(i).padStart(6, "0"));
+const strategy200 = { ...baseStrategy, symbols: symbolsOf(200) };
+
 describe("WalkForwardModal", () => {
   it("백테스트 기간 슬라이더를 기존 요청 설정으로 변환한다", async () => {
     const onRun = vi.fn().mockResolvedValue({
@@ -867,7 +871,7 @@ describe("WalkForwardModal", () => {
     // 백테스트 1회 비용은 구간 길이와 거의 무관(고정비 지배)하므로 기준 실측 10s를 쓴다.
     // 백엔드 최적화 세션이 구간 안 반복 시도의 데이터 준비를 재사용하므로 전체 비용은
     // 구간 3×(첫 시도 1 + OOS 1) = 6회, 나머지 87회는 10% 비용(8.7회분) → 14.7회 × 10s = 147s.
-    // 범위(0.7~1.4배) = 약 2분 ~ 3분.
+    // 범위(0.7~1.4배) = 약 2분 ~ 3분. (200종목 — 재사용 비용 10%)
     await act(async () => {
       render(
         <WalkForwardModal
@@ -875,7 +879,7 @@ describe("WalkForwardModal", () => {
           onOpenChange={() => {}}
           onRun={vi.fn()}
           backtestDates={buildDates(240)}
-          baseStrategy={baseStrategy}
+          baseStrategy={strategy200}
           baseBacktestSeconds={10}
           optimizationTargets={[{ id: "summary-0", label: "PBR" }]}
         />
@@ -892,8 +896,27 @@ describe("WalkForwardModal", () => {
     expect(screen.queryByTestId("walk-forward-run-blocked-reason")).not.toBeInTheDocument();
   });
 
+  it("종목이 많으면 재사용 시도 비용을 크게 잡아 예상 시간을 늘린다(코스피 943종목 실측 기준)", async () => {
+    // 943종목: 재사용 비용 36% → 6회 + 87회×0.36 = 37.32회분 × 10s ≈ 373s → 범위 약 4분 ~ 9분.
+    await act(async () => {
+      render(
+        <WalkForwardModal
+          open
+          onOpenChange={() => {}}
+          onRun={vi.fn()}
+          backtestDates={buildDates(240)}
+          baseStrategy={{ ...baseStrategy, symbols: symbolsOf(943) }}
+          baseBacktestSeconds={10}
+          optimizationTargets={[{ id: "summary-0", label: "PBR" }]}
+        />
+      );
+    });
+
+    expect(screen.getByText("약 4분 ~ 9분 소요될 것으로 예상됩니다.")).toBeInTheDocument();
+  });
+
   it("예상 시간이 10분을 넘는 설정은 실행 전에 막고 실행 가능한 설정을 안내한다", async () => {
-    // 기준 백테스트 1회 45s → 기본 설정(구간 3개 × 30시도) 예상 14.7회분 ≈ 662s, 20회로 줄이면 11.7회분 ≈ 527s
+    // 200종목, 기준 백테스트 1회 45s → 기본 설정(구간 3개 × 30시도) 예상 14.7회분 ≈ 662s, 20회로 줄이면 11.7회분 ≈ 527s
     const onRun = vi.fn();
     await act(async () => {
       render(
@@ -902,7 +925,7 @@ describe("WalkForwardModal", () => {
           onOpenChange={() => {}}
           onRun={onRun}
           backtestDates={buildDates(240)}
-          baseStrategy={baseStrategy}
+          baseStrategy={strategy200}
           baseBacktestSeconds={45}
           optimizationTargets={[{ id: "summary-0", label: "PBR" }]}
         />
@@ -1117,6 +1140,24 @@ describe("WalkForwardModal", () => {
     rerender(<WalkForwardPanel onRun={vi.fn()} backtestDates={buildDates(240)} loadedResult={loaded} monitorMode resultContainer={slot} />);
     expect(within(slot).getByText("Walk-Forward Efficiency")).toBeInTheDocument();
     expect(within(screen.getByTestId("walk-forward-panel")).queryByText("Walk-Forward Efficiency")).not.toBeInTheDocument();
+    slot.remove();
+  });
+
+  it("runButtonContainer가 있으면 '분석 시작' 버튼을 조정 칸 하단이 아니라 그 요소(툴바)에 그리고, 없으면 그리지 않는다", async () => {
+    const onRun = vi.fn().mockResolvedValue(new Promise(() => {}));
+    const { rerender } = render(
+      <WalkForwardPanel onRun={onRun} backtestDates={buildDates(240)} monitorMode runButtonContainer={null} />
+    );
+    expect(screen.queryByRole("button", { name: "워크포워드 분석 시작" })).not.toBeInTheDocument();
+
+    const slot = document.createElement("div");
+    document.body.appendChild(slot);
+    rerender(<WalkForwardPanel onRun={onRun} backtestDates={buildDates(240)} monitorMode runButtonContainer={slot} />);
+    const button = within(slot).getByRole("button", { name: "워크포워드 분석 시작" });
+    expect(within(screen.getByTestId("walk-forward-panel")).queryByRole("button", { name: "워크포워드 분석 시작" })).not.toBeInTheDocument();
+    expect(button).toHaveClass("text-xs");
+    await userEvent.setup().click(button);
+    expect(onRun).toHaveBeenCalledTimes(1);
     slot.remove();
   });
 });

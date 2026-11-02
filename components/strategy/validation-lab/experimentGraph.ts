@@ -1,15 +1,26 @@
+import type { ReactNode } from "react";
 import type { Edge, Node } from "@xyflow/react";
 import { t } from "@/lib/i18n";
 
 // 검증 연구소 캔버스(모니터)의 그래프 모델 — 아래 조정 칸에서 정한 실험(워크포워드·몬테카를로) 설정을
 // "입력 → 처리 → 결과" 단계 노드로 비추고, 실행하면 결과 판까지 같은 캔버스에 붙인다. 노드 순서는 실험이
-// 실제로 계산되는 순서 그대로이고 사용자가 옮기거나 바꿀 수 없다.
+// 실제로 계산되는 순서 그대로다. 노드 자리는 옮길 수 있고, 조정 칸에 컨트롤이 있는 값은 노드에서 바로 고친다
+// (RowEdit — 고친 값은 조정 칸과 같은 설정으로 들어가 양쪽이 함께 바뀐다).
 // 순수 함수만 둔다 — 설계(입력)가 같으면 노드·엣지·좌표가 같다. 세로 위치는 측정 높이로 쌓는다(stackNodes).
 
 export type ExperimentIcon = "data" | "split" | "optimize" | "test" | "aggregate" | "resample" | "paths" | "distribution" | "run";
 
 /** ready=설정 완료, blocked=이 단계 설정 때문에 실행 불가, running=계산 중, done=결과 있음. */
 export type ExperimentStatus = "ready" | "blocked" | "running" | "done";
+
+/**
+ * 노드에서 바로 고치는 칸 — key가 어떤 설정인지 알리고, 고친 값은 아래 조정 칸과 같은 경로로 들어간다.
+ * number=직접 입력(범위 밖은 조정 칸 규칙대로 잘린다), select=조정 칸의 선택지 그대로, open=조정 칸의 설정 창을 연다.
+ */
+export type RowEdit =
+  | { kind: "number"; key: string; value: number; min: number; max: number; suffix: string }
+  | { kind: "select"; key: string; value: string; options: Array<{ value: string; label: string }> }
+  | { kind: "open"; key: string };
 
 export type ExperimentNodeData = {
   /** 노드를 누르면 이동할 조정 칸(설정) 구역 id. */
@@ -19,12 +30,14 @@ export type ExperimentNodeData = {
   kicker: string;
   title: string;
   icon: ExperimentIcon;
-  rows: Array<{ label: string; value: string }>;
+  rows: Array<{ label: string; value: string; edit?: RowEdit }>;
   /** 행 아래에 붙이는 문장 — warn=실행을 막는 사유. */
   footnote?: { tone: "warn" | "muted"; lines: string[] };
   status: ExperimentStatus;
   /** 아래에 딸린 노드(창 배치·결과 판)로 내려가는 연결점을 단다. */
   hasDetail?: boolean;
+  /** 번호 없는 상태 노드가 앞 단계에서 이어지는 연결점(왼쪽)을 단다. */
+  hasIn?: boolean;
 };
 
 /** 워크포워드 창 하나 — 거래일 인덱스, 끝은 포함하지 않는다. */
@@ -53,10 +66,19 @@ export type ReportNodeData = {
   testId: string;
 };
 
+/** 실험 왼쪽 열의 참고 노드(검증 대상 전략·방법) — 내용은 그리는 쪽이 넣는다. */
+export type ContextNodeData = {
+  content: ReactNode;
+  testId: string;
+  /** 첫 단계로 이어지는 연결점을 단다. */
+  hasOut: boolean;
+};
+
 export type ExperimentNode = Node<ExperimentNodeData, "experiment">;
 export type ScheduleNode = Node<ScheduleNodeData, "schedule">;
 export type ReportNode = Node<ReportNodeData, "report">;
-export type CanvasNode = ExperimentNode | ScheduleNode | ReportNode;
+export type ContextNode = Node<ContextNodeData, "context">;
+export type CanvasNode = ExperimentNode | ScheduleNode | ReportNode | ContextNode;
 /** stack: 노드 id → 그 노드를 내려놓을 기준 노드 id들(그 중 가장 아래 끝 밑으로 간다). */
 export type ExperimentGraph = { nodes: CanvasNode[]; edges: Edge[]; stack: Record<string, string[]> };
 
@@ -65,6 +87,7 @@ export const EXPERIMENT_GAP_X = 248;
 /** 창 배치 노드는 창 분할~검증 단계 밑을 가로지른다 — 결과 단계 밑은 결과 판으로 내려가는 선 자리로 비운다. */
 export const SCHEDULE_NODE_W = EXPERIMENT_GAP_X * 2 + EXPERIMENT_NODE_W;
 export const STACK_GAP_Y = 44;
+export const CONTEXT_NODE_W = 280;
 
 const stepCenterX = (index: number) => index * EXPERIMENT_GAP_X + EXPERIMENT_NODE_W / 2;
 
@@ -164,7 +187,17 @@ export type WalkForwardDesign = {
   methodLabel: string;
   targetMetricLabel: string;
   /** 최적화 대상 파라미터 — range는 조정 칸 표기 그대로("1.8%p~22.5%p · STEP 2.5%p"). */
-  parameters: Array<{ label: string; range: string; excluded: boolean }>;
+  parameters: Array<{ id: string; label: string; range: string; excluded: boolean }>;
+  /** 있으면 노드에서 설정을 고칠 수 있다 — 결과가 있거나 실행 중이면 null(조정 칸도 잠긴다). */
+  edit?: {
+    windowBarsMin: number;
+    windowBarsMax: number;
+    trainRatioMin: number;
+    trainRatioMax: number;
+    method: "grid" | "bayesian";
+    trials: number;
+    trialOptions: number[];
+  } | null;
   /** 실행을 막는 설정이 어느 단계에 있는가(없으면 null). */
   blockedAt: "split" | "optimize" | null;
   running: boolean;
@@ -190,6 +223,8 @@ export type MonteCarloDesign = {
   iterations: number;
   seed: number;
   running: boolean;
+  /** 있으면 노드에서 방식·반복 횟수를 고칠 수 있다. 선택지는 조정 칸의 버튼과 같다. */
+  edit?: { methodValue: string; methodOptions: Array<{ value: string; label: string }>; iterationOptions: number[] } | null;
   /** 있으면 결과 단계 밑에 결과 판(실행 전 안내 포함)을 붙인다. */
   reportSlot?: ReportNodeData["slot"];
   result: {
@@ -200,8 +235,41 @@ export type MonteCarloDesign = {
   } | null;
 };
 
+/** 노드에서 고친 워크포워드 설정 — 조정 칸의 같은 컨트롤이 하는 일을 그대로 한다. */
+export type WalkForwardEdit =
+  | { field: "anchor"; value: boolean }
+  | { field: "windowBars"; value: number }
+  | { field: "trainRatioPct"; value: number }
+  | { field: "method"; method: "grid" | "bayesian"; trials?: number }
+  | { field: "parameter"; id: string };
+
+const PARAM_KEY = "wf.param:";
+const BAYESIAN_VALUE = "bayesian:";
+
+/** RowEdit의 key·값을 워크포워드 설정 변경으로 되돌린다. 워크포워드 칸이 아니면 null. */
+export function parseWalkForwardEdit(key: string, value: string | number | null): WalkForwardEdit | null {
+  if (key === "wf.anchor") return { field: "anchor", value: value === "anchored" };
+  if (key === "wf.windowBars" && typeof value === "number") return { field: "windowBars", value };
+  if (key === "wf.trainRatioPct" && typeof value === "number") return { field: "trainRatioPct", value };
+  if (key === "wf.method" && typeof value === "string") {
+    if (value === "grid") return { field: "method", method: "grid" };
+    const trials = Number(value.slice(BAYESIAN_VALUE.length));
+    return value.startsWith(BAYESIAN_VALUE) && trials > 0 ? { field: "method", method: "bayesian", trials } : null;
+  }
+  if (key.startsWith(PARAM_KEY)) return { field: "parameter", id: key.slice(PARAM_KEY.length) };
+  return null;
+}
+
 const bars = (n: number) => t("{0}거래일", n.toLocaleString());
 const pct = (ratio: number) => `${(ratio * 100).toFixed(1)}%`;
+
+/** 창 배치의 첫 검증 시작일 ~ 마지막 검증 종료일. 날짜를 짚을 수 없으면 null. */
+function validationPeriodLabel(schedule: WalkForwardDesign["schedule"]): string | null {
+  if (!schedule || schedule.spans.length === 0) return null;
+  const start = schedule.dates[schedule.spans[0].oosStart];
+  const end = schedule.dates[schedule.spans[schedule.spans.length - 1].oosEnd - 1];
+  return start && end ? `${start} ~ ${end}` : null;
+}
 
 function layout(steps: Array<Omit<ExperimentNodeData, "index">>, edgeLabels: Array<string | null>): ExperimentGraph {
   const nodes: ExperimentNode[] = steps.map((step, index) => ({
@@ -246,6 +314,10 @@ export function buildWalkForwardGraph(d: WalkForwardDesign): ExperimentGraph {
   const stepStatus = (blockedHere: boolean): ExperimentStatus =>
     done ? "done" : d.running ? "running" : blockedHere ? "blocked" : "ready";
   const withReport = done && d.reportSlot !== undefined;
+  const validationPeriod = validationPeriodLabel(d.schedule);
+  const e = d.edit ?? null;
+  const windowBars = d.trainBars + d.validationBars;
+  const trainRatioPct = Math.round((d.trainBars / Math.max(windowBars, 1)) * 100);
   const graph = layout(
     [
       {
@@ -265,9 +337,35 @@ export function buildWalkForwardGraph(d: WalkForwardDesign): ExperimentGraph {
         title: t("창 분할"),
         icon: "split",
         rows: [
-          { label: t("방식"), value: d.anchor ? t("확장") : t("롤링") },
-          { label: t("구간 길이"), value: bars(d.trainBars + d.validationBars) },
-          { label: t("학습 비중"), value: `${Math.round((d.trainBars / Math.max(d.trainBars + d.validationBars, 1)) * 100)}%` },
+          {
+            label: t("방식"),
+            value: d.anchor ? t("확장") : t("롤링"),
+            ...(e && {
+              edit: {
+                kind: "select" as const,
+                key: "wf.anchor",
+                value: d.anchor ? "anchored" : "rolling",
+                options: [
+                  { value: "rolling", label: t("롤링") },
+                  { value: "anchored", label: t("확장") },
+                ],
+              },
+            }),
+          },
+          {
+            label: t("구간 길이"),
+            value: bars(windowBars),
+            ...(e && {
+              edit: { kind: "number" as const, key: "wf.windowBars", value: windowBars, min: e.windowBarsMin, max: e.windowBarsMax, suffix: t("거래일") },
+            }),
+          },
+          {
+            label: t("학습 비중"),
+            value: `${trainRatioPct}%`,
+            ...(e && {
+              edit: { kind: "number" as const, key: "wf.trainRatioPct", value: trainRatioPct, min: e.trainRatioMin, max: e.trainRatioMax, suffix: "%" },
+            }),
+          },
           { label: t("학습 · 검증"), value: `${bars(d.trainBars)} · ${bars(d.validationBars)}` },
           { label: t("창 수"), value: t("{0}개", d.windows) },
         ],
@@ -280,11 +378,29 @@ export function buildWalkForwardGraph(d: WalkForwardDesign): ExperimentGraph {
         title: t("파라미터 탐색"),
         icon: "optimize",
         rows: [
-          { label: t("방법"), value: d.methodLabel },
+          {
+            label: t("방법"),
+            value: d.methodLabel,
+            ...(e && {
+              edit: {
+                kind: "select" as const,
+                key: "wf.method",
+                value: e.method === "grid" ? "grid" : `${BAYESIAN_VALUE}${e.trials}`,
+                options: [
+                  { value: "grid", label: t("그리드 탐색") },
+                  ...e.trialOptions.map((n) => ({ value: `${BAYESIAN_VALUE}${n}`, label: t("베이지안 {0}회", n) })),
+                ],
+              },
+            }),
+          },
           { label: t("목표"), value: d.targetMetricLabel },
           ...(d.parameters.length === 0
             ? [{ label: t("대상"), value: t("없음") }]
-            : d.parameters.map((p) => ({ label: p.label, value: p.excluded ? t("제외됨") : p.range }))),
+            : d.parameters.map((p) => ({
+                label: p.label,
+                value: p.excluded ? t("제외됨") : p.range,
+                ...(e && { edit: { kind: "open" as const, key: `${PARAM_KEY}${p.id}` } }),
+              }))),
         ],
         status: stepStatus(d.blockedAt === "optimize"),
       },
@@ -293,12 +409,15 @@ export function buildWalkForwardGraph(d: WalkForwardDesign): ExperimentGraph {
         kicker: t("검증 구간"),
         title: t("처음 보는 구간에 적용"),
         icon: "test",
-        rows: done
-          ? [
-              { label: t("완료 창"), value: t("{0}개", d.result!.windowsDone) },
-              { label: t("검증 평균 CAGR"), value: d.result!.avgOosCagr == null ? "—" : `${d.result!.avgOosCagr.toFixed(1)}%` },
-            ]
-          : [{ label: t("적용"), value: t("학습에서 고른 값 그대로") }],
+        rows: [
+          ...(validationPeriod ? [{ label: t("기간"), value: validationPeriod }] : []),
+          ...(done
+            ? [
+                { label: t("완료 창"), value: t("{0}개", d.result!.windowsDone) },
+                { label: t("검증 평균 CAGR"), value: d.result!.avgOosCagr == null ? "—" : `${d.result!.avgOosCagr.toFixed(1)}%` },
+              ]
+            : []),
+        ],
         status: stepStatus(false),
       },
       {
@@ -329,9 +448,11 @@ export function buildWalkForwardGraph(d: WalkForwardDesign): ExperimentGraph {
     nodes.push({
       id: "wf-plan",
       type: "experiment",
-      position: { x: 0, y: 0 },
+      // 결과 단계 바로 오른쪽 — 파이프라인의 맨 끝에 이어 붙는다.
+      position: { x: steps.length * EXPERIMENT_GAP_X, y: 0 },
       data: {
         section: "wf-optimize",
+        hasIn: true,
         kicker: t("실행"),
         title: t("실행 계획"),
         icon: "run",
@@ -347,8 +468,15 @@ export function buildWalkForwardGraph(d: WalkForwardDesign): ExperimentGraph {
         status: d.running ? "running" : p.blockedReason ? "blocked" : "ready",
       },
     });
-    stack["wf-plan"] = steps;
-    below.push("wf-plan");
+    edges.push({
+      id: "wf-result->wf-plan",
+      source: "wf-result",
+      target: "wf-plan",
+      sourceHandle: "out",
+      targetHandle: "in",
+      type: "smoothstep",
+      animated: d.running,
+    });
   }
   if (d.schedule) {
     nodes.push({
@@ -378,6 +506,34 @@ export function buildWalkForwardGraph(d: WalkForwardDesign): ExperimentGraph {
   return { nodes, edges, stack };
 }
 
+/**
+ * 참고 노드를 첫 단계 왼쪽 열에 위에서부터 쌓는다 — 첫 노드(검증 대상 전략)는 첫 단계로 점선을 잇는다.
+ * 단계 노드의 좌표는 그대로 두고 열만 음수 x에 더한다(캔버스가 왼쪽 끝까지 맞춘다).
+ */
+export function attachContextNodes(graph: ExperimentGraph, items: Array<{ id: string; content: ReactNode; testId: string }>): ExperimentGraph {
+  if (items.length === 0 || graph.nodes.length === 0) return graph;
+  const first = graph.nodes[0].id;
+  const x = -(CONTEXT_NODE_W + EXPERIMENT_GAP_X - EXPERIMENT_NODE_W);
+  const nodes: ContextNode[] = items.map((item, index) => ({
+    id: item.id,
+    type: "context",
+    position: { x, y: 0 },
+    data: { content: item.content, testId: item.testId, hasOut: index === 0 },
+  }));
+  const stack = { ...graph.stack };
+  nodes.slice(1).forEach((node, index) => {
+    stack[node.id] = [nodes[index].id];
+  });
+  return {
+    nodes: [...nodes, ...graph.nodes],
+    edges: [
+      { id: `${nodes[0].id}->${first}`, source: nodes[0].id, target: first, sourceHandle: "out", targetHandle: "in", type: "smoothstep", className: "lab-edge-aux" },
+      ...graph.edges,
+    ],
+    stack,
+  };
+}
+
 export function buildMonteCarloGraph(d: MonteCarloDesign): ExperimentGraph {
   const done = d.result !== null;
   const status: ExperimentStatus = done ? "done" : d.running ? "running" : "ready";
@@ -399,7 +555,13 @@ export function buildMonteCarloGraph(d: MonteCarloDesign): ExperimentGraph {
         kicker: t("설계"),
         title: t("재표본 방식"),
         icon: "resample",
-        rows: [{ label: t("방식"), value: d.methodLabel }],
+        rows: [
+          {
+            label: t("방식"),
+            value: d.methodLabel,
+            ...(d.edit && { edit: { kind: "select" as const, key: "mc.method", value: d.edit.methodValue, options: d.edit.methodOptions } }),
+          },
+        ],
         status,
       },
       {
@@ -408,7 +570,18 @@ export function buildMonteCarloGraph(d: MonteCarloDesign): ExperimentGraph {
         title: t("가상 시나리오"),
         icon: "paths",
         rows: [
-          { label: t("반복"), value: t("{0}회", d.iterations.toLocaleString()) },
+          {
+            label: t("반복"),
+            value: t("{0}회", d.iterations.toLocaleString()),
+            ...(d.edit && {
+              edit: {
+                kind: "select" as const,
+                key: "mc.iterations",
+                value: String(d.iterations),
+                options: d.edit.iterationOptions.map((n) => ({ value: String(n), label: t("{0}회", n.toLocaleString()) })),
+              },
+            }),
+          },
           { label: "seed", value: String(d.seed) },
         ],
         status,

@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   MAX_WALK_FORWARD_RUN_SECONDS,
+  cachedTrialCostRatio,
   estimateWalkForwardSeconds,
   judgeWalkForwardRun,
   type WalkForwardRunState,
 } from "../walkForwardRunLimits";
 
-// 1,000거래일 · 구간 340(학습 75%) · 베이지안 30회 → 구간 3개.
+// 1,000거래일 · 구간 340(학습 75%) · 베이지안 30회 → 구간 3개 · 200종목.
 const base: WalkForwardRunState = {
   totalBars: 1000,
   minWindowBars: 20,
@@ -19,12 +20,35 @@ const base: WalkForwardRunState = {
   gridCombinations: 0,
   prepareBacktests: 0,
   perBacktestSec: 10,
+  symbolCount: 200,
 };
 
 describe("estimateWalkForwardSeconds", () => {
   it("구간마다 첫 시도·OOS는 전체 비용, 나머지 시도는 캐시 재사용 비용으로 센다", () => {
-    // 전체 비용 3×2=6회 + 캐시 87회×0.1 = 14.7회 × 10s
-    expect(estimateWalkForwardSeconds({ windows: 3, backtestsPerWindow: 30, prepareBacktests: 0, perBacktestSec: 10 })).toBeCloseTo(147);
+    // 200종목: 전체 비용 3×2=6회 + 캐시 87회×0.1 = 14.7회 × 10s
+    expect(estimateWalkForwardSeconds({ windows: 3, backtestsPerWindow: 30, prepareBacktests: 0, perBacktestSec: 10, symbolCount: 200 })).toBeCloseTo(147);
+  });
+
+  it("종목이 많으면 재사용 시도도 비싸다 — 코스피 943종목 1창×30시도 실측(기준 1회 9.3s → 116s)을 재현한다", () => {
+    // 2026-11-03 실측: 화면은 고정 10%로 약 44초('약 1분')를 보였지만 실제로는 116초가 걸렸다.
+    const seconds = estimateWalkForwardSeconds({ windows: 1, backtestsPerWindow: 30, prepareBacktests: 0, perBacktestSec: 9.3, symbolCount: 943 });
+    expect(seconds).toBeGreaterThan(100);
+    expect(seconds).toBeLessThan(130);
+  });
+});
+
+describe("cachedTrialCostRatio", () => {
+  it("측정한 두 점(200종목 10%·943종목 36%) 사이는 직선으로 잇고, 바깥은 끝값으로 묶는다", () => {
+    expect(cachedTrialCostRatio(200)).toBeCloseTo(0.1);
+    expect(cachedTrialCostRatio(943)).toBeCloseTo(0.36);
+    expect(cachedTrialCostRatio(571.5)).toBeCloseTo(0.23);
+    expect(cachedTrialCostRatio(30)).toBeCloseTo(0.1);
+    expect(cachedTrialCostRatio(2500)).toBeCloseTo(0.36);
+  });
+
+  it("종목 수를 모르면 큰 쪽으로 잡는다 — 짧게 예상하지 않는다", () => {
+    expect(cachedTrialCostRatio(undefined)).toBeCloseTo(0.36);
+    expect(cachedTrialCostRatio(0)).toBeCloseTo(0.36);
   });
 });
 

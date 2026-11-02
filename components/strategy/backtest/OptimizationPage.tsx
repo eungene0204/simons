@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowsClockwise, Crown, Flask, FolderOpen, SignOut, Spinner } from "phosphor-react";
 import {
@@ -17,6 +17,7 @@ import type { BacktestResult } from "@/types/strategy";
 import {
   WalkForwardPanel,
   type WalkForwardDesignSnapshot,
+  type WalkForwardEditor,
   type WalkForwardSettings,
   type WalkForwardOptimizationTarget,
 } from "./WalkForwardModal";
@@ -24,9 +25,11 @@ import ExperimentCanvas from "@/components/strategy/validation-lab/ExperimentCan
 import LabFigure from "@/components/strategy/validation-lab/LabFigure";
 import MonteCarloFanFigure from "@/components/strategy/validation-lab/MonteCarloFanFigure";
 import {
+  attachContextNodes,
   buildMonteCarloGraph,
   buildWalkForwardGraph,
   buildWindowSchedule,
+  parseWalkForwardEdit,
   scheduleFromPeriods,
 } from "@/components/strategy/validation-lab/experimentGraph";
 import ResultPlainSummary, { buildMonteCarloPlainSummary } from "./ResultPlainSummary";
@@ -99,35 +102,6 @@ const OPTIMIZATION_MODELS: Array<{
   },
 ];
 
-// 검증 연구소 왼쪽 레일의 방법 노트 — 실험이 계산되는 순서와, 그 방법을 처음 정리한 문헌.
-// 문헌은 이 화면이 실제로 쓰는 방법(워크포워드·WFE, 부트스트랩·블록·가변 블록 재표본)만 적는다.
-const LAB_METHOD_NOTES: Record<"walkForward" | "monteCarlo", { steps: string[]; references: string[] }> = {
-  walkForward: {
-    steps: [
-      "백테스트 기간을 학습·검증 창으로 나눕니다.",
-      "학습 창에서 목표 지표가 가장 높았던 파라미터를 찾습니다.",
-      "찾은 값을 바로 뒤의 검증 창에 그대로 적용합니다.",
-      "검증 창의 성과를 이어 붙이고 학습 대비 비율(WFE)을 계산합니다.",
-    ],
-    references: [
-      "Pardo, R. (2008). The Evaluation and Optimization of Trading Strategies (2nd ed.). Wiley.",
-    ],
-  },
-  monteCarlo: {
-    steps: [
-      "백테스트의 일별 수익률(또는 완결 거래 수익률)을 표본으로 씁니다.",
-      "표본을 복원추출로 다시 뽑아 원래 길이의 가상 경로를 만듭니다.",
-      "정한 횟수만큼 반복하고 경로마다 CAGR·MDD·샤프를 계산합니다.",
-      "경로들의 분포와 원래 순서의 위치를 비교합니다.",
-    ],
-    references: [
-      "Efron, B. (1979). Bootstrap methods: another look at the jackknife. Annals of Statistics, 7(1).",
-      "Künsch, H. R. (1989). The jackknife and the bootstrap for general stationary observations. Annals of Statistics, 17(3).",
-      "Politis, D. N., & Romano, J. P. (1994). The stationary bootstrap. JASA, 89(428).",
-    ],
-  },
-};
-
 function ModelHelpTooltip({ label, description, example }: { label: string; description: string; example: string }) {
   return (
     <span className="group relative z-20 inline-flex">
@@ -188,6 +162,47 @@ interface MonteCarloSettings {
   mode: MonteCarloMode;
   /** returns 모드의 블록 방식. 미지정/구버전은 fixed로 간주. */
   blockMethod?: MonteCarloBlockMethod;
+}
+
+// 시뮬레이션 방식 선택지 — 조정 칸의 버튼과 모니터 노드의 선택 칸이 같은 목록을 쓴다. label은 t() 키.
+const MONTE_CARLO_METHOD_OPTIONS = [
+  { id: "daily", mode: "returns", blockMethod: "fixed", blockSize: 1, label: "일별 재표본" },
+  { id: "block5", mode: "returns", blockMethod: "fixed", blockSize: 5, label: "5일 블록" },
+  { id: "block10", mode: "returns", blockMethod: "fixed", blockSize: 10, label: "10일 블록" },
+  { id: "block21", mode: "returns", blockMethod: "fixed", blockSize: 21, label: "21일 블록" },
+  { id: "stationary", mode: "returns", blockMethod: "stationary", blockSize: 10, label: "가변 블록" },
+  { id: "trades", mode: "trades", blockMethod: "fixed", blockSize: 21, label: "거래 재표본" },
+] as const satisfies ReadonlyArray<{ id: string; mode: MonteCarloMode; blockMethod: MonteCarloBlockMethod; blockSize: number; label: string }>;
+type MonteCarloMethodOption = (typeof MONTE_CARLO_METHOD_OPTIONS)[number];
+const MONTE_CARLO_ITERATION_OPTIONS = [500, 1000, 2000];
+
+/** 지금 설정에 해당하는 선택지(보유기간 기준 블록 길이처럼 목록에 없는 길이면 undefined). */
+function activeMonteCarloMethod(settings: MonteCarloSettings): MonteCarloMethodOption | undefined {
+  const currentMethod = settings.blockMethod ?? "fixed";
+  return MONTE_CARLO_METHOD_OPTIONS.find(
+    (option) =>
+      settings.mode === option.mode &&
+      (option.mode === "trades"
+        ? true
+        : option.blockMethod === "stationary"
+          ? currentMethod === "stationary"
+          : currentMethod === "fixed" && settings.blockSize === option.blockSize),
+  );
+}
+
+function applyMonteCarloMethod(prev: MonteCarloSettings, option: MonteCarloMethodOption): MonteCarloSettings {
+  return {
+    ...prev,
+    mode: option.mode,
+    blockMethod: option.blockMethod,
+    // 가변 블록으로 전환 시 이미 가변이면 평균값 유지, 아니면 기본 10일.
+    blockSize:
+      option.blockMethod === "stationary"
+        ? prev.blockMethod === "stationary"
+          ? prev.blockSize
+          : option.blockSize
+        : option.blockSize,
+  };
 }
 
 interface MonteCarloSummary {
@@ -823,6 +838,20 @@ function SummaryChip({ children }: { children: ReactNode }) {
 
 // 이 검증(MC·워크포워드)이 대상으로 삼는 전략의 구성(진입·청산 조건, 유니버스, 리스크)을 보여준다.
 // 어떤 지표(PBR/PER/MACD 등)를 쓴 전략을 검증 중인지 사용자가 결과와 함께 확인할 수 있게 한다.
+function hasStrategyConditionSummary(summary?: OptimizationStrategySummary, strategyName?: string, promptText?: string) {
+  return Boolean(
+    (summary?.entryBlocks?.length ?? 0) > 0 ||
+      (summary?.exitBlocks?.length ?? 0) > 0 ||
+      summary?.universeName?.trim() ||
+      summary?.positionText ||
+      summary?.rebalancingText ||
+      summary?.riskText ||
+      promptText ||
+      strategyName?.trim() ||
+      summary?.strategyName?.trim()
+  );
+}
+
 function StrategyConditionSummary({
   summary,
   strategyName,
@@ -842,7 +871,7 @@ function StrategyConditionSummary({
   const hasStructured =
     entryBlocks.length > 0 || exitBlocks.length > 0 || !!universeName || metaChips.length > 0;
 
-  if (!hasStructured && !promptText && !name) return null;
+  if (!hasStrategyConditionSummary(summary, strategyName, promptText)) return null;
 
   return (
     <section data-testid="optimization-strategy-summary">
@@ -1095,8 +1124,11 @@ export default function OptimizationPage({
   const [monteCarloProgress, setMonteCarloProgress] = useState(0);
   const monteCarloCancelRef = useRef(false);
   const [walkForwardDesign, setWalkForwardDesign] = useState<WalkForwardDesignSnapshot | null>(null);
+  const walkForwardEditorRef = useRef<WalkForwardEditor>(null);
   // 모니터의 결과 판 요소 — 결과는 이 요소에 포털로 그린다.
   const [reportSlot, setReportSlot] = useState<HTMLDivElement | null>(null);
+  // 툴바 오른쪽 끝 — 워크포워드 '분석 시작'·몬테카를로 '실행' 버튼이 이 요소에 포털로 그려진다.
+  const [runButtonSlot, setRunButtonSlot] = useState<HTMLDivElement | null>(null);
 
 
   const handleRunMonteCarlo = async () => {
@@ -1208,6 +1240,18 @@ export default function OptimizationPage({
         iterations: source?.nIterations ?? monteCarloSettings.iterations,
         seed: source?.seed ?? monteCarloSettings.seed,
         running: isMonteCarloRunning,
+        // 조정 칸의 방식·반복 버튼이 보일 때(프리미엄·결과 전·실행 전)만 노드에서도 고친다.
+        edit:
+          !source && !isMonteCarloRunning && isPremiumValidationEnabled && !isPlanLoading
+            ? {
+                methodValue: activeMonteCarloMethod(monteCarloSettings)?.id ?? "custom",
+                methodOptions: [
+                  ...(activeMonteCarloMethod(monteCarloSettings) ? [] : [{ value: "custom", label: monteCarloModeLabel }]),
+                  ...MONTE_CARLO_METHOD_OPTIONS.map((option) => ({ value: option.id, label: t(option.label) })),
+                ],
+                iterationOptions: MONTE_CARLO_ITERATION_OPTIONS,
+              }
+            : null,
         reportSlot: isPremiumValidationEnabled && !isPlanLoading ? setReportSlot : undefined,
         result: source
           ? {
@@ -1222,6 +1266,40 @@ export default function OptimizationPage({
     return null;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- monteCarloModeLabel은 monteCarloSettings에서 파생된다
   }, [selectedModel, walkForwardDesign, periodLabel, monteCarloResult, monteCarloSettings, tradeSampleCount, isMonteCarloRunning, result.equity, result.dates, isPremiumValidationEnabled, isPlanLoading]);
+
+  // 검증 대상 전략은 실험 왼쪽 열의 참고 노드로 캔버스에 둔다.
+  const canvasGraph = useMemo(() => {
+    if (!experimentGraph) return null;
+    return attachContextNodes(experimentGraph, [
+      ...(hasStrategyConditionSummary(strategySummary, strategyName, promptText)
+        ? [
+            {
+              id: "lab-strategy",
+              testId: "experiment-node-strategy",
+              content: <StrategyConditionSummary summary={strategySummary} strategyName={strategyName} promptText={promptText} />,
+            },
+          ]
+        : []),
+    ]);
+  }, [experimentGraph, strategySummary, strategyName, promptText]);
+
+  // 모니터 노드에서 고친 값 — 조정 칸의 컨트롤과 같은 경로로 넣어 양쪽이 함께 바뀐다.
+  const handleCanvasEdit = useCallback((key: string, value: string | number | null) => {
+    const walkForwardEdit = parseWalkForwardEdit(key, value);
+    if (walkForwardEdit) {
+      walkForwardEditorRef.current?.apply(walkForwardEdit);
+      return;
+    }
+    if (key === "mc.iterations") {
+      const iterations = Number(value);
+      if (MONTE_CARLO_ITERATION_OPTIONS.includes(iterations)) setMonteCarloSettings((prev) => ({ ...prev, iterations }));
+      return;
+    }
+    if (key === "mc.method") {
+      const option = MONTE_CARLO_METHOD_OPTIONS.find((item) => item.id === value);
+      if (option) setMonteCarloSettings((prev) => applyMonteCarloMethod(prev, option));
+    }
+  }, []);
 
   // 프리미엄 전용 기능 게이트: PREMIUM이 아니면 최적화 화면 대신 안내와 플랜 변경 유도를 노출한다.
   if (!isPlanLoading && !isPremiumValidationEnabled) {
@@ -1257,7 +1335,6 @@ export default function OptimizationPage({
   };
 
   const model = OPTIMIZATION_MODELS.find((item) => item.id === selectedModel) ?? OPTIMIZATION_MODELS[0];
-  const notes = LAB_METHOD_NOTES[selectedModel === "monteCarlo" ? "monteCarlo" : "walkForward"];
 
   return (
     <div data-testid="backtest-optimization-page" className="flex flex-col border border-[var(--lab-border)] bg-[var(--lab-canvas)]">
@@ -1269,6 +1346,41 @@ export default function OptimizationPage({
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <Flask className="h-4 w-4 flex-shrink-0 text-white" weight="duotone" />
           <p className="flex-shrink-0 text-sm font-black text-white">{t("검증 연구소")}</p>
+          {/* 실험 탭 — 고른 실험의 캔버스·조정 칸으로 바뀐다. 설명은 ? 도움말에 둔다. */}
+          <div role="tablist" aria-label={t("실험")} className="ml-2 flex flex-shrink-0 items-center gap-1">
+            {OPTIMIZATION_MODELS.filter((item) => !DISABLED_OPTIMIZATION_MODELS.has(item.id)).map((item, index) => {
+              const active = selectedModel === item.id;
+              return (
+                <span
+                  key={item.id}
+                  className={`flex items-center gap-1.5 rounded-lg pr-2 transition-colors ${
+                    active ? "bg-white/[0.12]" : "hover:bg-white/[0.04]"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-label={t(item.label)}
+                    aria-selected={active}
+                    onClick={() => setSelectedModel(item.id)}
+                    className="flex items-center gap-1.5 py-1.5 pl-2.5 text-xs font-black"
+                  >
+                    <span className="font-mono text-[10px] font-bold text-[var(--text-label)]">{`E${index + 1}`}</span>
+                    <span className={active ? "text-white" : "text-gray-400"}>{t(item.label)}</span>
+                  </button>
+                  <ModelHelpTooltip label={t(item.label)} description={t(item.description)} example={t(item.example)} />
+                </span>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsSavedListOpen(true)}
+            className="ml-1 flex flex-shrink-0 items-center gap-2 rounded-lg border border-[var(--lab-border-strong)] px-3 py-1.5 text-xs font-black text-gray-200 transition-colors hover:bg-white/[0.06]"
+          >
+            <FolderOpen className="h-4 w-4" weight="bold" />
+            {t("저장된 검증 결과 불러오기")}
+          </button>
           {strategyName && (
             <>
               <span className="text-[var(--text-label)]">/</span>
@@ -1276,95 +1388,26 @@ export default function OptimizationPage({
             </>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => setIsSavedListOpen(true)}
-          className="flex items-center gap-2 rounded-lg border border-[var(--lab-border-strong)] px-3 py-1.5 text-xs font-black text-gray-200 transition-colors hover:bg-white/[0.06]"
-        >
-          <FolderOpen className="h-4 w-4" weight="bold" />
-          {t("저장된 검증 결과 불러오기")}
-        </button>
+        {/* 실험의 실행 버튼(워크포워드 '분석 시작'·몬테카를로 '실행')이 여기에 그려진다. */}
+        <div ref={setRunButtonSlot} className="flex flex-shrink-0 items-center" data-testid="validation-lab-run-slot" />
       </header>
 
-      <div className="flex flex-col lg:flex-row">
-        {/* 왼쪽 레일 — 실험 목록 · 검증 대상 · 방법 노트 */}
-        <aside className="w-full flex-shrink-0 border-b border-[var(--lab-border)] bg-[var(--lab-panel)] lg:w-72 lg:border-b-0 lg:border-r">
-          <div className="space-y-5 p-4">
-            {loadError && (
-              <p className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-300">{loadError}</p>
-            )}
-            <section>
-              <p className="text-[11px] font-black text-[var(--text-label)]">{t("실험")}</p>
-              <div className="mt-2 space-y-1.5">
-                {OPTIMIZATION_MODELS.filter((item) => !DISABLED_OPTIMIZATION_MODELS.has(item.id)).map((item, index) => {
-                  const active = selectedModel === item.id;
-                  return (
-                    <div
-                      key={item.id}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={t(item.label)}
-                      aria-pressed={active}
-                      onClick={() => setSelectedModel(item.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          setSelectedModel(item.id);
-                        }
-                      }}
-                      className={`block w-full cursor-pointer rounded-xl border px-3 py-2.5 text-left transition-colors ${
-                        active
-                          ? "border-[var(--lab-border-focus)] bg-white/[0.06]"
-                          : "border-[var(--lab-border)] hover:bg-white/[0.04]"
-                      }`}
-                    >
-                      <span className="flex items-center gap-2">
-                        <span className="font-mono text-[10px] font-bold text-[var(--text-label)]">{`E${index + 1}`}</span>
-                        <span className="text-sm font-black text-white">{t(item.label)}</span>
-                        <ModelHelpTooltip label={t(item.label)} description={t(item.description)} example={t(item.example)} />
-                      </span>
-                      <span className="mt-1 block text-xs font-bold leading-5 text-gray-400">{t(item.description)}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
+      {loadError && (
+        <p className="mx-3 mt-3 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-300 sm:mx-4">{loadError}</p>
+      )}
 
-            <StrategyConditionSummary summary={strategySummary} strategyName={strategyName} promptText={promptText} />
-
-            <section data-testid="validation-lab-method-notes">
-              <p className="text-[11px] font-black text-[var(--text-label)]">{t("방법")}</p>
-              <ol className="mt-2 space-y-2">
-                {notes.steps.map((step, index) => (
-                  <li key={step} className="flex gap-2 text-xs font-bold leading-5 text-gray-300">
-                    <span className="font-mono text-[10px] leading-5 text-[var(--text-label)]">{String(index + 1).padStart(2, "0")}</span>
-                    <span>{t(step)}</span>
-                  </li>
-                ))}
-              </ol>
-              <p className="mt-4 text-[11px] font-black text-[var(--text-label)]">{t("참고 문헌")}</p>
-              <ul className="mt-2 space-y-1.5">
-                {notes.references.map((reference) => (
-                  <li key={reference} className="text-[11px] font-bold leading-4 text-gray-400">
-                    {reference}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          </div>
-        </aside>
-
+      <div className="flex flex-col">
         <div className="min-w-0 flex-1">
           {/* 모니터 — 아래 조정 칸의 값과 실행 결과를 비춘다. 높이는 내용에 맞춰 늘어난다. */}
-          {experimentGraph && (
+          {canvasGraph && (
             <section className="border-b border-[var(--lab-border)]" data-testid="validation-lab-canvas">
               <div className="flex flex-wrap items-baseline justify-between gap-2 px-4 pt-3">
                 <p className="text-sm font-black text-white">
                   {t("실험 모니터")} <span className="ml-1 text-xs font-bold text-[var(--text-label)]">{t(model.label)}</span>
                 </p>
-                <p className="text-[11px] font-bold text-[var(--text-label)]">{t("아래 조정 칸의 값이 바로 반영됩니다 · 단계를 누르면 그 값을 정하는 칸으로 이동합니다")}</p>
+                <p className="text-[11px] font-bold text-[var(--text-label)]">{t("단계를 누르면 값을 바로 고칠 수 있고, 아래 조정 칸과 함께 바뀝니다 · 노드는 끌어서 옮길 수 있습니다")}</p>
               </div>
-              <ExperimentCanvas graph={experimentGraph} onFocusSection={focusSection} />
+              <ExperimentCanvas graph={canvasGraph} onFocusSection={focusSection} onEdit={handleCanvasEdit} />
             </section>
           )}
 
@@ -1385,8 +1428,10 @@ export default function OptimizationPage({
                     promptText={promptText}
                     cacheKey={validationCacheKey}
                     onDesignChange={setWalkForwardDesign}
+                    editRef={walkForwardEditorRef}
                     monitorMode
                     resultContainer={reportSlot}
+                    runButtonContainer={runButtonSlot}
                     canRun={!isPlanLoading && isPremiumValidationEnabled && !!onWalkForward}
                     disabledReason={
                       isPlanLoading
@@ -1442,7 +1487,7 @@ export default function OptimizationPage({
                           />
                         </div>
                         <div className="mt-3 flex flex-wrap gap-2">
-                          {[500, 1000, 2000].map((value) => (
+                          {MONTE_CARLO_ITERATION_OPTIONS.map((value) => (
                             <button
                               key={value}
                               onClick={() => setMonteCarloSettings((prev) => ({ ...prev, iterations: value }))}
@@ -1484,46 +1529,19 @@ export default function OptimizationPage({
                           </button>
                         )}
                         <div className="mt-3 flex flex-wrap gap-2">
-                          {[
-                            { mode: "returns" as const, blockMethod: "fixed" as const, blockSize: 1, label: t("일별 재표본") },
-                            { mode: "returns" as const, blockMethod: "fixed" as const, blockSize: 5, label: t("5일 블록") },
-                            { mode: "returns" as const, blockMethod: "fixed" as const, blockSize: 10, label: t("10일 블록") },
-                            { mode: "returns" as const, blockMethod: "fixed" as const, blockSize: 21, label: t("21일 블록") },
-                            { mode: "returns" as const, blockMethod: "stationary" as const, blockSize: 10, label: t("가변 블록") },
-                            { mode: "trades" as const, blockMethod: "fixed" as const, blockSize: 21, label: t("거래 재표본") },
-                          ].map(({ mode, blockMethod, blockSize, label }) => {
-                            const currentMethod = monteCarloSettings.blockMethod ?? "fixed";
-                            const active =
-                              monteCarloSettings.mode === mode &&
-                              (mode === "trades"
-                                ? true
-                                : blockMethod === "stationary"
-                                  ? currentMethod === "stationary"
-                                  : currentMethod === "fixed" && monteCarloSettings.blockSize === blockSize);
+                          {MONTE_CARLO_METHOD_OPTIONS.map((option) => {
+                            const active = activeMonteCarloMethod(monteCarloSettings)?.id === option.id;
                             return (
                               <button
-                                key={label}
-                                onClick={() =>
-                                  setMonteCarloSettings((prev) => ({
-                                    ...prev,
-                                    mode,
-                                    blockMethod,
-                                    // 가변 블록으로 전환 시 이미 가변이면 평균값 유지, 아니면 기본 10일.
-                                    blockSize:
-                                      blockMethod === "stationary"
-                                        ? prev.blockMethod === "stationary"
-                                          ? prev.blockSize
-                                          : 10
-                                        : blockSize,
-                                  }))
-                                }
+                                key={option.id}
+                                onClick={() => setMonteCarloSettings((prev) => applyMonteCarloMethod(prev, option))}
                                 className={`rounded-lg border px-3 py-1.5 text-sm font-black transition-colors ${
                                   active
                                     ? "border-white/20 bg-white/10 text-white"
                                     : "border-white/10 bg-white/[0.03] text-gray-400 hover:text-white"
                                 }`}
                               >
-                                {label}
+                                {t(option.label)}
                               </button>
                             );
                           })}
@@ -1570,14 +1588,19 @@ export default function OptimizationPage({
                     </div>
 
                     <div id="mc-run" className="scroll-mt-24 flex flex-wrap items-center gap-3">
-                      <button
-                        onClick={() => void handleRunMonteCarlo()}
-                        disabled={isMonteCarloRunning}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--main-blue)] px-4 py-2.5 text-sm font-black text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {isMonteCarloRunning ? <Spinner className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <ArrowsClockwise className="h-4 w-4" />}
-                        {t("몬테카를로 실행")}
-                      </button>
+                      {/* 실행 버튼은 툴바 오른쪽 끝(워크포워드 '분석 시작'과 같은 자리)에 그린다. */}
+                      {runButtonSlot &&
+                        createPortal(
+                          <button
+                            onClick={() => void handleRunMonteCarlo()}
+                            disabled={isMonteCarloRunning}
+                            className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--main-blue)] px-3 py-1.5 text-xs font-black text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isMonteCarloRunning ? <Spinner className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <ArrowsClockwise className="h-4 w-4" />}
+                            {t("몬테카를로 실행")}
+                          </button>,
+                          runButtonSlot,
+                        )}
                       <p className="text-xs font-bold text-gray-500">
                         {t("seed {0} 고정 · 동일 설정이면 같은 결과가 재현됩니다", monteCarloSettings.seed)}
                       </p>

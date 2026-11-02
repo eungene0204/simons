@@ -521,11 +521,11 @@ BacktestDashboard (결과 화면 — 기존과 같이 전체 화면 전환)
 
 ```
 OptimizationPage (상태: 선택 실험·몬테카를로 설정/결과·워크포워드 설계 스냅샷)
-├── 툴바        — 검증 연구소 / 전략 이름 · 저장된 검증 결과 불러오기
-├── 왼쪽 레일    — 실험 목록(E1·E2) · StrategyConditionSummary(두 실험 공통) · 방법 단계 · 참고 문헌(LAB_METHOD_NOTES)
-├── 실험 모니터  — ExperimentCanvas(React Flow, 고정 노드 — 끌기·확대·이동 없음, 높이=내용 측정 높이, 폭 부족 시만 축소)
+├── 툴바        — 검증 연구소 · 실험 탭(E1 워크포워드·E2 몬테카를로, 설명은 ? 도움말) · 저장된 검증 결과 불러오기 · 전략 이름 / 오른쪽 끝=실행 버튼(워크포워드 '분석 시작'=WalkForwardPanel runButtonContainer 포털 · 몬테카를로 '실행'=페이지 포털)
+├── (왼쪽 레일 없음 — 검증 대상 전략은 캔버스 참고 노드, attachContextNodes. 방법·참고 문헌 노트는 삭제)
+├── 실험 모니터  — ExperimentCanvas(React Flow, 노드 끌기 가능·옮긴 자리 유지, 화면 확대·이동 없음, 높이=내용 측정 높이, 폭 부족 시만 축소)
 │                   ← experimentGraph.ts: buildWalkForwardGraph / buildMonteCarloGraph(순수) + stackNodes(측정 높이로 세로 쌓기)
-│                   단계 노드(값이 바뀌면 깜빡임, 클릭=그 값을 정하는 조정 칸으로 스크롤)
+│                   단계 노드(값이 바뀌면 깜빡임, 클릭=고칠 값이 있으면 그 자리 입력 칸(RowEdit → onEdit → 조정 칸과 같은 경로), 없으면 조정 칸으로 스크롤)
 │                   워크포워드: 창 배치 노드(창 분할 밑) · 실행 계획 노드(총 백테스트·예상 시간·실행 불가 사유, 실행 전만)
 │                   결과 판 노드(결과 단계 밑) — 내용은 결과를 쥔 쪽이 slot 요소에 createPortal로 그린다
 └── 조정 칸      — 워크포워드: WalkForwardPanel(monitorMode — 슬라이더·버튼·실행/재설정/저장만, 요약·예상 시간 카드 숨김,
@@ -534,6 +534,7 @@ OptimizationPage (상태: 선택 실험·몬테카를로 설정/결과·워크�
 ```
 
 - 2026-11-01: 아래=조정 칸, 위=모니터로 역할을 나눴다(사용자 지시). 결과도 모니터 안 결과 판에 그린다.
+- 2026-11-03: 노드 끌기와 노드에서 값 직접 수정을 열었다(사용자 지시). 워크포워드 값은 `WalkForwardPanel editRef`로 패널의 setter(같은 clamp)를, 몬테카를로 값은 조정 칸 버튼과 같은 선택지 상수·`applyMonteCarloMethod`를 거친다 — 노드와 조정 칸이 한 상태를 공유한다.
 - 창 배치는 결과가 있으면 결과 창의 실제 기간(`scheduleFromPeriods`), 없으면 폼 설정(`buildWindowSchedule` — 백엔드 `_split_windows` 명시 bars 규칙과 같다).
 - 몬테카를로 `fan`은 `monteCarloFan.ts`가 체크포인트별 백분위로 모은다(난수 소비 없음 → 기존 분포 불변).
 

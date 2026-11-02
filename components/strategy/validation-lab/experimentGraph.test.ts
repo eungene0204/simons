@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { deriveSplitCount } from "@/components/strategy/backtest/walkForwardRunLimits";
 import {
+  attachContextNodes,
   buildMonteCarloGraph,
   buildWalkForwardGraph,
   buildWindowSchedule,
+  EXPERIMENT_GAP_X,
+  parseWalkForwardEdit,
   scheduleFromPeriods,
   stackNodes,
   STACK_GAP_Y,
@@ -23,9 +26,9 @@ const design: WalkForwardDesign = {
   methodLabel: "베이지안 30회",
   targetMetricLabel: "CAGR",
   parameters: [
-    { label: "PBR", range: "0.5~1.5 · STEP 0.1", excluded: false },
-    { label: "손절라인", range: "5%~15% · STEP 2.5%", excluded: false },
-    { label: "보유기간", range: "10거래일~20거래일 · STEP 10거래일", excluded: true },
+    { id: "filters.pbr", label: "PBR", range: "0.5~1.5 · STEP 0.1", excluded: false },
+    { id: "risk.stop_loss", label: "손절라인", range: "5%~15% · STEP 2.5%", excluded: false },
+    { id: "hold_days", label: "보유기간", range: "10거래일~20거래일 · STEP 10거래일", excluded: true },
   ],
   blockedAt: null,
   running: false,
@@ -93,10 +96,76 @@ describe("buildWalkForwardGraph 창 배치 노드", () => {
     expect(graph.edges.find((e) => e.target === "wf-schedule")).toMatchObject({ source: "wf-split", sourceHandle: "detail", className: "lab-edge-aux" });
   });
 
+  it("검증 단계에 첫 검증 시작일 ~ 마지막 검증 종료일을 싣는다", () => {
+    const dates = Array.from({ length: 1000 }, (_, i) => `d${String(i).padStart(4, "0")}`);
+    const spans = buildWindowSchedule(1000, 300, 100, false);
+    const graph = buildWalkForwardGraph({ ...design, schedule: { spans, dates } });
+    expect(step(graph, "wf-test").data.rows[0]).toEqual({ label: "기간", value: "d0300 ~ d0999" });
+    const noDates = buildWalkForwardGraph({ ...design, schedule: { spans, dates: [] } });
+    expect(step(noDates, "wf-test").data.rows.some((r) => r.label === "기간")).toBe(false);
+  });
+
   it("창 배치가 없으면 다섯 단계만 그리고 창 분할에 아래 연결점을 달지 않는다", () => {
     const graph = buildWalkForwardGraph(design);
     expect(graph.nodes.some((n) => n.id === "wf-schedule")).toBe(false);
     expect(step(graph, "wf-split").data.hasDetail).toBe(false);
+  });
+});
+
+describe("노드에서 고치는 칸", () => {
+  const edit = { windowBarsMin: 100, windowBarsMax: 1000, trainRatioMin: 20, trainRatioMax: 80, method: "bayesian" as const, trials: 30, trialOptions: [20, 30, 50] };
+  const editOf = (graph: ExperimentGraph, id: string, label: string) => step(graph, id).data.rows.find((row) => row.label === label)?.edit;
+
+  it("조정 칸에 컨트롤이 있는 값에만 입력 칸을 달고, 파생값·결과는 읽기 전용으로 둔다", () => {
+    const graph = buildWalkForwardGraph({ ...design, edit });
+    expect(editOf(graph, "wf-split", "방식")).toMatchObject({ kind: "select", key: "wf.anchor", value: "rolling" });
+    expect(editOf(graph, "wf-split", "구간 길이")).toEqual({ kind: "number", key: "wf.windowBars", value: 400, min: 100, max: 1000, suffix: "거래일" });
+    expect(editOf(graph, "wf-split", "학습 비중")).toMatchObject({ kind: "number", key: "wf.trainRatioPct", value: 75, min: 20, max: 80 });
+    expect(editOf(graph, "wf-split", "창 수")).toBeUndefined();
+    expect(editOf(graph, "wf-optimize", "방법")).toMatchObject({ kind: "select", key: "wf.method", value: "bayesian:30" });
+    expect(editOf(graph, "wf-optimize", "목표")).toBeUndefined();
+    expect(editOf(graph, "wf-optimize", "PBR")).toEqual({ kind: "open", key: "wf.param:filters.pbr" });
+    expect(step(graph, "wf-data").data.rows.some((row) => row.edit)).toBe(false);
+  });
+
+  it("결과가 있거나 실행 중이라 edit이 null이면 어떤 칸도 고칠 수 없다", () => {
+    const graph = buildWalkForwardGraph({ ...design, edit: null });
+    expect(graph.nodes.some((n) => n.type === "experiment" && n.data.rows.some((row) => row.edit))).toBe(false);
+  });
+
+  it("노드에서 고친 값을 조정 칸의 설정 변경으로 되돌린다", () => {
+    expect(parseWalkForwardEdit("wf.anchor", "anchored")).toEqual({ field: "anchor", value: true });
+    expect(parseWalkForwardEdit("wf.windowBars", 500)).toEqual({ field: "windowBars", value: 500 });
+    expect(parseWalkForwardEdit("wf.trainRatioPct", 60)).toEqual({ field: "trainRatioPct", value: 60 });
+    expect(parseWalkForwardEdit("wf.method", "grid")).toEqual({ field: "method", method: "grid" });
+    expect(parseWalkForwardEdit("wf.method", "bayesian:50")).toEqual({ field: "method", method: "bayesian", trials: 50 });
+    expect(parseWalkForwardEdit("wf.param:risk.stop_loss", null)).toEqual({ field: "parameter", id: "risk.stop_loss" });
+    expect(parseWalkForwardEdit("mc.iterations", "500")).toBeNull();
+  });
+
+  it("몬테카를로는 방식·반복 횟수를 조정 칸의 선택지로 고친다", () => {
+    const base = { sourceLabel: "일별 수익률", sourceDetail: "1,200개", methodLabel: "21일 블록", iterations: 1000, seed: 42, running: false, result: null };
+    const options = [{ value: "block21", label: "21일 블록" }];
+    const graph = buildMonteCarloGraph({ ...base, edit: { methodValue: "block21", methodOptions: options, iterationOptions: [500, 1000] } });
+    expect(editOf(graph, "mc-resample", "방식")).toEqual({ kind: "select", key: "mc.method", value: "block21", options });
+    expect(editOf(graph, "mc-paths", "반복")).toMatchObject({ kind: "select", key: "mc.iterations", value: "1000" });
+    expect(editOf(graph, "mc-paths", "seed")).toBeUndefined();
+  });
+});
+
+describe("attachContextNodes", () => {
+  it("참고 노드를 첫 단계 왼쪽 열에 위에서부터 쌓고, 첫 노드만 첫 단계로 잇는다", () => {
+    const graph = attachContextNodes(buildWalkForwardGraph(design), [
+      { id: "lab-strategy", testId: "s", content: null },
+      { id: "lab-method", testId: "m", content: null },
+    ]);
+    expect(graph.nodes.slice(0, 2).map((n) => n.id)).toEqual(["lab-strategy", "lab-method"]);
+    expect(graph.nodes[0].position.x).toBeLessThan(0);
+    expect(graph.nodes[1].position.x).toBe(graph.nodes[0].position.x);
+    expect(graph.stack["lab-method"]).toEqual(["lab-strategy"]);
+    expect(graph.edges[0]).toMatchObject({ source: "lab-strategy", target: "wf-data", className: "lab-edge-aux" });
+    expect(graph.edges.filter((e) => e.source === "lab-method")).toEqual([]);
+    expect(step(graph, "wf-data").position).toEqual({ x: 0, y: 0 });
   });
 });
 
@@ -141,6 +210,12 @@ describe("buildWalkForwardGraph 모니터 값", () => {
     const blocked = step(buildWalkForwardGraph({ ...design, plan }), "wf-plan");
     expect(blocked.data.status).toBe("blocked");
     expect(blocked.data.index).toBeUndefined();
+    // 결과 단계 오른쪽, 파이프라인의 맨 끝에 이어 붙는다(아래로 쌓지 않는다).
+    expect(blocked.position).toEqual({ x: 5 * EXPERIMENT_GAP_X, y: 0 });
+    expect(buildWalkForwardGraph({ ...design, plan }).edges).toContainEqual(
+      expect.objectContaining({ source: "wf-result", target: "wf-plan", sourceHandle: "out", targetHandle: "in" }),
+    );
+    expect(buildWalkForwardGraph({ ...design, plan }).stack["wf-plan"]).toBeUndefined();
     expect(blocked.data.footnote).toEqual({ tone: "warn", lines: [plan.blockedReason, "구간 길이 300거래일 이상"] });
     const done = buildWalkForwardGraph({ ...design, plan, result: { wfe: 0.7, wfeTierText: null, avgOosCagr: 1, windowsDone: 7 } });
     expect(done.nodes.some((n) => n.id === "wf-plan")).toBe(false);
