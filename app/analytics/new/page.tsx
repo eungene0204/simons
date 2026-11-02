@@ -1164,7 +1164,12 @@ const ANALYSIS_STAGE_LABEL = {
   settings: "설정 분석 중...",
   // LLM 호출 자체가 실패해 백엔드가 다시 보내는 중(llm_progress — 재시도가 끝나면 이전 단계로 복귀).
   retrying: "재확인 중...",
+  // 의도 분류가 백엔드의 OpenRouter 시도 상한(intent_routes._CLASSIFY_OPENROUTER_ATTEMPT_TIMEOUT_S)을
+  // 넘겨 다음 모델·Ollama로 넘어간 구간(2026-10-31).
+  model_fallback: "AI 모델 응답이 늦어 다른 모델로 다시 시도하고 있어요...",
 } as const;
+// 분류 요청이 이만큼 걸리면 백엔드가 주 모델을 포기하고 다음 모델로 넘어갔다(백엔드 상한과 동기화).
+const CLASSIFY_MODEL_FALLBACK_NOTICE_MS = 40_000;
 type AnalysisStage = keyof typeof ANALYSIS_STAGE_LABEL;
 
 // '대화 종료'로 끊긴 요청의 오류인지. 끊긴 턴은 뒤처리(오류 버블·빌더 상태 복원 등)를 하지
@@ -3153,7 +3158,8 @@ function StrategyLabContent() {
       // '대화 종료'로 끊긴 분류는 폴백 분류로 이어가지 않는다 — 턴 자체를 끝낸다.
       if (isChatAbort(e)) throw e;
       return {
-        classification: { intent: "UNKNOWN" as const, interpretationFailed: true },
+        // 요청 자체가 실패했다(503·프록시 시간 초과·연결 오류) — 입력 탓이 아니라 서버 장애로 안내한다.
+        classification: { intent: "UNKNOWN" as const, interpretationFailed: true, serverUnavailable: true },
         history,
       };
     }
@@ -3902,7 +3908,14 @@ function StrategyLabContent() {
     }
     let classifyResult: Awaited<ReturnType<typeof classifyConversationPrompt>> | null = null;
     if (turnDecision.action === "classify") {
-      classifyResult = await classifyConversationPrompt(userText);
+      const fallbackNotice = setTimeout(() => {
+        updateLastAssistant({ isLoading: true, loadingStage: "model_fallback" });
+      }, CLASSIFY_MODEL_FALLBACK_NOTICE_MS);
+      try {
+        classifyResult = await classifyConversationPrompt(userText);
+      } finally {
+        clearTimeout(fallbackNotice);
+      }
       turnDecision = decideConversationTurn(
         userText, conversationContext, classifyResult.classification,
       );

@@ -34,6 +34,7 @@ from llm_backend import (
     is_local_ollama,
     is_openrouter,
     ollama_auth_headers,
+    openrouter_attempt_timeout_s,
 )
 from engine import strategy_slots
 from engine.universe_pit import (
@@ -341,6 +342,8 @@ def _ollama_open_with_retry(req, timeout: int):
                 else _OLLAMA_MAX_ATTEMPT_TIMEOUT_S
             )
             attempt_timeout = max(15, min(cap, int(remaining)))
+            if is_openrouter() and openrouter_attempt_timeout_s() is not None:
+                attempt_timeout = openrouter_attempt_timeout_s()
             try:
                 return urllib.request.urlopen(req, timeout=attempt_timeout)
             except urllib.error.HTTPError as e:

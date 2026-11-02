@@ -416,6 +416,23 @@ describe("decideConversationTurn", () => {
     });
   });
 
+  // 회귀(2026-10-31): 분류 요청이 서버 무응답(프록시 120초 초과)으로 실패했는데 "조금 다르게
+  // 표현해 주세요"가 나가 입력 탓으로 보였다 — 서버 장애로 안내한다.
+  it("reports a failed classify request as a server problem, not the user's wording", () => {
+    const decision = decideConversationTurn("KOSPI에서 5거래일 연속 상승한 종목 매수", baseContext, {
+      intent: "UNKNOWN",
+      interpretationFailed: true,
+      serverUnavailable: true,
+    });
+    expect(decision).toMatchObject({
+      action: "respond",
+      reason: "server_unavailable",
+      message: expect.stringContaining("서버"),
+      preservesOpenQuestion: true,
+    });
+    expect((decision as { message?: string }).message).not.toContain("다르게 표현");
+  });
+
   it("keeps LLM-judged UNKNOWN (not a failure) on the general answer path", () => {
     expect(decideConversationTurn("투자라는 게 참 어렵네", baseContext, {
       intent: "UNKNOWN",

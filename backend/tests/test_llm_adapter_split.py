@@ -112,3 +112,44 @@ def test_chat_failure_is_reported_on_console_not_swallowed(monkeypatch, caplog):
         assert intent_routes._mlx_llm_structured("sys", "user", max_tokens=220) == ""
     assert any("openrouter error 502" in r.getMessage() and r.levelno == logging.WARNING
                for r in caplog.records)
+
+
+def test_classify_adapter_is_greedy_with_short_openrouter_attempt_cap(monkeypatch):
+    """의도 분류는 greedy + OpenRouter 시도 상한을 건다 — 상류 무응답 ~120초를 그대로 기다리면
+    폴백까지 135초가 걸려 프록시(120초)가 먼저 끊었다(2026-10-31)."""
+    import llm_backend
+
+    seen = []
+
+    class _Rec:
+        def chat(self, system_prompt, user_msg, *, max_tokens, temperature, top_p):
+            seen.append((temperature, top_p, max_tokens, llm_backend.openrouter_attempt_timeout_s()))
+            return "{}"
+
+    stub = type("Main", (), {"_active_nl_parser": staticmethod(lambda: _Rec()),
+                             "_mlx_inference_lock": _Lock()})
+    monkeypatch.setattr(intent_routes, "_main_module", lambda: stub)
+    intent_routes._classify_llm("sys", "user")
+    assert seen == [(0.0, 1.0, 400, intent_routes._CLASSIFY_OPENROUTER_ATTEMPT_TIMEOUT_S)]
+    assert llm_backend.openrouter_attempt_timeout_s() is None
+
+
+def test_classify_llm_failure_is_503_not_interpretation_failure(monkeypatch):
+    """분류 LLM 호출 실패는 해석 실패(UNKNOWN)가 아니라 503이다 — 해석 실패로 돌려주면 화면이
+    "조금 다르게 표현해 주세요"로 사용자 탓을 했다(2026-10-31)."""
+    import asyncio
+
+    from fastapi import HTTPException
+
+    from intent.schemas import IntentRequest
+
+    class _Boom:
+        def chat(self, *a, **k):
+            raise RuntimeError("openrouter 상류 일시 오류 408")
+
+    stub = type("Main", (), {"_active_nl_parser": staticmethod(lambda: _Boom()),
+                             "_mlx_inference_lock": _Lock()})
+    monkeypatch.setattr(intent_routes, "_main_module", lambda: stub)
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(intent_routes.classify_query(IntentRequest(query="KOSPI 5거래일 연속 상승 매수")))
+    assert exc.value.status_code == 503

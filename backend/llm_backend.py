@@ -112,6 +112,7 @@ def resume_openrouter() -> None:
 OPENROUTER_FALLBACK_DEFAULT = "nvidia/nemotron-3-ultra-550b-a55b:free"
 MODEL_GONE_COOLDOWN_S = 300.0
 _model_dead_until: dict[str, float] = {}
+_model_slow_until: dict[str, float] = {}
 _request_model = threading.local()
 
 
@@ -140,9 +141,23 @@ def mark_model_unavailable(model: str, seconds: float = MODEL_GONE_COOLDOWN_S) -
     _model_dead_until[model] = time.time() + seconds
 
 
+def mark_model_slow(model: str, seconds: float = MODEL_GONE_COOLDOWN_S) -> None:
+    """응답 없이 붙잡고 있다가 실패한 모델 — 쿨다운 동안 **시도하지 않는다**.
+
+    404 쿨다운은 '전부 죽었어도 시도는 한다'(빨리 실패하니 비용이 작다)지만, 무응답 모델은
+    시도 한 번이 시도 상한을 통째로 태운다 — 전부 무응답이면 곧장 Ollama로 넘긴다(2026-10-31)."""
+    mark_model_unavailable(model, seconds)
+    _model_slow_until[model] = time.time() + seconds
+
+
+def model_is_slow(model: str) -> bool:
+    return time.time() < _model_slow_until.get(model, 0.0)
+
+
 def reset_model_cooldowns() -> None:
     """쿨다운 해제(테스트·수동 복구용)."""
     _model_dead_until.clear()
+    _model_slow_until.clear()
 
 
 def candidate_models() -> list[str]:
@@ -160,6 +175,26 @@ def openrouter_model_for_this_request(model: str):
         yield
     finally:
         _request_model.model = previous
+
+
+@contextmanager
+def openrouter_attempt_timeout_for_this_request(seconds: float):
+    """이 스레드에서 블록을 벗어날 때까지 OpenRouter 한 번의 시도가 기다릴 상한(초).
+
+    짧은 출력을 내는 호출(의도 분류)용이다. 상류가 응답 없이 붙잡고 있으면(2026-10-31 실측:
+    분류 한 번이 ~120초 뒤 실패 → 폴백까지 135초) 프록시 예산(120초)을 넘겨 폴백 답이 화면에
+    닿지 못한다 — 이 상한에서 끊고 다음 모델·Ollama로 넘긴다."""
+    previous = getattr(_request_model, "attempt_timeout_s", None)
+    _request_model.attempt_timeout_s = seconds
+    try:
+        yield
+    finally:
+        _request_model.attempt_timeout_s = previous
+
+
+def openrouter_attempt_timeout_s() -> float | None:
+    """요청 단위로 지정된 OpenRouter 시도 상한(없으면 None — 호출부 기본 예산)."""
+    return getattr(_request_model, "attempt_timeout_s", None)
 
 
 def openrouter_model() -> str:

@@ -881,6 +881,68 @@ def test_slow_upstream_error_skips_same_model_retry(openrouter_env, monkeypatch,
     assert data["message"]["content"] == '{"intent":"STRATEGY_ADVICE"}'
     assert models == ["qwen/qwen3-32b", "backup/model"]
     assert no_sleep == []
+    # 2026-10-31: 붙잡고 있다가 낸 실패는 쿨다운 — 다음 요청이 같은 120초를 다시 기다리지 않는다.
+    assert llm_backend.model_is_cooling_down("qwen/qwen3-32b") is True
+    models.clear()
+    with llm_chat.open_chat(PAYLOAD, timeout=5, retry=False) as resp:
+        resp.read()
+    assert models == ["backup/model"]
+
+
+def test_openrouter_timeout_falls_to_next_model_with_cooldown(openrouter_env, monkeypatch, no_sleep):
+    """상류가 아무 바이트도 보내지 않아 시도 상한을 넘기면 같은 모델 재시도 없이 다음 모델로 간다.
+
+    2026-10-31 사고: 무료 Nemotron이 ~120초 무응답 뒤 502를 줘서 의도 분류가 135초 걸렸고,
+    프록시(120초)가 먼저 끊어 화면에 "방금 입력을 해석하지 못했어요"가 나갔다."""
+    import urllib.request
+    from engine import nl_parser
+
+    monkeypatch.setattr(nl_parser, "_ollama_align_runner_num_ctx", lambda: False)
+    monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", "backup/model")
+    seen = []
+
+    def fake_urlopen(req, timeout):
+        model = json.loads(req.data)["model"]
+        seen.append((model, timeout))
+        if model == "qwen/qwen3-32b":
+            raise TimeoutError("timed out")
+        resp = _Resp(OK_BODY)
+        resp.status = 200
+        resp.headers = {}
+        return resp
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    with llm_backend.openrouter_attempt_timeout_for_this_request(40):
+        with llm_chat.open_chat(PAYLOAD, timeout=120, retry=True) as resp:
+            data = llm_chat.read_chat_response(resp.read())
+    assert data["message"]["content"] == '{"intent":"STRATEGY_ADVICE"}'
+    assert seen == [("qwen/qwen3-32b", 40), ("backup/model", 40)]  # 요청 단위 상한이 시도마다 걸린다
+    assert llm_backend.model_is_cooling_down("qwen/qwen3-32b") is True
+    assert llm_backend.openrouter_attempt_timeout_s() is None  # 블록을 벗어나면 기본 예산으로 복귀
+
+
+def test_all_models_slow_go_straight_to_ollama(openrouter_env, ollama_host, monkeypatch, no_sleep):
+    """모든 OpenRouter 모델이 무응답으로 쿨다운 중이면 다시 두드리지 않고 곧장 Ollama로 간다 —
+    시도마다 상한(40초)을 통째로 태우면 두 모델만으로 80초가 사라진다(2026-10-31)."""
+    import urllib.request
+    from engine import nl_parser
+
+    monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", "backup/model")
+    monkeypatch.setattr(nl_parser, "_ollama_ensure_warm", lambda *a, **k: None)
+    llm_backend.mark_model_slow("qwen/qwen3-32b")
+    llm_backend.mark_model_slow("backup/model")
+    urls = []
+
+    def fake_urlopen(req, timeout):
+        urls.append(req.full_url)
+        if "openrouter.ai" in req.full_url:
+            pytest.fail("무응답 쿨다운 중인 모델을 다시 두드렸다")
+        return _Resp(json.dumps({"message": {"role": "assistant", "content": "ollama says hi"}, "done": True}).encode())
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    with llm_chat.open_chat(PAYLOAD, timeout=5, retry=False) as resp:
+        assert llm_chat.read_chat_response(resp.read())["message"]["content"] == "ollama says hi"
+    assert urls == ["http://localhost:11434/api/chat"]
 
 
 def test_http_status_upstream_502_uses_short_retry_not_cold_start_budget(openrouter_env, monkeypatch, no_sleep):
