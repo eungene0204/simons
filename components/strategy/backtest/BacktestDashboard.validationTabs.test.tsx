@@ -187,22 +187,19 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
 
     await user.click(screen.getByRole("button", { name: "전략 최적화" }));
     expect(await screen.findByTestId("backtest-optimization-page")).toBeInTheDocument();
-    expect(screen.getByTestId("backtest-optimization-page")).toHaveClass(
-      "flex-col",
-      "px-3",
-      "sm:px-4",
-      "lg:flex-row",
-      "lg:px-6"
-    );
+    // 검증 연구소 레이아웃 — 툴바 + 왼쪽 레일(실험·검증 대상·방법 노트) + 본문(설계도 캔버스·노트)
+    expect(screen.getByTestId("backtest-optimization-page")).toHaveClass("flex-col");
+    expect(screen.getByTestId("validation-lab-toolbar")).toHaveTextContent("검증 연구소");
     expect(screen.getByRole("button", { name: "워크포워드" }).closest("aside")).toHaveClass(
       "w-full",
-      "lg:w-64"
+      "lg:w-72"
     );
+    expect(screen.getByTestId("validation-lab-method-notes")).toHaveTextContent("Pardo");
 
-    // 기본 선택은 워크포워드
-    expect(screen.getByRole("button", { name: "워크포워드" })).toHaveClass("border-sky-400/40");
-    expect(screen.getByRole("button", { name: "워크포워드" })).toHaveClass("bg-transparent");
-    expect(screen.getByRole("button", { name: "워크포워드" })).not.toHaveClass("bg-sky-500/10");
+    // 기본 선택은 워크포워드 — 선택 상태는 강조색이 아니라 중립 면(UI 가이드라인 §2)
+    expect(screen.getByRole("button", { name: "워크포워드" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "워크포워드" })).toHaveClass("bg-white/[0.06]");
+    expect(screen.getByRole("button", { name: "몬테카를로" })).toHaveAttribute("aria-pressed", "false");
     expect(await screen.findByRole("button", { name: "워크포워드 분석 시작" })).toBeInTheDocument();
     expect(screen.getByTestId("backtest-walk-forward-section")).not.toHaveClass("py-4");
     expect(screen.getByTestId("backtest-walk-forward-section")).not.toHaveClass("flex-1");
@@ -211,10 +208,8 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
     expect(screen.getByText("익절라인")).toBeInTheDocument();
     expect(screen.getByText("보유기간")).toBeInTheDocument();
     expect(screen.getByText("보유종목수")).toBeInTheDocument();
-    expect(screen.queryByText("PBR <= 1")).not.toBeInTheDocument();
-    expect(screen.queryByText("손절 -12% 하락시 매도")).not.toBeInTheDocument();
-    expect(screen.queryByText("익절 30% 이상 수익시 매도")).not.toBeInTheDocument();
-    expect(screen.queryByText("최대 126일 보유 후 매도")).not.toBeInTheDocument();
+    // 검증 대상 전략은 왼쪽 레일에 두 실험 모두 보인다.
+    expect(screen.getByTestId("optimization-strategy-summary")).toHaveTextContent("PBR <= 1");
 
     await user.click(screen.getByRole("button", { name: "몬테카를로" }));
     expect(screen.queryByText("Premium Validation")).not.toBeInTheDocument();
@@ -234,6 +229,8 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
     expect(screen.getByText("21거래일 단위로 수익률 흐름을 다시 조합해, 며칠간 이어지는 상승과 하락 패턴도 함께 살펴봅니다.")).toBeInTheDocument();
     expect(screen.queryByText(/21거래일씩 묶어 섞어/)).not.toBeInTheDocument();
     expect(screen.queryByText(/21거래일 블록으로 이어 뽑아 자기상관을 보존합니다/)).not.toBeInTheDocument();
+    expect(screen.getByTestId("validation-lab-canvas")).toBeInTheDocument();
+    expect(screen.getByTestId("monte-carlo-figure-placeholder")).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "몬테카를로 실행" }));
 
     await waitFor(() => {
@@ -247,6 +244,7 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
         "sm:flex-row",
         "sm:items-center"
       );
+      expect(screen.getByTestId("monte-carlo-fan-figure")).toBeInTheDocument();
       expect(screen.getByText("x축: CAGR 구간")).toBeInTheDocument();
       expect(screen.getByText("x축: MDD 구간")).toBeInTheDocument();
       expect(screen.getAllByText("y축: 시나리오 수")).toHaveLength(2);
@@ -305,14 +303,17 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
 
     // 실행 전 설정 화면에는 '결과 닫기' 버튼이 없어야 한다.
     await user.click(screen.getByRole("button", { name: "몬테카를로" }));
-    expect(within(optimizationPage).queryByRole("button", { name: "결과 닫기" })).not.toBeInTheDocument();
+    // 결과는 모니터(React Flow) 노드 안에 그려진다 — jsdom은 레이아웃이 없어 노드가 '측정 전'(visibility:hidden)으로
+    // 남고 숨김 글자는 접근성 이름에서 빠지므로 버튼의 title로 찾는다.
+    expect(within(optimizationPage).queryByTitle("결과 닫기")).not.toBeInTheDocument();
 
     // 실행해 결과가 나온 뒤에만 '결과 닫기'가 노출된다.
     await user.click(await screen.findByRole("button", { name: "몬테카를로 실행" }));
     await waitFor(() => {
       expect(screen.getByText("양수 CAGR 확률")).toBeInTheDocument();
     });
-    const closeButton = within(optimizationPage).getByRole("button", { name: "결과 닫기" });
+    const closeButton = within(optimizationPage).getByTitle("결과 닫기");
+    expect(screen.getByTestId("monte-carlo-report-node")).toContainElement(closeButton);
 
     // 누르기 전까지는 최적화 페이지가 유지되고, 누르면 결과 탭으로 돌아간다.
     expect(screen.getByTestId("backtest-optimization-page")).toBeInTheDocument();

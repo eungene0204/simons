@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArrowsClockwise, ChartLine } from "phosphor-react";
 import {
   buildWalkForwardParameterDescriptors,
@@ -121,6 +122,27 @@ interface WalkForwardModalProps {
   baseBacktestSeconds?: number;
 }
 
+/** 검증 연구소 캔버스·창 배치도가 그리는 지금의 실험 설계(설정이 바뀔 때마다 다시 알린다). */
+export interface WalkForwardDesignSnapshot {
+  totalBars: number;
+  trainBars: number;
+  validationBars: number;
+  anchor: boolean;
+  windows: number;
+  methodLabel: string;
+  targetMetricLabel: string;
+  parameters: Array<{ label: string; range: string; excluded: boolean }>;
+  blockedAt: "split" | "optimize" | null;
+  running: boolean;
+  plan: { totalBacktests: number; estimateLabel: string; blockedReason: string | null; suggestions: string[]; note: string | null };
+  result: {
+    wfe: number | null;
+    wfeTierText: string | null;
+    avgOosCagr: number | null;
+    windows: Array<{ window: number; isPeriod: string; oosPeriod: string; isCagr: number | null; oosCagr: number | null }>;
+  } | null;
+}
+
 interface WalkForwardPanelProps {
   onRun?: WalkForwardRunner;
   backtestDates?: string[];
@@ -138,6 +160,11 @@ interface WalkForwardPanelProps {
   cacheKey?: string;
   // 기준 백테스트(전체 기간)의 실측 소요 시간(초). 예상 소요 시간 보정에 사용한다.
   baseBacktestSeconds?: number;
+  onDesignChange?: (snapshot: WalkForwardDesignSnapshot) => void;
+  /** 검증 연구소 안에서 쓸 때 — 값만 보여 주는 요약·예상 시간 카드는 숨긴다(위 모니터가 비춘다). */
+  monitorMode?: boolean;
+  /** 결과를 이 요소(모니터의 결과 판)에 포털로 그린다. monitorMode에서 아직 없으면 결과를 그리지 않는다. */
+  resultContainer?: HTMLElement | null;
 }
 
 interface WalkForwardFormState {
@@ -588,6 +615,9 @@ export function WalkForwardPanel({
   promptText,
   cacheKey,
   baseBacktestSeconds,
+  onDesignChange,
+  monitorMode = false,
+  resultContainer = null,
 }: WalkForwardPanelProps) {
   const totalBars = backtestDates.length > 1 ? backtestDates.length : FALLBACK_TOTAL_BARS;
   const minWindowBars = deriveMinWindowBars(totalBars);
@@ -1045,6 +1075,74 @@ export function WalkForwardPanel({
   const isRunDisabled = isRunning || isRunBlocked;
   const canShowEstimate = totalBacktests > 0;
 
+  const toNumber = (value: unknown) => {
+    const n = Number(value);
+    return value == null || Number.isNaN(n) ? null : n;
+  };
+  const designSnapshot: WalkForwardDesignSnapshot = {
+    totalBars,
+    trainBars: formState.trainBars,
+    validationBars: formState.validationBars,
+    anchor: formState.anchor,
+    windows: derivedSettings.n_splits,
+    methodLabel: isGridMethod ? t("그리드 탐색") : t("베이지안 {0}회", formState.n_trials),
+    targetMetricLabel: t(TARGET_METRICS.find((metric) => metric.id === formState.target_metric)?.label ?? formState.target_metric),
+    parameters: visibleTargets.map((target) => {
+      const range = currentParameterRangeForTarget(target);
+      const unit = getParameterStepConfig(target.label).unit;
+      return {
+        label: t(target.label),
+        excluded: excludedTargetIds.has(target.id),
+        range: range?.values
+          ? range.values.map((value) => formatStepWithUnit(value, unit)).join(", ")
+          : range
+            ? `${formatStepWithUnit(range.min, unit)}~${formatStepWithUnit(range.max, unit)}${range.step > 0 ? ` · STEP ${formatStepWithUnit(range.step, unit)}` : ""}`
+            : "",
+      };
+    }),
+    blockedAt:
+      runVerdict.status === "too_short" || runVerdict.status === "too_many_windows"
+        ? "split"
+        : runVerdict.status === "too_many_combinations" || runVerdict.status === "too_long"
+          ? "optimize"
+          : null,
+    running: isRunning,
+    plan: {
+      totalBacktests,
+      estimateLabel: isRunBlocked && runVerdict.status !== "too_long" ? t("실행 불가") : estimatedDurationLabel,
+      blockedReason: isRunBlocked ? t("충족되지 않은 조건: {0}", runDisabledReason) : null,
+      suggestions: isRunBlocked ? runSuggestions.map(describeSuggestion) : [],
+      note:
+        isGridMethod && !gridSearchExceedsCap
+          ? t("현재 파라미터 범위 기준 약 {0}개 조합을 각 워크포워드 구간에서 전수 실행합니다.", gridSearchEstimate.toLocaleString())
+          : null,
+    },
+    result: result
+      ? {
+          wfe: wfeValid ? wfe : null,
+          wfeTierText: wfeValid ? t(wfeTone.text) : null,
+          avgOosCagr: toNumber(result.aggregate?.avg_oos_cagr),
+          windows: result.windows.map((window) => ({
+            window: window.window,
+            isPeriod: window.is_period,
+            oosPeriod: window.oos_period,
+            isCagr: toNumber(window.is_metrics?.cagr),
+            oosCagr: toNumber(window.oos_metrics?.cagr),
+          })),
+        }
+      : null,
+  };
+  // 연구소에서는 결과를 모니터의 결과 판에 그린다 — 결과 판이 아직 안 붙었으면 잠깐 아무 데도 그리지 않는다.
+  const placeResult = (node: ReactNode) =>
+    monitorMode ? (resultContainer ? createPortal(node, resultContainer) : null) : node;
+
+  const designKey = JSON.stringify(designSnapshot);
+  const designRef = useRef(designSnapshot);
+  designRef.current = designSnapshot;
+  useEffect(() => {
+    onDesignChange?.(designRef.current);
+  }, [designKey, onDesignChange]);
+
   return (
         <div data-testid="walk-forward-panel" className="w-full overflow-hidden rounded-xl border border-white/[0.08] bg-[var(--background)]">
           <RunProgressModal
@@ -1201,7 +1299,7 @@ export function WalkForwardPanel({
           <div className={maxHeightClass ? `${maxHeightClass} overflow-y-auto` : undefined}>
             {!result && (
               <div className="grid grid-cols-1 divide-y divide-white/[0.08] lg:grid-cols-2 lg:divide-x lg:divide-y-0">
-                <section className="p-5">
+                <section id="wf-split" className="scroll-mt-24 p-5">
                   <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("기본 설정")}</p>
                   <div className="mt-4 divide-y divide-white/[0.04] border-t border-white/[0.05]">
                     <div className="py-4">
@@ -1285,6 +1383,7 @@ export function WalkForwardPanel({
                           {t("검증기간이 {0}거래일(약 3개월)보다 짧습니다. 짧은 구간의 연평균 수익률(CAGR)은 작은 등락도 크게 연환산되어 구간별 CAGR·WFE의 잡음이 커집니다.", SHORT_VALIDATION_BARS)}
                         </p>
                       )}
+                      {!monitorMode && (
                       <div data-testid="walk-forward-period-timeline" className="mt-5">
                         {/* 눈금은 바깥 한 줄이 직접 배치한다 — 색 그룹은 display:contents(=className "contents")로
                             레이아웃에서 빠져 있어야 경계 눈금도 같은 간격으로 선다. */}
@@ -1313,8 +1412,10 @@ export function WalkForwardPanel({
                           </span>
                         </div>
                       </div>
+                      )}
                     </div>
 
+                    {!monitorMode && (
                     <div className="py-4">
                       <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("설정 요약")}</p>
                       <div className="mt-3 grid grid-cols-1 gap-3 text-xs font-bold text-gray-300 md:grid-cols-2">
@@ -1345,10 +1446,11 @@ export function WalkForwardPanel({
                         </div>
                       </div>
                     </div>
+                    )}
                   </div>
                 </section>
 
-                <section className="p-5">
+                <section id="wf-optimize" className="scroll-mt-24 p-5">
                   <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("최적화 설정")}</p>
                   <div className="mt-4 divide-y divide-white/[0.04] border-t border-white/[0.05]">
                     <div className="py-4">
@@ -1482,7 +1584,7 @@ export function WalkForwardPanel({
                         ))}
                       </div>
                     </div>
-                    {canShowEstimate && (
+                    {canShowEstimate && !monitorMode && (
                       <div className="py-4">
                         <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
                           <div className="flex items-start justify-between gap-4">
@@ -1591,8 +1693,13 @@ export function WalkForwardPanel({
               </div>
             )}
 
-            {result && (
-              <div className="divide-y divide-white/[0.08]">
+            {monitorMode && result && (
+              <p data-testid="walk-forward-result-in-monitor" className="p-5 text-xs font-bold leading-5 text-gray-400">
+                {t("결과는 위 모니터에 표시됩니다. 값을 다시 조정하려면 재설정을 누르세요.")}
+              </p>
+            )}
+            {result && placeResult(
+              <div id="wf-result" className="scroll-mt-24 divide-y divide-white/[0.08]">
                 <div className="flex items-center gap-3 px-5 py-3">
                   <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("워크포워드 분석 결과")}</p>
                 </div>
@@ -1728,7 +1835,7 @@ export function WalkForwardPanel({
                   </section>
                 </div>
 
-                <section className="p-5">
+                <section id="wf-test" className="scroll-mt-24 p-5">
                   <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("구간별 결과")}</p>
                   <div className="mt-4 overflow-x-auto">
                     <div className="min-w-[760px]">

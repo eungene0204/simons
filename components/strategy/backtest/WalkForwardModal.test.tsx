@@ -1064,4 +1064,59 @@ describe("WalkForwardModal", () => {
       .previousElementSibling as HTMLElement;
     expect(modalBody.className).toMatch(/max-h-\[calc\(100dvh-9rem\)\] overflow-y-auto/);
   });
+
+  it("검증 연구소(monitorMode)에서는 값만 보여 주는 요약·예상 시간 카드를 숨기고, 그 값은 모니터 스냅샷으로 넘긴다", async () => {
+    const onDesignChange = vi.fn();
+    await act(async () => {
+      render(
+        <WalkForwardPanel
+          onRun={vi.fn()}
+          canRun
+          backtestDates={buildDates(1000)}
+          baseStrategy={baseStrategy}
+          optimizationTargets={[{ id: "summary-0", label: "손절라인" }]}
+          onDesignChange={onDesignChange}
+          monitorMode
+        />
+      );
+    });
+    // 조정 장치는 남는다.
+    expect(screen.getByLabelText("구간 길이")).toBeInTheDocument();
+    expect(screen.getByLabelText("학습 비중")).toBeInTheDocument();
+    // 표시 전용 블록은 모니터가 비춘다.
+    expect(screen.queryByTestId("walk-forward-period-timeline")).not.toBeInTheDocument();
+    expect(screen.queryByText("설정 요약")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("walk-forward-run-capacity-badge")).not.toBeInTheDocument();
+    const snapshot = onDesignChange.mock.calls.at(-1)[0];
+    expect(snapshot.parameters).toContainEqual(expect.objectContaining({ label: "손절라인", excluded: false, range: expect.stringContaining("STEP") }));
+    expect(snapshot.plan.totalBacktests).toBeGreaterThan(0);
+    expect(snapshot.plan.blockedReason).toBeNull();
+  });
+
+  it("monitorMode의 결과는 모니터 결과 판(resultContainer)에 그리고, 결과 판이 없으면 조정 칸에 그리지 않는다", async () => {
+    const loaded = {
+      status: "ok",
+      n_splits: 2,
+      anchor: false,
+      target_metric: "cagr",
+      windows: [],
+      aggregate: {},
+      combined_equity: [],
+      combined_dates: [],
+      walk_forward_efficiency: 0.9,
+      wfe_basis: "cagr",
+    };
+    const { rerender } = render(
+      <WalkForwardPanel onRun={vi.fn()} backtestDates={buildDates(240)} loadedResult={loaded} monitorMode resultContainer={null} />
+    );
+    expect(await screen.findByTestId("walk-forward-result-in-monitor")).toBeInTheDocument();
+    expect(screen.queryByText("Walk-Forward Efficiency")).not.toBeInTheDocument();
+
+    const slot = document.createElement("div");
+    document.body.appendChild(slot);
+    rerender(<WalkForwardPanel onRun={vi.fn()} backtestDates={buildDates(240)} loadedResult={loaded} monitorMode resultContainer={slot} />);
+    expect(within(slot).getByText("Walk-Forward Efficiency")).toBeInTheDocument();
+    expect(within(screen.getByTestId("walk-forward-panel")).queryByText("Walk-Forward Efficiency")).not.toBeInTheDocument();
+    slot.remove();
+  });
 });
