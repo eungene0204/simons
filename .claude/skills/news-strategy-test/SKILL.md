@@ -78,6 +78,8 @@ for d in ~/nullstock-news/<날짜>/*/; do bash .claude/skills/news-strategy-test
 
 `run_test.sh`는 녹화 없는 브라우저로 입력 → 칩 답변 → 확정 → 실행 → 결과를 돌고(`x-backtest-post`의 `studio_record.mjs`·`capture.mjs` 재사용), 폴더에 `result.json`·`shot_*.png`·`note.txt`(해설, `make_note.py`)·`link.txt`·`trades.txt`를 남긴다.
 
+**해석 절(2026-11-02 고정)**: `note.txt`에는 항상 "해석 (과거 데이터 기준, 사실과 계산만)" 절이 들어간다 — `make_note.py`의 `interpretation()`이 로그·지표 숫자로 만든다(손익 구조=승·패 횟수와 평균 크기, 벤치마크 차이, 연 회전·평균 보유, 최대 낙폭, 종목별 상·하위와 쏠림, 표본 30건 미만 안내, 한계). 사실과 산술만 쓰고 평가·전망·권유·"기사 때문에 그런 결과" 같은 인과 단정은 쓰지 않는다. 해석이 없는 `note.txt`·보고는 완성이 아니다. 새 문항을 더할 때도 이 규칙을 지킨다. 무인 실행의 `report.md`도 `note.txt` 전문을 싣기 때문에 해석이 같이 들어간다.
+
 **같은 문장으로 열기 링크(2026-10-30 도입)**: `make_note.py`가 입력 문장을 널스탁 입력창에 채워 여는 링크를 `link.txt`와 `note.txt`의 "널스탁에서 같은 문장으로 열기:" 줄에 남긴다 — `https://www.nullstock.im/?prompt=<문장>&utm_source=news&utm_medium=report&utm_campaign=news-<날짜>-<NN-slug>`. 규칙은 `x-backtest-post`의 "이 전략 그대로 열기"와 같다: 경로는 홈(`/`)이어야 하고(다른 경로는 비로그인 방문자를 홈으로 돌려보내며 쿼리를 잃는다), 앱은 문장을 채우기만 하고 보내기는 방문자가 누르며, 문장은 1,000자 이하다. 결과를 다시 만들지 않고 링크만 다시 뽑을 때는 `python3 scripts/make_note.py <폴더>`. X에 올릴 때는 `x-backtest-post`가 `utm_source=x` 링크를 따로 만든다.
 
 **"준비된 답이 없는 질문"으로 멈추면**: 매수·매도 신호를 묻는 질문이면 문장에 신호를 넣어 고친다. 그 밖의 설정 질문이면 가장 중립적인 칩 글자를 `answers`에 더한다. 고친 뒤 그 폴더만 다시 돌린다.
@@ -87,6 +89,7 @@ for d in ~/nullstock-news/<날짜>/*/; do bash .claude/skills/news-strategy-test
 - `result.json`의 `summary`(널스탁 해석)가 문장과 같은가: 유니버스가 기사 업종과 일치하는지, 문장에 없는 조건이 끼지 않았는지. 어긋나면 그 전략은 결과에서 빼고 증상을 보고한다(`strategy-interpretation-fix` 제안). 고쳐서 맞추려 들지 않는다.
 - 화면에 다른 대화(문장에 없는 종목·테마)가 보였으면 계정 충돌이다 — 그 결과는 버리고 위 "데모 계정" 항목대로 처리한다.
 - 사진을 열어 본다. **전략마다 3~4장을 고른다**: `shot_b_overview`(지표+수익 곡선)는 항상, 나머지는 이 결과의 특징을 보여 주는 것(`c_contrib` 종목·섹터 기여도, `d_dist` 수익률·보유 기간 분포, `e_factor` 팩터, `f_risk` 회전율·하방 위험, `i_ai` AI 점수 카드). `g_stocks`·`h_trades`는 일부 행(코드순·가장 이른 거래)이라 쓸 때 그렇다고 밝힌다.
+- `note.txt`에 "해석" 절이 있는지 확인한다(없으면 `python3 scripts/make_note.py <폴더>`로 다시 만든다). 해석의 숫자가 `result.json`·`trades.txt`와 맞는지 한두 개 대조한다.
 - 수익 곡선에 급락·급등이 있으면 `trades.txt`에서 그 무렵 큰 거래를 찾아 확인된 사실만 해설에 한 줄 덧붙인다.
 
 ## ⑥ 보고

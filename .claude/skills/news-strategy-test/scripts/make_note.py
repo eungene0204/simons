@@ -43,6 +43,44 @@ def log_find(log: list[str], pattern: str) -> re.Match | None:
     return next((m for line in log if (m := re.search(pattern, line))), None)
 
 
+def interpretation(m: dict, log: list[str]) -> list[str]:
+    """결과 숫자가 어떻게 나왔는지 푸는 '해석' 절 — 로그·지표에서 옮긴 값과 산술만 쓴다.
+    평가·전망·권유, 기사와의 인과 단정은 쓰지 않는다(규제 원칙). 숫자를 못 찾은 항목은 건너뛴다."""
+    trades = int(num(m["trades"]))
+    lines = ["", "해석 (과거 데이터 기준, 사실과 계산만)"]
+    avg = log_find(log, r"평균수익:\s*([+\-][\d.]+%)\s*/\s*평균손실:\s*([+\-][\d.]+%)")
+    if trades and avg:
+        wins = round(trades * num(m["win_rate"]) / 100)
+        aw, al = num(avg.group(1)), abs(num(avg.group(2)))
+        size = f"수익 거래 평균이 손실 거래 평균의 {aw / al:.2f}배" if al else "손실 거래 평균 0%"
+        lines.append(f"- 손익 구조: 거래 {trades}회 중 약 {wins}회가 수익, 약 {trades - wins}회가 손실이었다. "
+                     f"수익 거래 평균 {avg.group(1)}, 손실 거래 평균 {avg.group(2)}({size}). "
+                     f"총이익이 총손실의 {m['profit_factor']}배라 투자 수익률은 {m['roi']}로 나왔다.")
+    diff = num(m["roi"]) - num(m["benchmark"])
+    lines.append(f"- 벤치마크 비교: 같은 기간 {m['benchmark_name']}의 수익률은 {m['benchmark']}였고, "
+                 f"이 전략은 {m['roi']}로 {diff:+.2f}%p 차이였다. 벤치마크는 이 전략의 종목 구성과 다른 지수 상품이다.")
+    period = log_find(log, r"기간:\s*\d{4}-\d{2}-\d{2} ~ \d{4}-\d{2}-\d{2}\s*\((\d+)일\)")
+    hold = log_find(log, r"평균보유일:\s*(\d+)일")
+    if period and hold:
+        per_year = trades / (int(period.group(1)) / 365)
+        lines.append(f"- 회전·보유: 거래 {trades}회는 연 평균 약 {per_year:.1f}회이고, 한 번 잡은 종목을 평균 {hold.group(1)}일 보유했다.")
+    lines.append(f"- 낙폭: 최대 낙폭 {m['mdd']}는 기간 중 자산이 직전 고점에서 가장 크게 내려간 폭이다(최종 수익률 {m['roi']}와는 따로 측정).")
+    pnl = lambda p: [(t.group(1), num(t.group(2))) for l in log if l.startswith(p)  # noqa: E731
+                     if (t := re.search(rf"{p}\d\s+(.+?)\(\d+\):\s*(\+?-?[\d,]+)원", l))]
+    ups = [x for x in pnl("TOP") if x[1] > 0][:2]
+    downs = [x for x in pnl("BOT") if x[1] < 0][:2]
+    if ups and downs:
+        total, up_sum = num(m["total_profit"]), sum(v for _, v in ups)
+        concentration = (f" 상위 {len(ups)}종목 합계가 총 수익 {total:+,.0f}원보다 {up_sum - total:,.0f}원 컸고, 그 밖 종목 손익은 합쳐 {total - up_sum:+,.0f}원이었다."
+                         if up_sum > total > 0 else "")
+        lines.append("- 종목별: 수익 상위 " + ", ".join(f"{n} {v:+,.0f}원" for n, v in ups) + " / 손실 하위 "
+                     + ", ".join(f"{n} {v:+,.0f}원" for n, v in downs) + "." + concentration)
+    if trades < 30:
+        lines.append(f"- 표본: 거래 {trades}건이라 승률·손익비 같은 통계는 표본이 작다.")
+    lines.append("- 한계: 위 수치는 하나의 기간(백테스트 구간)에서 한 번 돌린 시뮬레이션 결과이며, 미래 수익은 보장되지 않는다.")
+    return lines
+
+
 def build(folder: Path) -> str:
     r = json.loads((folder / "result.json").read_text())
     spec = json.loads((folder / "spec.json").read_text())
@@ -84,6 +122,7 @@ def build(folder: Path) -> str:
     tops = [t for t in tops if num(t.group(2)) > 0][:2]
     if tops:
         out.append("- 수익 상위 종목: " + ", ".join(f"{t.group(1)} {t.group(2)}원({t.group(3)}거래)" for t in tops))
+    out += interpretation(m, log)
     return "\n".join(out) + "\n"
 
 
