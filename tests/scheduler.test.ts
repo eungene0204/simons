@@ -16,6 +16,10 @@ vi.mock("@/lib/server/accountDailySnapshots", () => ({
   syncAccountDailySnapshots: vi.fn(async () => ({ accounts: 0, written: 0, mismatched: [], fetchFailed: [] })),
 }));
 
+vi.mock("@/lib/server/publicSimulation/originals", () => ({
+  refreshAllOriginals: vi.fn(async () => ({ total: 3, queued: 2, refreshed: 2, failed: [] })),
+}));
+
 // 같은 분(정각)에 구독 갱신 잡도 함께 발화하므로, 그 잡이 조용히 끝나도록 최소 형태만 준다.
 vi.mock("@/lib/prisma", () => ({
   prisma: { user: { findMany: async () => [] } },
@@ -24,6 +28,7 @@ vi.mock("@/lib/prisma", () => ({
 import { runSchedulerAction } from "@/lib/server/scheduler-actions";
 import { purgeExpiredRecords } from "@/lib/server/dataRetention";
 import { syncAccountDailySnapshots } from "@/lib/server/accountDailySnapshots";
+import { refreshAllOriginals } from "@/lib/server/publicSimulation/originals";
 import { callSchedulerAPI, startScheduler, stopScheduler } from "@/lib/scheduler";
 
 const mockedRun = vi.mocked(runSchedulerAction);
@@ -216,6 +221,90 @@ describe("일별 수익률 저장 발화", () => {
 
     await vi.waitFor(() =>
       expect(console.error).toHaveBeenCalledWith(expect.stringContaining("계좌 일별 수익률 잡 실패"), expect.any(Error))
+    );
+  });
+});
+
+// 전략 시뮬레이션 원본 재계산 — 매일 00:00 KST(주말 포함), 운영 서버에서만. firedToday는 모듈 상태라 테스트마다 다른 날짜를 쓴다.
+describe("전략 시뮬레이션 원본 재계산 발화", () => {
+  const mockedRefresh = vi.mocked(refreshAllOriginals);
+
+  beforeEach(() => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mockedRun.mockReset();
+    mockedRun.mockResolvedValue({ action: "noop" });
+    mockedRefresh.mockClear();
+    vi.stubEnv("NODE_ENV", "production");
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    stopScheduler();
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it("00:00 KST 에 한 번 돈다 — 일요일에도", async () => {
+    vi.setSystemTime(new Date("2026-09-26T14:59:05Z")); // 토 23:59 KST
+
+    startScheduler();
+    expect(mockedRefresh).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(60_000); // 일 00:00 KST
+    await vi.waitFor(() => expect(mockedRefresh).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(console.log).toHaveBeenCalledWith(expect.stringContaining("예시 3개 중 2개 재계산, 완료 2개, 실패 0개"))
+    );
+
+    await vi.advanceTimersByTimeAsync(5 * 60_000); // 00:05 — 같은 날 다시 돌지 않는다
+    expect(mockedRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("0시대에 서버가 다시 뜨면 그날 분을 이어서 돈다", async () => {
+    vi.setSystemTime(new Date("2026-09-28T15:20:05Z")); // 화 00:20 KST
+
+    startScheduler();
+    await vi.waitFor(() => expect(mockedRefresh).toHaveBeenCalledTimes(1));
+  });
+
+  it("0시대가 아니면 돌지 않는다", () => {
+    vi.setSystemTime(new Date("2026-09-29T16:00:05Z")); // 수 01:00 KST
+
+    startScheduler();
+    expect(mockedRefresh).not.toHaveBeenCalled();
+  });
+
+  it("운영 서버가 아니면(로컬 dev — 같은 DB) 돌지 않는다", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.setSystemTime(new Date("2026-09-30T15:00:05Z")); // 목 00:00 KST
+
+    startScheduler();
+    expect(mockedRefresh).not.toHaveBeenCalled();
+  });
+
+  it("잡이 실패해도 스케줄러는 계속 돌고, 다음 날 다시 돈다", async () => {
+    mockedRefresh.mockRejectedValueOnce(new Error("db down"));
+    vi.setSystemTime(new Date("2026-10-01T14:59:05Z")); // 목 23:59 KST
+
+    startScheduler();
+    await vi.advanceTimersByTimeAsync(60_000); // 금 00:00
+    await vi.waitFor(() =>
+      expect(console.error).toHaveBeenCalledWith(expect.stringContaining("전략 시뮬레이션 갱신 잡 실패"), expect.any(Error))
+    );
+
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000); // 토 00:00
+    await vi.waitFor(() => expect(mockedRefresh).toHaveBeenCalledTimes(2));
+  });
+
+  it("기준일을 확인하지 못해 건너뛰면 error 로 남긴다", async () => {
+    mockedRefresh.mockResolvedValueOnce({ total: 3, queued: 0, refreshed: 0, failed: [], skipped: "NO_BASELINE" });
+    vi.setSystemTime(new Date("2026-10-04T15:00:05Z")); // 월 00:00 KST
+
+    startScheduler();
+    await vi.waitFor(() =>
+      expect(console.error).toHaveBeenCalledWith(expect.stringContaining("데이터 기준일을 확인하지 못함"))
     );
   });
 });

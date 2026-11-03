@@ -12,6 +12,7 @@
  *   16:00 ET   — 미국장 마감: 실행 중인 USD 계좌 일시정지 (평일)
  *   04:00 KST  — 보존기간 지난 개인정보·운영 로그 파기 (매일)
  *   06:30 KST  — 가상계좌 일별 수익률 저장: 체결·입금 내역과 일별 종가로 빠진 날짜를 복원 (매일, 서버 시작 때도 1회)
+ *   00:00 KST  — 전략 시뮬레이션 예시 원본 결과 일괄 재계산 (매일, 운영 서버만; 0시대에 재시작하면 이어서 1회)
  *
  * 장중 시그널 평가·체결(자동매매)은 이 스케줄러가 하지 않는다 — 정본은 FastAPI
  * 백엔드의 VirtualTrader(backend/engine/virtual_trader.py, 30초 간격)다.
@@ -158,6 +159,26 @@ async function runRetentionPurge(ts: string): Promise<void> {
   }
 }
 
+// 전략 시뮬레이션(/strategy-simulation) 원본 결과 일괄 재계산 — 날짜가 바뀌면 '오늘 기준 3년' 창이 하루 밀려
+// 모든 결과가 낡는다. 데이터는 전날 21:00 KST 동기화분(scripts/scheduler.py)이다. 순차 1건씩이라 수십 분 걸린다.
+async function runPublicSimulationRefresh(ts: string): Promise<void> {
+  try {
+    const { refreshAllOriginals } = await import("@/lib/server/publicSimulation/originals");
+    const result = await refreshAllOriginals();
+    const done = formatKST(nowKST());
+    if (result.skipped) {
+      console.error(`[Scheduler] ${done} KST — 전략 시뮬레이션 갱신 건너뜀: 데이터 기준일을 확인하지 못함 (조회 시 지연 갱신이 이어받는다)`);
+      return;
+    }
+    const failed = result.failed.length > 0 ? ` (${result.failed.join(", ")})` : "";
+    console.log(
+      `[Scheduler] ${done} KST — 전략 시뮬레이션 갱신(${ts} 시작): 예시 ${result.total}개 중 ${result.queued}개 재계산, 완료 ${result.refreshed}개, 실패 ${result.failed.length}개${failed}`
+    );
+  } catch (e) {
+    console.error(`[Scheduler] ${ts} KST — 전략 시뮬레이션 갱신 잡 실패:`, e);
+  }
+}
+
 function tick(): void {
   const kst = nowKST();
   const h = kst.getUTCHours();
@@ -175,6 +196,16 @@ function tick(): void {
   if (m === 0 && !firedToday.has(billingRenewalKey)) {
     firedToday.add(billingRenewalKey);
     void runBillingRenewal(formatKST(kst));
+  }
+
+  // 00:00 KST — 전략 시뮬레이션 원본 재계산 (주말 포함). 0시대 아무 분에나 아직 안 돌았으면 실행해, 그 시간에
+  // 재시작해도 이어서 돈다(이미 최신인 결과는 건너뛴다). 운영 서버(production)에서만 — 로컬 dev도 같은 DB를 써서,
+  // 로컬 코드·데이터로 계산한 결과가 운영 화면에 저장되는 것을 막는다.
+  const simulationRefreshKey = `${dateStr}_public_simulation_refresh`;
+  if (h === 0 && process.env.NODE_ENV === "production" && !firedToday.has(simulationRefreshKey)) {
+    firedToday.add(simulationRefreshKey);
+    console.log(`[Scheduler] ${formatKST(kst)} KST — 전략 시뮬레이션 원본 결과 재계산 시작`);
+    void runPublicSimulationRefresh(formatKST(kst));
   }
 
   // 06:30 KST — 계좌 일별 수익률 저장 (미국 금요일 장은 KST 토요일 새벽에 끝나 주말 가드보다 먼저 체크)

@@ -220,6 +220,7 @@
   - 현재 `dataAsOf`·엔진 버전은 FastAPI `GET /public-simulation/baseline`을 Next가 5분간 메모리 캐시해 얻는다(목록 조회가 엔진을 실행하지 않는다).
   - 실패 시 이전 결과를 유지하고 `lastError`·`lastAttemptAt`을 기록한다. 다음 시도는 **고정 15분**(`BUSY`는 60초) 뒤이며 지수 지연은 구현하지 않았다(§9.2).
   - 날짜가 바뀌어 `window.requestedStart`가 달라진 결과도 낡은 것으로 보고 갱신한다. 원본이 낡았거나 `pending`인 동안 수정 실행은 409 `BASELINE_CHANGED`(`reason: REFRESHING`)로 막는다.
+  - 매일 00:00 KST 일괄 재계산(2026-11-04): `lib/scheduler.ts`가 `refreshAllOriginals()`를 불러 전 예시 중 낡은 것을 위 순차 큐에 넣는다(기준일 캐시를 비우고 새로 물음, 리스가 잡힌 항목·최신 항목은 건너뜀, 실패는 이전 결과 유지·로그에 `예시키:오류코드`). 운영 서버(`NODE_ENV=production`)에서만, 0시대 재시작 시 이어서 1회. 데이터는 전날 21:00 KST 동기화분이다.
 - 수정 결과(서버 메모리 LRU, Next 프로세스): 최대 500개, TTL 30분. 같은 키의 진행 중 요청은 하나로 합친다(in-flight map).
 - 요청 제한(익명): 식별자 = `lib/board/server.ts`의 `identity(request)`(가져다 쓰기만, 수정 금지).
   수정 실행 20회/10분/식별자, 전체 60회/10분. 초과 시 429 `RATE_LIMITED` + `retryAfterSeconds`.

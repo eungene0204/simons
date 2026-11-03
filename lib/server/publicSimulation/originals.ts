@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { fetchBackend } from "@/lib/server/backend";
 import {
   findPublicStrategy,
+  listAllPublicStrategies,
   snapshotFromSettings,
   snapshotHash,
   type PublicStrategyRow,
@@ -80,6 +81,12 @@ export function presentOriginal(item: PublicStrategyRow, baseline: Baseline | nu
 function needsRefresh(item: PublicStrategyRow, baseline: Baseline | null, now: number): boolean {
   const { row } = item;
   if (row.refreshLeaseUntil && row.refreshLeaseUntil.getTime() > now) return false;
+  return isOutdated(item, baseline);
+}
+
+/** 리스와 무관하게, 저장 결과가 현재 설정·기준일·창에 맞지 않으면 true. */
+function isOutdated(item: PublicStrategyRow, baseline: Baseline | null): boolean {
+  const { row } = item;
   const hash = snapshotHash(snapshotFromSettings(item.settings));
   const stored = parseStored(row.result);
   if (row.snapshotHash !== hash || !stored || !DONE.includes(row.status)) return true;
@@ -106,6 +113,48 @@ export function whenRefreshesSettled(): Promise<void> {
 /** 조회 시 호출 — 낡았거나 없으면 갱신을 예약한다(리스가 살아 있으면 건너뜀). */
 export function ensureFresh(item: PublicStrategyRow, baseline: Baseline | null): void {
   if (needsRefresh(item, baseline, Date.now())) scheduleRefresh(item.row.id);
+}
+
+export type DailyRefreshSummary = {
+  total: number;
+  queued: number;
+  refreshed: number;
+  failed: string[];           // "예시키:오류코드"
+  skipped?: "NO_BASELINE";
+};
+
+let dailyRun: Promise<DailyRefreshSummary> | null = null;
+
+/**
+ * 매일 00:00 KST 일괄 갱신(lib/scheduler.ts). 날짜가 바뀌면 3년 창 시작일이 하루 밀려 모든 원본이 낡는다 —
+ * 첫 방문자를 기다리지 않고 미리 다시 계산해 둔다. 조회 때의 지연 갱신과 같은 순차 큐·리스·저장 경로를 쓰므로
+ * 동시 실행은 1건이고, 이미 최신이거나 다른 프로세스가 리스를 쥔 항목은 건너뛴다. 결과는 예시마다 행 한 번의
+ * 쓰기로 바뀌며, 그 전까지 화면은 이전 결과를 '갱신 중'으로 보여 준다. 실행 중에 다시 불리면 같은 실행을 돌려준다.
+ */
+export function refreshAllOriginals(): Promise<DailyRefreshSummary> {
+  dailyRun ??= runDailyRefresh().finally(() => {
+    dailyRun = null;
+  });
+  return dailyRun;
+}
+
+async function runDailyRefresh(): Promise<DailyRefreshSummary> {
+  resetBaselineCache(); // 자정 직전에 캐시된 기준일(어제 창)로 '최신'이라 오판하지 않게
+  const baseline = await getBaseline();
+  const items = await listAllPublicStrategies();
+  if (!baseline) return { total: items.length, queued: 0, refreshed: 0, failed: [], skipped: "NO_BASELINE" };
+
+  const now = Date.now();
+  const queued = items.filter((item) => needsRefresh(item, baseline, now)).map((item) => item.row.id);
+  queued.forEach(scheduleRefresh);
+  await whenRefreshesSettled();
+
+  const ids = new Set(queued);
+  const after = (await listAllPublicStrategies()).filter((item) => ids.has(item.row.id));
+  const failed = after
+    .filter((item) => isOutdated(item, baseline))
+    .map((item) => `${item.row.id}:${item.row.lastError ?? "NOT_REFRESHED"}`);
+  return { total: items.length, queued: queued.length, refreshed: queued.length - failed.length, failed };
 }
 
 export async function refreshOne(publicId: string): Promise<void> {

@@ -8,7 +8,7 @@ import {
 } from "./access";
 import { exampleRegistry, type ExampleStrategy } from "./examples";
 import {
-  ensureFresh, getBaseline, presentOriginal, refreshOne, resetBaselineCache, whenRefreshesSettled, type Baseline,
+  ensureFresh, getBaseline, presentOriginal, refreshAllOriginals, refreshOne, resetBaselineCache, whenRefreshesSettled, type Baseline,
 } from "./originals";
 
 vi.mock("@/lib/prisma", () => ({
@@ -283,5 +283,91 @@ describe("갱신 예약과 실행", () => {
     expect(data).toMatchObject({ lastError: "BACKEND_UNREACHABLE" });
     expect(data).not.toHaveProperty("result");
     expect(data).not.toHaveProperty("status");
+  });
+});
+
+// 매일 00:00 KST 일괄 재계산 — 조회 때와 같은 큐·리스·저장 경로를 쓰고, 최신이거나 리스가 잡힌 항목은 건너뛴다.
+describe("매일 일괄 재계산", () => {
+  const yesterday = stored({ window: { requestedStart: "2023-10-26", actualStart: "2023-10-26", actualEnd: "2026-10-23" } });
+  const runBody = { status: "ready", dataAsOf: "2026-10-23", engineVersion: "16.43.0", computedAt: "2026-10-27T15:01:00Z", summary: {}, window: { requestedStart: "2023-10-27" } };
+
+  // 행 상태를 메모리에 두고 updateMany(리스·저장)를 그대로 반영하는 가짜 DB.
+  function fakeDb(rows: PublicStrategyRow["row"][]) {
+    const byId = new Map(rows.map((r) => [r.id, { ...r }]));
+    db.findMany.mockImplementation(async ({ where }: any) =>
+      [...byId.values()].filter((r) => where.id.in.includes(r.id)).map((r) => ({ ...r })));
+    db.updateMany.mockImplementation(async ({ where, data }: any) => {
+      const row = byId.get(where.id);
+      if (!row) return { count: 0 };
+      const now = Date.now();
+      if (where.OR && row.refreshLeaseUntil && row.refreshLeaseUntil.getTime() >= now) return { count: 0 };
+      Object.assign(row, data);
+      return { count: 1 };
+    });
+    return byId;
+  }
+
+  it("날짜가 바뀌어 낡은 결과만 다시 계산하고 결과 행을 새 창으로 바꾼다", async () => {
+    setRegistry([example("a", "A 전략"), example("b", "B 전략"), example("c", "C 전략")]);
+    const rows = fakeDb([
+      { ...item().row, id: "a", result: yesterday },
+      { ...item().row, id: "b" },                                                            // 이미 오늘 창
+      { ...item().row, id: "c", result: yesterday, refreshLeaseUntil: new Date(Date.now() + 60_000) }, // 다른 프로세스가 계산 중
+    ]);
+    mockBackend(() => ({ status: 200, body: runBody }));
+
+    const summary = await refreshAllOriginals();
+
+    expect(backend.mock.calls.filter((c) => String(c[0]).endsWith("/run"))).toHaveLength(1);
+    expect(summary).toEqual({ total: 3, queued: 1, refreshed: 1, failed: [] });
+    expect(JSON.parse(rows.get("a")!.result!).window.requestedStart).toBe("2023-10-27");
+    expect(rows.get("a")!.refreshLeaseUntil).toBeNull();
+  });
+
+  it("자정 직전에 캐시된 기준일(어제 창)을 쓰지 않고 새로 묻는다", async () => {
+    setRegistry([example("a")]);
+    fakeDb([{ ...item().row, id: "a", result: yesterday }]);
+    mockBackend(() => ({ status: 200, body: runBody }));
+    backend.mockImplementationOnce((async () => ({
+      ok: true, status: 200, json: async () => ({ ...BASELINE, requestedStart: "2023-10-26" }),
+    })) as any);
+    await getBaseline(); // 어제 창이 캐시에 남는다
+
+    const summary = await refreshAllOriginals();
+    expect(summary.queued).toBe(1);
+  });
+
+  it("실패한 항목은 이전 결과를 지우지 않고 오류 코드와 함께 실패로 센다", async () => {
+    setRegistry([example("a")]);
+    const rows = fakeDb([{ ...item().row, id: "a", result: yesterday }]);
+    mockBackend(() => ({ status: 500, body: { code: "ENGINE_ERROR" } }));
+
+    const summary = await refreshAllOriginals();
+
+    expect(summary).toEqual({ total: 1, queued: 1, refreshed: 0, failed: ["a:ENGINE_ERROR"] });
+    expect(rows.get("a")!.result).toBe(yesterday);
+    expect(rows.get("a")!.status).toBe("ready");
+  });
+
+  it("기준일을 확인할 수 없으면 아무것도 계산하지 않는다", async () => {
+    setRegistry([example("a")]);
+    fakeDb([{ ...item().row, id: "a", result: yesterday }]);
+    backend.mockRejectedValue(new Error("down"));
+
+    const summary = await refreshAllOriginals();
+
+    expect(summary).toMatchObject({ queued: 0, skipped: "NO_BASELINE" });
+    expect(db.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("실행 중에 다시 불리면 같은 실행을 돌려준다(이중 실행 없음)", async () => {
+    setRegistry([example("a")]);
+    fakeDb([{ ...item().row, id: "a", result: yesterday }]);
+    mockBackend(() => ({ status: 200, body: runBody }));
+
+    const [first, second] = await Promise.all([refreshAllOriginals(), refreshAllOriginals()]);
+
+    expect(first).toBe(second);
+    expect(backend.mock.calls.filter((c) => String(c[0]).endsWith("/run"))).toHaveLength(1);
   });
 });

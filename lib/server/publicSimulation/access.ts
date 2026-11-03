@@ -127,6 +127,16 @@ export async function findPublicStrategy(publicId: string): Promise<PublicStrate
   return row ? toItem(example, row) : null;
 }
 
+/** 등록부의 모든 예시와 결과 행(검색·쪽 나눔·목록 제외 없이) — 매일 일괄 갱신이 쓴다. */
+export async function listAllPublicStrategies(): Promise<PublicStrategyRow[]> {
+  const examples = [...exampleRegistry().values()];
+  const rows = await ensureRows(examples);
+  return examples.flatMap((e) => {
+    const row = rows.get(e.key);
+    return row ? [toItem(e, row)] : [];
+  });
+}
+
 /** 목록에 올릴 수 없는 예시: 현재 스냅샷으로 이미 '시뮬레이션 불가'로 판정된 예시. */
 function isUnsimulatable(example: ExampleStrategy, row: PublicStrategyRow["row"] | undefined): boolean {
   const snapshot = snapshotFromSettings(example.settings);
