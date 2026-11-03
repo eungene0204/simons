@@ -4,6 +4,7 @@ import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Columns } from "phosphor-react";
 import { t } from "@/lib/i18n";
+import NodeSizer, { useNodeScale } from "./NodeSizer";
 import { EXPERIMENT_NODE_W, SCHEDULE_NODE_W, type ScheduleNode } from "./experimentGraph";
 
 // 워크포워드 창 배치 노드 — 캔버스 안에서 창 분할 단계 밑에 붙어, 창마다 한 줄씩 학습(파랑)·검증(주황) 막대를
@@ -13,9 +14,9 @@ export const TRAIN_COLOR = "#62A8CB";
 export const VALIDATION_COLOR = "#FF9933";
 
 const PAD_X = 12;
-const WIDTH = SCHEDULE_NODE_W - PAD_X * 2;
 const LABEL_W = 36;
 const VALUE_W = 132;
+const WIDTH = SCHEDULE_NODE_W - PAD_X * 2;
 const ROW_H = 22;
 const BAR_H = 10;
 const AXIS_H = 24;
@@ -49,7 +50,8 @@ function Swatch({ color, label }: { color: string; label: string }) {
   );
 }
 
-const WalkForwardScheduleNode = memo(function WalkForwardScheduleNode({ data, selected }: NodeProps<ScheduleNode>) {
+const WalkForwardScheduleNode = memo(function WalkForwardScheduleNode({ id, data, selected }: NodeProps<ScheduleNode>) {
+  const { width, zoom } = useNodeScale(id, SCHEDULE_NODE_W);
   const { spans, totalBars, dates, anchor, trainBars, validationBars, outcomes } = data;
   const hasOutcomes = !!outcomes && outcomes.length > 0;
   const plotW = WIDTH - LABEL_W - (hasOutcomes ? VALUE_W : 0);
@@ -61,19 +63,21 @@ const WalkForwardScheduleNode = memo(function WalkForwardScheduleNode({ data, se
 
   return (
     <div
-      className={`cursor-pointer rounded-2xl border bg-[var(--lab-node)] ${selected ? "border-[var(--lab-border-focus)]" : "border-[var(--lab-border-strong)]"}`}
-      style={{ width: SCHEDULE_NODE_W }}
+      className={`cursor-pointer overflow-hidden rounded-2xl border bg-[var(--lab-node)] ${selected ? "border-[var(--lab-border-focus)]" : "border-[var(--lab-border-strong)]"}`}
+      style={{ width }}
       data-testid="walk-forward-schedule-node"
     >
+      <NodeSizer minWidth={SCHEDULE_NODE_W * 0.5} />
       {/* 창 분할 노드 바로 밑에서 들어오도록 연결점을 그 노드 가운데에 맞춘다. */}
       <Handle
         type="target"
         id="in"
         position={Position.Top}
-        style={{ left: EXPERIMENT_NODE_W / 2 }}
+        style={{ left: (EXPERIMENT_NODE_W / 2) * zoom }}
         className="!h-2 !w-2 !rounded-full !border !border-[var(--lab-border-strong)] !bg-[var(--lab-panel)]"
         isConnectable={false}
       />
+      <div style={{ zoom }}>
       <div className="flex items-center gap-2.5 border-b border-[var(--lab-border)] px-3 py-2">
         <Columns size={15} weight="duotone" className="flex-shrink-0 text-white" />
         <span className="text-xs font-black text-white">{t("워크포워드 창 배치")}</span>
@@ -147,6 +151,7 @@ const WalkForwardScheduleNode = memo(function WalkForwardScheduleNode({ data, se
           ? t("확장 방식: 학습 창의 시작은 첫 거래일에 고정되고, 창마다 끝이 검증 길이({0}거래일)만큼 늘어납니다. 검증 구간끼리는 겹치지 않으며, 이어 붙이면 처음 보는 데이터만으로 만든 성과가 됩니다.", validationBars.toLocaleString())
           : t("롤링 방식: 학습 {0}거래일 · 검증 {1}거래일 창이 검증 길이만큼씩 함께 이동합니다. 검증 구간끼리는 겹치지 않으며, 이어 붙이면 처음 보는 데이터만으로 만든 성과가 됩니다.", trainBars.toLocaleString(), validationBars.toLocaleString())}
       </p>
+      </div>
     </div>
   );
 });

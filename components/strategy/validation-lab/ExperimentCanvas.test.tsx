@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import ExperimentCanvas from "./ExperimentCanvas";
-import { buildWalkForwardGraph, type WalkForwardDesign } from "./experimentGraph";
+import { EXPERIMENT_NODE_W, buildWalkForwardGraph, type WalkForwardDesign } from "./experimentGraph";
 
 beforeAll(() => {
   globalThis.ResizeObserver ??= class {
@@ -68,5 +68,36 @@ describe("ExperimentCanvas 노드 편집", () => {
     render(<ExperimentCanvas graph={buildWalkForwardGraph(design)} onFocusSection={onFocusSection} onEdit={vi.fn()} />);
     fireEvent.click(screen.getByTestId("experiment-node-wf-data"));
     expect(onFocusSection).toHaveBeenCalledWith("wf-data");
+  });
+
+  it("모든 단계 노드에 크기 조절 손잡이가 붙는다", () => {
+    render(<ExperimentCanvas graph={buildWalkForwardGraph(design)} onFocusSection={vi.fn()} onEdit={vi.fn()} />);
+    for (const testId of ["experiment-node-wf-data", "experiment-node-wf-split", "experiment-node-wf-optimize"]) {
+      expect(screen.getByTestId(testId).querySelector(".lab-resize-handle")).not.toBeNull();
+    }
+  });
+
+  it("크기를 바꾸지 않은 노드는 기본 폭으로 그린다 — 잰 크기(첫 렌더 0)를 노드 폭으로 쓰면 노드가 쪼그라든다", () => {
+    render(<ExperimentCanvas graph={buildWalkForwardGraph(design)} onFocusSection={vi.fn()} onEdit={vi.fn()} />);
+    expect(screen.getByTestId("experiment-node-wf-split").style.width).toBe(`${EXPERIMENT_NODE_W}px`);
+  });
+
+  // 내용 배율(CSS zoom)은 jsdom이 속성을 버려 여기서 볼 수 없다 — 폭이 사용자 폭을 따르는지만 본다.
+  it("사용자가 정한 폭은 노드 폭으로 그린다", () => {
+    const graph = buildWalkForwardGraph(design);
+    const widened = { ...graph, nodes: graph.nodes.map((n) => (n.id === "wf-split" ? { ...n, width: EXPERIMENT_NODE_W * 1.5 } : n)) };
+    render(<ExperimentCanvas graph={widened} onFocusSection={vi.fn()} onEdit={vi.fn()} />);
+    const node = screen.getByTestId("experiment-node-wf-split");
+    expect(node.style.width).toBe(`${EXPERIMENT_NODE_W * 1.5}px`);
+  });
+
+  it("확대·축소를 누르면 자동 맞춤을 멈추고, '화면에 맞춤'으로 돌아간다", () => {
+    render(<ExperimentCanvas graph={buildWalkForwardGraph(design)} onFocusSection={vi.fn()} onEdit={vi.fn()} />);
+    const fit = screen.getByRole("button", { name: "화면에 맞춤" });
+    expect(fit).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "확대" }));
+    expect(fit).toBeEnabled();
+    fireEvent.click(fit);
+    expect(fit).toBeDisabled();
   });
 });

@@ -1,8 +1,8 @@
 "use client";
 
-import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowsClockwise, Crown, Flask, FolderOpen, SignOut, Spinner } from "phosphor-react";
+import { ArrowsClockwise, ChartLineUp, Crown, Flask, FolderOpen, SignOut, Spinner } from "phosphor-react";
 import {
   Bar,
   BarChart,
@@ -1125,8 +1125,11 @@ export default function OptimizationPage({
   const monteCarloCancelRef = useRef(false);
   const [walkForwardDesign, setWalkForwardDesign] = useState<WalkForwardDesignSnapshot | null>(null);
   const walkForwardEditorRef = useRef<WalkForwardEditor>(null);
-  // 모니터의 결과 판 요소 — 결과는 이 요소에 포털로 그린다.
-  const [reportSlot, setReportSlot] = useState<HTMLDivElement | null>(null);
+  // 결과 화면 — 워크포워드·몬테카를로 결과는 캔버스가 아니라 이 화면(따로 보는 페이지)에 포털로 그린다.
+  const [walkForwardResultSlot, setWalkForwardResultSlot] = useState<HTMLDivElement | null>(null);
+  const [walkForwardView, setWalkForwardView] = useState<"design" | "result">("design");
+  const [monteCarloResultSlot, setMonteCarloResultSlot] = useState<HTMLDivElement | null>(null);
+  const [monteCarloView, setMonteCarloView] = useState<"design" | "result">("design");
   // 툴바 오른쪽 끝 — 워크포워드 '분석 시작'·몬테카를로 '실행' 버튼이 이 요소에 포털로 그려진다.
   const [runButtonSlot, setRunButtonSlot] = useState<HTMLDivElement | null>(null);
 
@@ -1221,7 +1224,6 @@ export default function OptimizationPage({
           dates,
           outcomes: walkForwardDesign.result?.windows,
         },
-        reportSlot: setReportSlot,
         result: walkForwardDesign.result
           ? { ...walkForwardDesign.result, windowsDone: walkForwardDesign.result.windows.length }
           : null,
@@ -1252,7 +1254,6 @@ export default function OptimizationPage({
                 iterationOptions: MONTE_CARLO_ITERATION_OPTIONS,
               }
             : null,
-        reportSlot: isPremiumValidationEnabled && !isPlanLoading ? setReportSlot : undefined,
         result: source
           ? {
               cagrMedian: source.cagr.median,
@@ -1301,6 +1302,19 @@ export default function OptimizationPage({
     }
   }, []);
 
+  // 결과가 새로 생기면(실행 완료·불러오기) 결과 화면으로, 재설정으로 사라지면 설계 화면으로 간다.
+  const hasWalkForwardResult = !!walkForwardDesign?.result;
+  useEffect(() => {
+    setWalkForwardView(hasWalkForwardResult ? "result" : "design");
+  }, [hasWalkForwardResult]);
+  const showWalkForwardResult = selectedModel === "walkForward" && hasWalkForwardResult && walkForwardView === "result";
+  const hasMonteCarloResult = !!monteCarloResult;
+  useEffect(() => {
+    setMonteCarloView(hasMonteCarloResult ? "result" : "design");
+  }, [hasMonteCarloResult]);
+  const showMonteCarloResult = selectedModel === "monteCarlo" && hasMonteCarloResult && monteCarloView === "result";
+  const showResultPage = showWalkForwardResult || showMonteCarloResult;
+
   // 프리미엄 전용 기능 게이트: PREMIUM이 아니면 최적화 화면 대신 안내와 플랜 변경 유도를 노출한다.
   if (!isPlanLoading && !isPremiumValidationEnabled) {
     return (
@@ -1328,6 +1342,14 @@ export default function OptimizationPage({
   }
 
   const focusSection = (section: string) => {
+    if (section === "wf-result" && hasWalkForwardResult) {
+      setWalkForwardView("result");
+      return;
+    }
+    if (section === "mc-result" && hasMonteCarloResult) {
+      setMonteCarloView("result");
+      return;
+    }
     const target =
       document.getElementById(section) ??
       document.getElementById(selectedModel === "walkForward" ? "wf-data" : "mc-run");
@@ -1388,6 +1410,17 @@ export default function OptimizationPage({
             </>
           )}
         </div>
+        {((selectedModel === "walkForward" && hasWalkForwardResult && walkForwardView === "design") ||
+          (selectedModel === "monteCarlo" && hasMonteCarloResult && monteCarloView === "design")) && (
+          <button
+            type="button"
+            onClick={() => (selectedModel === "walkForward" ? setWalkForwardView : setMonteCarloView)("result")}
+            className="flex flex-shrink-0 items-center gap-1.5 rounded-md bg-[var(--main-blue)] px-3 py-1.5 text-xs font-black text-white transition-opacity hover:opacity-90"
+          >
+            <ChartLineUp className="h-4 w-4" weight="bold" />
+            {t("결과 보기")}
+          </button>
+        )}
         {/* 실험의 실행 버튼(워크포워드 '분석 시작'·몬테카를로 '실행')이 여기에 그려진다. */}
         <div ref={setRunButtonSlot} className="flex flex-shrink-0 items-center" data-testid="validation-lab-run-slot" />
       </header>
@@ -1396,7 +1429,15 @@ export default function OptimizationPage({
         <p className="mx-3 mt-3 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-bold text-red-300 sm:mx-4">{loadError}</p>
       )}
 
-      <div className="flex flex-col">
+      {/* 결과 화면 — 설계(캔버스·조정 칸)와 따로 보는 페이지. 포털 대상이라 늘 붙여 두고 숨긴다. */}
+      <section className={showWalkForwardResult ? "" : "hidden"} data-testid="walk-forward-result-page">
+        <div ref={setWalkForwardResultSlot} />
+      </section>
+      <section className={showMonteCarloResult ? "" : "hidden"} data-testid="monte-carlo-result-page">
+        <div ref={setMonteCarloResultSlot} />
+      </section>
+
+      <div className={`flex flex-col ${showResultPage ? "hidden" : ""}`}>
         <div className="min-w-0 flex-1">
           {/* 모니터 — 아래 조정 칸의 값과 실행 결과를 비춘다. 높이는 내용에 맞춰 늘어난다. */}
           {canvasGraph && (
@@ -1430,7 +1471,7 @@ export default function OptimizationPage({
                     onDesignChange={setWalkForwardDesign}
                     editRef={walkForwardEditorRef}
                     monitorMode
-                    resultContainer={reportSlot}
+                    resultContainer={walkForwardResultSlot}
                     runButtonContainer={runButtonSlot}
                     canRun={!isPlanLoading && isPremiumValidationEnabled && !!onWalkForward}
                     disabledReason={
@@ -1635,19 +1676,8 @@ export default function OptimizationPage({
                       onClose={() => setMonteCarloError(null)}
                     />
 
-                    {reportSlot && createPortal(
+                    {monteCarloResultSlot && createPortal(
                     <div className="space-y-5 p-5">
-                    {!monteCarloResult && (
-                      <div
-                        data-testid="monte-carlo-figure-placeholder"
-                        className="flex min-h-[160px] items-center justify-center rounded-2xl border border-dashed border-[var(--lab-border-strong)] px-4 py-8 text-center"
-                      >
-                        <p className="max-w-sm text-xs font-bold leading-5 text-[var(--text-label)]">
-                          {t("실행하면 시나리오별 자산 경로 분포(그림 1)와 CAGR·MDD 분포(그림 2), 분포 요약표(표 1)가 이 노트에 기록됩니다.")}
-                        </p>
-                      </div>
-                    )}
-
                     {monteCarloResult && (
                       <>
                         <div
@@ -1657,6 +1687,15 @@ export default function OptimizationPage({
                         >
                           <p className="text-sm font-black text-white">{t("시뮬레이션 결과")}</p>
                           <div className="flex items-center gap-2">
+                            {/* 재설정 — 결과를 지우고 설계 화면(캔버스·조정 칸)으로 돌아간다. */}
+                            <button
+                              type="button"
+                              onClick={() => setMonteCarloResult(null)}
+                              className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-2 text-xs font-black text-gray-200 transition-colors hover:bg-white/[0.08]"
+                            >
+                              <ArrowsClockwise className="h-4 w-4" weight="bold" />
+                              {t("재설정")}
+                            </button>
                             <SaveValidationButton
                               onSave={async () => {
                                 await saveValidation({
@@ -1854,7 +1893,7 @@ export default function OptimizationPage({
                       </>
                     )}
                     </div>,
-                    reportSlot
+                    monteCarloResultSlot
                     )}
                   </>
                 )}

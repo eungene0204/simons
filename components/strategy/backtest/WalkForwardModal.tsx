@@ -169,7 +169,7 @@ interface WalkForwardPanelProps {
   monitorMode?: boolean;
   /** 주면 '분석 시작' 버튼을 조정 칸 하단이 아니라 이 요소(검증 연구소 툴바)에 포털로 그린다. null이면 아직 없어 그리지 않는다. */
   runButtonContainer?: HTMLElement | null;
-  /** 결과를 이 요소(모니터의 결과 판)에 포털로 그린다. monitorMode에서 아직 없으면 결과를 그리지 않는다. */
+  /** 결과(재설정·저장 포함)를 이 요소(연구소의 결과 화면)에 포털로 그린다. monitorMode에서 아직 없으면 결과를 그리지 않는다. */
   resultContainer?: HTMLElement | null;
 }
 
@@ -1163,7 +1163,7 @@ export function WalkForwardPanel({
         }
       : null,
   };
-  // 연구소에서는 결과를 모니터의 결과 판에 그린다 — 결과 판이 아직 안 붙었으면 잠깐 아무 데도 그리지 않는다.
+  // 연구소에서는 결과를 결과 화면에 그린다 — 결과 화면이 아직 안 붙었으면 잠깐 아무 데도 그리지 않는다.
   const placeResult = (node: ReactNode) =>
     monitorMode ? (resultContainer ? createPortal(node, resultContainer) : null) : node;
 
@@ -1200,6 +1200,39 @@ export function WalkForwardPanel({
       }
     },
   }));
+
+  // 결과의 재설정·저장 — 연구소(monitorMode)에서는 결과와 함께 결과 화면에 그린다.
+  const resultActions = result && (
+    <>
+      <button
+        onClick={() => {
+          setResult(null);
+          setError(null);
+        }}
+        className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-2 text-xs font-black text-gray-200 transition-colors hover:bg-white/[0.08]"
+      >
+        <ArrowsClockwise className="h-4 w-4" weight="bold" />
+        {t("재설정")}
+      </button>
+      <SaveValidationButton
+        onSave={async () => {
+          await saveValidation({
+            modelType: "walkForward",
+            strategyName: strategyName || t("이름 없는 전략"),
+            prompt: promptText,
+            cacheKey,
+            settings: {
+              n_splits: result.n_splits,
+              anchor: result.anchor,
+              target_metric: result.target_metric,
+            },
+            result,
+            summary: buildWalkForwardSummary(result),
+          });
+        }}
+      />
+    </>
+  );
 
   // 툴바에 올릴 때는 툴바 버튼 크기에 맞춘다.
   const runButton = (
@@ -1610,66 +1643,99 @@ export function WalkForwardPanel({
                         </p>
                       )}
                     </div>
-                    <div className="py-4">
-                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("최적화 방법")}</p>
-                      <div className="mt-3 grid gap-2 md:grid-cols-2">
-                        {OPTIMIZATION_METHOD_OPTIONS.map((method) => {
-                          const active = formState.optimizationMethod === method.value;
-                          return (
+                    {/* 최적화 방법·시도 횟수·학습 창 방식은 한 행에 둔다 — 좁으면 줄바꿈(2026-11-03). */}
+                    <div data-testid="walk-forward-method-row" className="flex flex-wrap gap-x-10 gap-y-4 py-4">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("최적화 방법")}</p>
+                          <HelpTooltip label={t("최적화 방법")}>
+                            <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">{t("최적화 방법")}</span>
+                            {OPTIMIZATION_METHOD_OPTIONS.map((method) => (
+                              <span key={method.value} className="mt-2 block text-xs font-bold leading-5 text-gray-300">
+                                <span className="text-white">{t(method.label)}</span> — {t(method.body)}
+                              </span>
+                            ))}
+                          </HelpTooltip>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {OPTIMIZATION_METHOD_OPTIONS.map((method) => (
                             <button
                               type="button"
                               key={method.value}
-                              aria-pressed={active}
+                              aria-pressed={formState.optimizationMethod === method.value}
                               onClick={() => setFormState((current) => ({ ...current, optimizationMethod: method.value }))}
-                              className={`block cursor-pointer rounded-xl border p-4 transition-colors ${
-                                active
-                                  ? "border-sky-400/35 bg-white/[0.03]"
-                                  : "border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.05]"
-                              }`}
+                              className={buttonClass(formState.optimizationMethod === method.value)}
                             >
-                              <span className="flex items-center justify-center">
-                                <span className="text-sm font-black text-white">{t(method.label)}</span>
-                              </span>
-                              <span className="mt-2 block text-left text-xs font-bold leading-5 text-gray-400">{t(method.body)}</span>
+                              {t(method.label)}
                             </button>
-                          );
-                        })}
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                    {/* 그리드 조합 수와 실행 가능 여부는 아래 '예상 소요 시간' 카드 하나로 합쳤다 —
-                        두 카드가 같은 상태(상한 초과 = 실행 불가)를 중복 안내했다(2026-08-19). */}
-                    {/* 그리드 탐색에는 시도 횟수가 없지만 블록을 걷어내면 섹션 높이가 방법을 바꿀 때마다
-                        출렁인다 — 자리는 그대로 두고 내용만 숨긴다(2026-08-19). */}
-                    <div
-                      data-testid="walk-forward-trials-block"
-                      className={`py-4 ${isGridMethod ? "invisible" : ""}`}
-                      aria-hidden={isGridMethod || undefined}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("베이지안 최적화 시도 횟수")}</p>
-                        <HelpTooltip label={t("베이지안 최적화 시도 횟수")}>
-                          <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
-                            {t("베이지안 최적화 시도 횟수")}
-                          </span>
-                          <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
-                            {t("각 워크포워드 구간에서 파라미터 조합을 몇 번 탐색할지 정합니다. 횟수가 늘면 더 많은 조합을 계산하지만 실행 시간이 길어집니다.")}
-                          </span>
-                          <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
-                            {t("예: 30회는 손절 5/7/10%, 이동평균 20/60일 같은 후보 조합을 최대 30번 평가해 과거 학습 구간의 목표 지표가 높게 나온 조합을 기록합니다.")}
-                          </span>
-                        </HelpTooltip>
+                      {/* 그리드 조합 수와 실행 가능 여부는 아래 '예상 소요 시간' 카드 하나로 합쳤다 —
+                          두 카드가 같은 상태(상한 초과 = 실행 불가)를 중복 안내했다(2026-08-19). */}
+                      {/* 그리드 탐색에는 시도 횟수가 없지만 블록을 걷어내면 섹션 높이가 방법을 바꿀 때마다
+                          출렁인다 — 자리는 그대로 두고 내용만 숨긴다(2026-08-19). */}
+                      <div
+                        data-testid="walk-forward-trials-block"
+                        className={isGridMethod ? "invisible" : undefined}
+                        aria-hidden={isGridMethod || undefined}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("베이지안 최적화 시도 횟수")}</p>
+                          <HelpTooltip label={t("베이지안 최적화 시도 횟수")}>
+                            <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
+                              {t("베이지안 최적화 시도 횟수")}
+                            </span>
+                            <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
+                              {t("각 워크포워드 구간에서 파라미터 조합을 몇 번 탐색할지 정합니다. 횟수가 늘면 더 많은 조합을 계산하지만 실행 시간이 길어집니다.")}
+                            </span>
+                            <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
+                              {t("예: 30회는 손절 5/7/10%, 이동평균 20/60일 같은 후보 조합을 최대 30번 평가해 과거 학습 구간의 목표 지표가 높게 나온 조합을 기록합니다.")}
+                            </span>
+                          </HelpTooltip>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {TRIAL_OPTIONS.map((value) => (
+                            <button
+                              key={value}
+                              tabIndex={isGridMethod ? -1 : undefined}
+                              onClick={() => setFormState((current) => ({ ...current, n_trials: value }))}
+                              className={buttonClass(formState.n_trials === value)}
+                            >
+                              {t("{0}회", value)}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {TRIAL_OPTIONS.map((value) => (
-                          <button
-                            key={value}
-                            tabIndex={isGridMethod ? -1 : undefined}
-                            onClick={() => setFormState((current) => ({ ...current, n_trials: value }))}
-                            className={buttonClass(formState.n_trials === value)}
-                          >
-                            {t("{0}회", value)}
-                          </button>
-                        ))}
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("학습 창 방식")}</p>
+                          <HelpTooltip label={t("학습 창 방식")} placement="top">
+                            <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
+                              {t("학습 창 방식")}
+                            </span>
+                            <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
+                              {t("학습 구간은 파라미터를 맞추는 구간입니다. 롤링은 학습과 검증 창이 함께 이동하고, 확장은 학습 구간을 시작일부터 누적해 넓힙니다.")}
+                            </span>
+                            <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
+                              {t("예: 롤링은 2020-2021 학습 후 2022 검증, 다음에는 2021-2022 학습 후 2023 검증처럼 이동합니다. 확장은 2020-2021 학습 후 2022 검증, 다음에는 2020-2022 학습 후 2023 검증처럼 누적합니다.")}
+                            </span>
+                          </HelpTooltip>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {[
+                            { value: false, label: t("롤링") },
+                            { value: true, label: t("확장") },
+                          ].map((item) => (
+                            <button
+                              key={String(item.value)}
+                              onClick={() => setFormState((current) => ({ ...current, anchor: item.value }))}
+                              className={buttonClass(formState.anchor === item.value)}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
                     {canShowEstimate && !monitorMode && (
@@ -1746,36 +1812,6 @@ export function WalkForwardPanel({
                         </div>
                       </div>
                     )}
-                    <div className="py-4">
-                      <div className="flex items-center gap-1.5">
-                        <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("학습 창 방식")}</p>
-                        <HelpTooltip label={t("학습 창 방식")} placement="top">
-                          <span className="block text-[11px] font-black uppercase tracking-widest text-sky-400">
-                            {t("학습 창 방식")}
-                          </span>
-                          <span className="mt-2 block text-xs font-bold leading-5 text-gray-300">
-                            {t("학습 구간은 파라미터를 맞추는 구간입니다. 롤링은 학습과 검증 창이 함께 이동하고, 확장은 학습 구간을 시작일부터 누적해 넓힙니다.")}
-                          </span>
-                          <span className="mt-3 block text-xs font-bold leading-5 text-gray-400">
-                            {t("예: 롤링은 2020-2021 학습 후 2022 검증, 다음에는 2021-2022 학습 후 2023 검증처럼 이동합니다. 확장은 2020-2021 학습 후 2022 검증, 다음에는 2020-2022 학습 후 2023 검증처럼 누적합니다.")}
-                          </span>
-                        </HelpTooltip>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {[
-                          { value: false, label: t("롤링") },
-                          { value: true, label: t("확장") },
-                        ].map((item) => (
-                          <button
-                            key={String(item.value)}
-                            onClick={() => setFormState((current) => ({ ...current, anchor: item.value }))}
-                            className={buttonClass(formState.anchor === item.value)}
-                          >
-                            {item.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
                   </div>
                 </section>
               </div>
@@ -1783,13 +1819,14 @@ export function WalkForwardPanel({
 
             {monitorMode && result && (
               <p data-testid="walk-forward-result-in-monitor" className="p-5 text-xs font-bold leading-5 text-gray-400">
-                {t("결과는 위 모니터에 표시됩니다. 값을 다시 조정하려면 재설정을 누르세요.")}
+                {t("결과는 결과 화면에 표시됩니다. 값을 다시 조정하려면 결과 화면에서 재설정을 누르세요.")}
               </p>
             )}
             {result && placeResult(
               <div id="wf-result" className="scroll-mt-24 divide-y divide-white/[0.08]">
                 <div className="flex items-center gap-3 px-5 py-3">
                   <p className="text-xs font-bold uppercase tracking-widest text-gray-500">{t("워크포워드 분석 결과")}</p>
+                  {monitorMode && <div className="ml-auto flex items-center gap-2">{resultActions}</div>}
                 </div>
                 <section className="p-5">
                   <ResultPlainSummary items={buildWalkForwardPlainSummary(result)} />
@@ -2316,39 +2353,9 @@ export function WalkForwardPanel({
             </div>
           )}
 
-          {(result || onClose || runButtonContainer === undefined) && (
+          {((result && !monitorMode) || onClose || runButtonContainer === undefined) && (
           <div className="flex items-center justify-end gap-2 border-t border-white/[0.08] px-5 py-4">
-            {result && (
-              <>
-                <button
-                  onClick={() => {
-                    setResult(null);
-                    setError(null);
-                  }}
-                  className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-2 text-xs font-black text-gray-200 transition-colors hover:bg-white/[0.08]"
-                >
-                  <ArrowsClockwise className="h-4 w-4" weight="bold" />
-                  {t("재설정")}
-                </button>
-                <SaveValidationButton
-                  onSave={async () => {
-                    await saveValidation({
-                      modelType: "walkForward",
-                      strategyName: strategyName || t("이름 없는 전략"),
-                      prompt: promptText,
-                      cacheKey,
-                      settings: {
-                        n_splits: result.n_splits,
-                        anchor: result.anchor,
-                        target_metric: result.target_metric,
-                      },
-                      result,
-                      summary: buildWalkForwardSummary(result),
-                    });
-                  }}
-                />
-              </>
-            )}
+            {result && !monitorMode && resultActions}
             {onClose && (
               <button
                 onClick={handleClose}

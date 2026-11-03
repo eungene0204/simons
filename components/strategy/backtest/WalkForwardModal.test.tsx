@@ -74,13 +74,13 @@ describe("WalkForwardModal", () => {
     expect(screen.getByTestId("walk-forward-panel")).not.toHaveClass("h-full", "flex");
     expect(screen.getAllByText("2024.01.01 - 2024.03.24").length).toBeGreaterThan(0);
     expect(screen.getAllByText("최적화 대상 파라미터")[0]).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /베이지안 최적화 유망한 후보를 우선 탐색하며/ })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: /베이지안 최적화 유망한 후보를 우선 탐색하며/ })).toHaveClass("bg-white/[0.03]");
-    expect(screen.getByRole("button", { name: /그리드 탐색 설정한 범위를 기준으로 전체 조합 수를 먼저 확인합니다\./ })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "베이지안 최적화" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "베이지안 최적화" })).toHaveClass("rounded-md", "bg-white/[0.08]");
+    expect(screen.getByRole("button", { name: "그리드 탐색" })).toHaveAttribute("aria-pressed", "false");
     expect(
       screen
-        .getByRole("button", { name: /베이지안 최적화 유망한 후보를 우선 탐색하며/ })
-        .compareDocumentPosition(screen.getByRole("button", { name: /그리드 탐색 설정한 범위를 기준으로 전체 조합 수를 먼저 확인합니다\./ })) &
+        .getByRole("button", { name: "베이지안 최적화" })
+        .compareDocumentPosition(screen.getByRole("button", { name: "그리드 탐색" })) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(
@@ -104,6 +104,12 @@ describe("WalkForwardModal", () => {
     expect(screen.getByText(/학습 구간은 파라미터를 맞추는 구간/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "30회" })).toHaveClass("rounded-md");
     expect(screen.getByRole("button", { name: "롤링" })).toHaveClass("rounded-md");
+    // 최적화 방법·시도 횟수·학습 창 방식은 한 행에 있고, 방법 설명은 버튼이 아니라 도움말에 있다.
+    const methodRow = screen.getByTestId("walk-forward-method-row");
+    for (const name of ["베이지안 최적화", "30회", "롤링"]) {
+      expect(within(methodRow).getByRole("button", { name })).toBeInTheDocument();
+    }
+    expect(screen.getByLabelText("최적화 방법 도움말")).toBeInTheDocument();
     const timeline = screen.getByTestId("walk-forward-period-timeline");
     expect(within(timeline).getByText("학습기간")).toBeInTheDocument();
     expect(within(timeline).getByText("검증기간")).toBeInTheDocument();
@@ -408,11 +414,11 @@ describe("WalkForwardModal", () => {
     });
 
     await userEvent.setup().click(
-      screen.getByRole("button", { name: /그리드 탐색 설정한 범위를 기준으로 전체 조합 수를 먼저 확인합니다\./ })
+      screen.getByRole("button", { name: "그리드 탐색" })
     );
 
-    expect(screen.getByRole("button", { name: /그리드 탐색 설정한 범위를 기준으로 전체 조합 수를 먼저 확인합니다\./ })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: /그리드 탐색 설정한 범위를 기준으로 전체 조합 수를 먼저 확인합니다\./ })).toHaveClass("bg-white/[0.03]");
+    expect(screen.getByRole("button", { name: "그리드 탐색" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "그리드 탐색" })).toHaveClass("bg-white/[0.08]");
     // 시도 횟수 블록은 자리를 지키고 내용만 숨긴다 — 걷어내면 방법을 바꿀 때마다 섹션 높이가 출렁인다.
     expect(screen.getByTestId("walk-forward-trials-block")).toHaveClass("invisible");
     expect(screen.getByTestId("walk-forward-trials-block")).toHaveAttribute("aria-hidden", "true");
@@ -429,7 +435,7 @@ describe("WalkForwardModal", () => {
   it("조합 수가 상한을 넘으면 '예상 소요 시간' 카드 하나에서 실행 불가와 원인을 보여준다 — 별도 그리드 카드는 없다", async () => {
     const user = userEvent.setup();
     const gridButton = () =>
-      screen.getByRole("button", { name: /그리드 탐색 설정한 범위를 기준으로 전체 조합 수를 먼저 확인합니다\./ });
+      screen.getByRole("button", { name: "그리드 탐색" });
 
     // 조합 수가 상한(500)을 넘도록 넓은 범위의 파라미터를 여러 개 준다 — 실행 불가(빨강)
     const wideStrategy = {
@@ -586,7 +592,7 @@ describe("WalkForwardModal", () => {
 
     const user = userEvent.setup();
     await user.click(
-      screen.getByRole("button", { name: /그리드 탐색 설정한 범위를 기준으로 전체 조합 수를 먼저 확인합니다\./ })
+      screen.getByRole("button", { name: "그리드 탐색" })
     );
     await user.click(screen.getByRole("button", { name: "워크포워드 분석 시작" }));
 
@@ -1140,6 +1146,9 @@ describe("WalkForwardModal", () => {
     rerender(<WalkForwardPanel onRun={vi.fn()} backtestDates={buildDates(240)} loadedResult={loaded} monitorMode resultContainer={slot} />);
     expect(within(slot).getByText("Walk-Forward Efficiency")).toBeInTheDocument();
     expect(within(screen.getByTestId("walk-forward-panel")).queryByText("Walk-Forward Efficiency")).not.toBeInTheDocument();
+    // 재설정·저장도 결과와 함께 결과 화면에 있다 — 조정 칸 하단에는 없다.
+    expect(within(slot).getByRole("button", { name: "재설정" })).toBeInTheDocument();
+    expect(within(screen.getByTestId("walk-forward-panel")).queryByRole("button", { name: "재설정" })).not.toBeInTheDocument();
     slot.remove();
   });
 

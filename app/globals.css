@@ -603,6 +603,24 @@ input[type=number] {
 .lab-flow .react-flow__node:focus-visible {
   outline: none;
 }
+/* 노드 크기 조절 손잡이 — 마우스를 올린 노드에서만 보인다 */
+.lab-flow .react-flow__resize-control.lab-resize-handle {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  border: 1px solid var(--lab-border-focus);
+  background: var(--lab-panel);
+}
+.lab-flow .react-flow__resize-control.lab-resize-line {
+  border-color: transparent;
+}
+.lab-flow .react-flow__node .react-flow__resize-control {
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.lab-flow .react-flow__node:hover .react-flow__resize-control {
+  opacity: 1;
+}
 
 /* AI 응답이 바꾼 노드 — 짧게 한 번 강조 */
 @keyframes labNodePulse {

@@ -11,6 +11,9 @@ import { TRAIN_COLOR } from "./WalkForwardScheduleNode";
 
 const WIDTH = 760;
 const HEIGHT = 320;
+// 호버 정보 상자의 화면 크기(px) — 그림은 폭에 따라 늘고 주므로 상자는 그 배율의 역수로 그려 늘 같은 크기로 보이게 한다.
+const TIP_W = 148;
+const TIP_H = 82;
 const PAD = { left: 52, right: 16, top: 12, bottom: 30 };
 const BAND_OUTER = "rgba(244, 241, 234, 0.08)";
 const BAND_INNER = "rgba(244, 241, 234, 0.16)";
@@ -33,6 +36,8 @@ const fmtChange = (v: number) => `${v >= 1 ? "+" : ""}${((v - 1) * 100).toFixed(
 
 export default function MonteCarloFanFigure({ number, fan, iterations }: { number: string; fan: MonteCarloFan; iterations: number }) {
   const [hover, setHover] = useState<number | null>(null);
+  // 그림의 화면 배율(화면 px ÷ 그림 단위) — 정보 상자를 원래 크기로 되돌리는 데 쓴다.
+  const [scale, setScale] = useState(1);
   const last = fan.steps[fan.steps.length - 1] || 1;
   const all = [...fan.p05, ...fan.p95, ...fan.observed].filter((v) => v > 0 && Number.isFinite(v));
   const lo = Math.min(...all, 1) * 0.95;
@@ -56,6 +61,7 @@ export default function MonteCarloFanFigure({ number, fan, iterations }: { numbe
 
   const onMove = (event: MouseEvent<SVGSVGElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width > 0) setScale(rect.width / WIDTH);
     const px = ((event.clientX - rect.left) / rect.width) * WIDTH;
     const step = ((px - PAD.left) / plotW) * last;
     let best = 0;
@@ -68,6 +74,7 @@ export default function MonteCarloFanFigure({ number, fan, iterations }: { numbe
   const h = hover;
   const tipX = h != null ? x(fan.steps[h]) : 0;
   const tipLeft = tipX > WIDTH * 0.62;
+  const tipUnits = TIP_W / scale;
 
   return (
     <LabFigure
@@ -76,8 +83,8 @@ export default function MonteCarloFanFigure({ number, fan, iterations }: { numbe
       testId="monte-carlo-fan-figure"
       legend={
         <>
-          <LegendSwatch color={BAND_OUTER.replace("0.08", "0.3")} label={t("5~95% 범위")} />
-          <LegendSwatch color={BAND_INNER.replace("0.16", "0.5")} label={t("25~75% 범위")} />
+          <LegendSwatch color={BAND_OUTER.replace("0.08", "0.3")} label={t("가운데 90% 범위")} />
+          <LegendSwatch color={BAND_INNER.replace("0.16", "0.5")} label={t("가운데 50% 범위")} />
           <LegendSwatch color={MEDIAN} label={t("중앙값")} line />
           <LegendSwatch color={TRAIN_COLOR} label={t("원래 순서")} line dashed />
         </>
@@ -120,22 +127,22 @@ export default function MonteCarloFanFigure({ number, fan, iterations }: { numbe
         {h != null && (
           <g pointerEvents="none">
             <line x1={tipX} x2={tipX} y1={PAD.top} y2={HEIGHT - PAD.bottom} stroke="#a8a49a" strokeWidth={1} />
-            <g transform={`translate(${tipLeft ? tipX - 156 : tipX + 8}, ${PAD.top + 4})`}>
-              <rect width={148} height={82} rx={6} fill="#1e1d1a" stroke="rgba(244, 241, 234, 0.2)" />
+            <g transform={`translate(${tipLeft ? tipX - tipUnits - 8 : tipX + 8}, ${PAD.top + 4}) scale(${1 / scale})`} data-testid="monte-carlo-fan-tooltip">
+              <rect width={TIP_W} height={TIP_H} rx={6} fill="#1e1d1a" stroke="rgba(244, 241, 234, 0.2)" />
               <text x={8} y={15} fill="#a8a49a" fontSize={10} fontWeight={700}>
                 {`${fan.steps[h].toLocaleString()} ${unit}`}
               </text>
               {[
-                [t("95%"), fan.p95[h]],
+                [t("상위 5% 경계"), fan.p95[h]],
                 [t("중앙값"), fan.p50[h]],
-                [t("5%"), fan.p05[h]],
+                [t("하위 5% 경계"), fan.p05[h]],
                 [t("원래 순서"), fan.observed[h]],
               ].map(([label, value], i) => (
                 <g key={String(label)}>
                   <text x={8} y={31 + i * 14} fill="#a8a49a" fontSize={10} fontWeight={700}>
                     {label}
                   </text>
-                  <text x={140} y={31 + i * 14} fill="#f4f1ea" fontSize={10} fontWeight={800} textAnchor="end">
+                  <text x={TIP_W - 8} y={31 + i * 14} fill="#f4f1ea" fontSize={10} fontWeight={800} textAnchor="end">
                     {fmtChange(value as number)}
                   </text>
                 </g>

@@ -15,14 +15,31 @@ vi.mock("./BacktestSummaryCard", () => ({ default: () => null }));
 vi.mock("./XAIModal", () => ({ default: () => null }));
 vi.mock("./WalkForwardModal", () => ({
   default: () => null,
-  WalkForwardPanel: ({ optimizationTargets = [] }: any) => (
-    <div>
-      <button type="button">워크포워드 분석 시작</button>
-      {optimizationTargets.map((target: any) => (
-        <span key={target.id}>{target.label}</span>
-      ))}
-    </div>
-  ),
+  WalkForwardPanel: ({ optimizationTargets = [], onDesignChange, resultContainer }: any) => {
+    const React = require("react");
+    const { createPortal } = require("react-dom");
+    const [done, setDone] = React.useState(false);
+    const design = (result: any) => ({
+      totalBars: 240, trainBars: 120, validationBars: 60, anchor: false, windows: 2,
+      methodLabel: "베이지안 30회", targetMetricLabel: "CAGR", parameters: [], edit: null, blockedAt: null, running: false,
+      plan: { totalBacktests: 62, estimateLabel: "약 1분", blockedReason: null, suggestions: [], note: null },
+      result,
+    });
+    React.useEffect(() => {
+      onDesignChange?.(design(done ? { wfe: 0.8, wfeTierText: null, avgOosCagr: 5, windows: [] } : null));
+    }, [done]);
+    return (
+      <div>
+        <button type="button">워크포워드 분석 시작</button>
+        <button type="button" onClick={() => setDone(true)}>(테스트) 결과 만들기</button>
+        <button type="button" onClick={() => setDone(false)}>(테스트) 재설정</button>
+        {optimizationTargets.map((target: any) => (
+          <span key={target.id}>{target.label}</span>
+        ))}
+        {done && resultContainer && createPortal(<p>워크포워드 결과 본문</p>, resultContainer)}
+      </div>
+    );
+  },
 }));
 vi.mock("@/components/ui/CreateAccountModal", () => ({ default: () => null }));
 
@@ -229,7 +246,9 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
     const canvas = screen.getByTestId("validation-lab-canvas");
     expect(within(canvas).getByTestId("experiment-node-strategy")).toContainElement(screen.getByTestId("optimization-strategy-summary"));
     expect(screen.queryByTestId("validation-lab-method-notes")).toBeNull();
-    expect(screen.getByTestId("monte-carlo-figure-placeholder")).toBeInTheDocument();
+    // 결과는 캔버스가 아니라 따로 보는 결과 화면에 나온다 — 실행 전에는 숨어 있다.
+    expect(screen.getByTestId("monte-carlo-result-page")).toHaveClass("hidden");
+    expect(screen.queryByTestId("monte-carlo-report-node")).toBeNull();
     // 실행 버튼은 조정 칸이 아니라 툴바 오른쪽 끝에 있다.
     expect(within(screen.getByTestId("validation-lab-run-slot")).getByRole("button", { name: "몬테카를로 실행" })).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "몬테카를로 실행" }));
@@ -281,6 +300,16 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
       expect(screen.getByText(/30% 넘게 하락한 시나리오는/)).toBeInTheDocument();
       expect(screen.queryByText("위 내용은 모두 과거 데이터 기반 시뮬레이션 결과이며, 미래 수익은 보장되지 않습니다.")).not.toBeInTheDocument();
     });
+    // 결과가 나오면 결과 화면으로 넘어가고 설계 화면(캔버스·조정 칸)은 숨는다.
+    const resultPage = screen.getByTestId("monte-carlo-result-page");
+    expect(resultPage).not.toHaveClass("hidden");
+    expect(resultPage).toContainElement(screen.getByTestId("monte-carlo-result-header"));
+    expect(screen.getByTestId("validation-lab-controls").closest(".hidden")).not.toBeNull();
+    // 재설정하면 결과가 지워지고 설계 화면으로 돌아온다.
+    await user.click(within(resultPage).getByRole("button", { name: "재설정" }));
+    await waitFor(() => expect(resultPage).toHaveClass("hidden"));
+    expect(screen.getByTestId("validation-lab-controls").closest(".hidden")).toBeNull();
+    expect(screen.queryByTestId("monte-carlo-result-header")).toBeNull();
   });
 
   it("일반 탭을 클릭하면 전략 최적화 페이지를 닫는다", async () => {
@@ -304,8 +333,6 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
 
     // 실행 전 설정 화면에는 '결과 닫기' 버튼이 없어야 한다.
     await user.click(screen.getByRole("tab", { name: "몬테카를로" }));
-    // 결과는 모니터(React Flow) 노드 안에 그려진다 — jsdom은 레이아웃이 없어 노드가 '측정 전'(visibility:hidden)으로
-    // 남고 숨김 글자는 접근성 이름에서 빠지므로 버튼의 title로 찾는다.
     expect(within(optimizationPage).queryByTitle("결과 닫기")).not.toBeInTheDocument();
 
     // 실행해 결과가 나온 뒤에만 '결과 닫기'가 노출된다.
@@ -314,12 +341,35 @@ describe("BacktestDashboard 전략 최적화 페이지", () => {
       expect(screen.getByText("양수 CAGR 확률")).toBeInTheDocument();
     });
     const closeButton = within(optimizationPage).getByTitle("결과 닫기");
-    expect(screen.getByTestId("monte-carlo-report-node")).toContainElement(closeButton);
+    expect(screen.getByTestId("monte-carlo-result-page")).toContainElement(closeButton);
 
     // 누르기 전까지는 최적화 페이지가 유지되고, 누르면 결과 탭으로 돌아간다.
     expect(screen.getByTestId("backtest-optimization-page")).toBeInTheDocument();
     await user.click(closeButton);
     expect(screen.queryByTestId("backtest-optimization-page")).not.toBeInTheDocument();
     expect(screen.getByTestId("backtest-tab-content")).toBeInTheDocument();
+  });
+
+  it("워크포워드 결과는 캔버스가 아니라 따로 보는 결과 화면에 나오고, 재설정하면 설계 화면으로 돌아온다", async () => {
+    await renderDashboard("PREMIUM", { onWalkForward: vi.fn() });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "전략 최적화" }));
+    const resultPage = await screen.findByTestId("walk-forward-result-page");
+    expect(resultPage).toHaveClass("hidden");
+
+    await user.click(screen.getByRole("button", { name: "(테스트) 결과 만들기" }));
+    // 결과가 생기면 결과 화면으로 간다 — 결과는 결과 화면에만 있고, 캔버스에는 결과 판이 없다.
+    await waitFor(() => expect(resultPage).not.toHaveClass("hidden"));
+    expect(within(resultPage).getByText("워크포워드 결과 본문")).toBeInTheDocument();
+    expect(screen.queryByTestId("walk-forward-report-node")).toBeNull();
+    expect(screen.getByTestId("validation-lab-controls").closest(".hidden")).not.toBeNull();
+
+    // 결과 화면에는 설계로 돌아가는 버튼이 없다 — 돌아오는 길은 재설정뿐이다.
+    expect(within(resultPage).queryByRole("button", { name: "실험 설계로 돌아가기" })).toBeNull();
+
+    // 재설정으로 결과가 사라지면 설계 화면으로 돌아온다.
+    await user.click(screen.getByRole("button", { name: "(테스트) 재설정" }));
+    await waitFor(() => expect(resultPage).toHaveClass("hidden"));
+    expect(screen.queryByRole("button", { name: "결과 보기" })).toBeNull();
   });
 });

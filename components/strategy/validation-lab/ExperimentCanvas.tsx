@@ -6,11 +6,13 @@ import {
   Background,
   BackgroundVariant,
   Handle,
+  Panel,
   Position,
   ReactFlow,
   ReactFlowProvider,
   useNodesState,
   useReactFlow,
+  useStore,
   type NodeChange,
   type NodeProps,
   type XYPosition,
@@ -19,8 +21,11 @@ import {
   ChartBar,
   CheckCircle,
   Columns,
+  CornersOut,
   Database,
   Flask,
+  MagnifyingGlassMinus,
+  MagnifyingGlassPlus,
   Path,
   Play,
   Shuffle,
@@ -32,6 +37,7 @@ import {
 import { t } from "@/lib/i18n";
 import {
   CONTEXT_NODE_W,
+  EXPERIMENT_NODE_W,
   stackNodes,
   type CanvasNode,
   type ContextNode,
@@ -41,6 +47,7 @@ import {
   type ReportNode,
   type RowEdit,
 } from "./experimentGraph";
+import NodeSizer, { useNodeScale } from "./NodeSizer";
 import WalkForwardScheduleNode from "./WalkForwardScheduleNode";
 
 // 검증 연구소 모니터 — 전략 연구소 캔버스와 같은 점 격자·노드 언어로, 아래 조정 칸에서 정한 실험 설정과
@@ -63,6 +70,8 @@ const ICONS: Record<ExperimentIcon, ComponentType<IconProps>> = {
 const HANDLE_CLASS = "!h-2 !w-2 !rounded-full !border !border-[var(--lab-border-strong)] !bg-[var(--lab-panel)]";
 const PAD = 24;
 const MIN_HEIGHT = 240;
+const MIN_ZOOM = 0.2;
+const MAX_ZOOM = 2;
 const INPUT_CLASS =
   "nodrag nopan rounded-md border border-[var(--lab-border-strong)] bg-[var(--lab-panel)] px-1.5 py-0.5 text-right text-[11px] font-bold tabular-nums text-white focus:border-sky-400/60 focus:outline-none";
 
@@ -149,6 +158,7 @@ function RowEditor({ edit, label, display, autoFocus, onCommit }: {
 }
 
 const ExperimentStepNode = memo(function ExperimentStepNode({ id, data }: NodeProps<ExperimentNode>) {
+  const { width, zoom } = useNodeScale(id, EXPERIMENT_NODE_W);
   const Icon = ICONS[data.icon];
   const { editingId, setEditingId, onEdit } = useContext(EditContext);
   const editing = editingId === id && onEdit !== undefined && data.rows.some((row) => row.edit);
@@ -170,7 +180,8 @@ const ExperimentStepNode = memo(function ExperimentStepNode({ id, data }: NodePr
       : "border-[var(--lab-border-strong)]";
   return (
     <div
-      className={`relative w-[212px] cursor-pointer rounded-2xl border bg-[var(--lab-node)] ${border} ${data.status === "running" ? "lab-node-running" : ""} ${pulse ? "lab-node-pulse" : ""}`}
+      className={`relative cursor-pointer overflow-hidden rounded-2xl border bg-[var(--lab-node)] ${border} ${data.status === "running" ? "lab-node-running" : ""} ${pulse ? "lab-node-pulse" : ""}`}
+      style={{ width }}
       data-testid={`experiment-node-${data.section}${data.index === undefined ? "-status" : ""}`}
       data-status={data.status}
       data-editing={editing || undefined}
@@ -181,9 +192,11 @@ const ExperimentStepNode = memo(function ExperimentStepNode({ id, data }: NodePr
         if (event.animationName === "labNodePulse") setPulse(false);
       }}
     >
+      <NodeSizer minWidth={EXPERIMENT_NODE_W * 0.75} />
       {(data.index !== undefined || data.hasIn) && <Handle type="target" id="in" position={Position.Left} className={HANDLE_CLASS} isConnectable={false} />}
       {data.index !== undefined && <Handle type="source" id="out" position={Position.Right} className={HANDLE_CLASS} isConnectable={false} />}
       {data.hasDetail && <Handle type="source" id="detail" position={Position.Bottom} className={HANDLE_CLASS} isConnectable={false} />}
+      <div style={{ zoom }}>
       <div className="flex items-center gap-2.5 border-b border-[var(--lab-border)] px-3 py-2.5">
         <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--lab-panel)]">
           <Icon size={17} weight="duotone" className="text-white" />
@@ -228,37 +241,68 @@ const ExperimentStepNode = memo(function ExperimentStepNode({ id, data }: NodePr
           ))}
         </ul>
       )}
+      </div>
     </div>
   );
 });
 
 // 결과 판 — 내용은 결과를 가진 쪽이 slot 요소에 포털로 넣는다. 표·버튼을 쓰는 판이라 글자 선택을 살린다.
-const ReportPanelNode = memo(function ReportPanelNode({ data }: NodeProps<ReportNode>) {
+const ReportPanelNode = memo(function ReportPanelNode({ id, data }: NodeProps<ReportNode>) {
+  const { width, zoom } = useNodeScale(id, data.width);
   return (
     <div
-      className="nodrag nopan cursor-default rounded-2xl border border-[var(--lab-border-strong)] bg-[var(--lab-node)]"
-      style={{ width: data.width, userSelect: "text" }}
+      className="nodrag nopan cursor-default overflow-hidden rounded-2xl border border-[var(--lab-border-strong)] bg-[var(--lab-node)]"
+      style={{ width, userSelect: "text" }}
       data-testid={data.testId}
     >
-      <Handle type="target" id="in" position={Position.Top} style={{ left: data.handleX }} className={HANDLE_CLASS} isConnectable={false} />
-      <div ref={data.slot} />
+      <NodeSizer minWidth={data.width * 0.5} />
+      <Handle type="target" id="in" position={Position.Top} style={{ left: data.handleX * zoom }} className={HANDLE_CLASS} isConnectable={false} />
+      <div ref={data.slot} style={{ zoom }} />
     </div>
   );
 });
 
 // 참고 노드(검증 대상 전략·방법) — 실험 왼쪽 열에 놓고, 첫 노드는 첫 단계로 잇는다.
-const ContextPanelNode = memo(function ContextPanelNode({ data }: NodeProps<ContextNode>) {
+const ContextPanelNode = memo(function ContextPanelNode({ id, data }: NodeProps<ContextNode>) {
+  const { width, zoom } = useNodeScale(id, CONTEXT_NODE_W);
   return (
     <div
-      className="rounded-2xl border border-[var(--lab-border-strong)] bg-[var(--lab-node)] p-4"
-      style={{ width: CONTEXT_NODE_W }}
+      className="overflow-hidden rounded-2xl border border-[var(--lab-border-strong)] bg-[var(--lab-node)]"
+      style={{ width }}
       data-testid={data.testId}
     >
+      <NodeSizer minWidth={CONTEXT_NODE_W * 0.6} />
       {data.hasOut && <Handle type="source" id="out" position={Position.Right} className={HANDLE_CLASS} isConnectable={false} />}
-      {data.content}
+      <div className="p-4" style={{ zoom }}>
+        {data.content}
+      </div>
     </div>
   );
 });
+
+const ZOOM_BUTTON_CLASS =
+  "flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-label)] hover:bg-white/[0.08] hover:text-white disabled:opacity-40";
+
+// 확대·축소 — 누르면 자동 맞춤을 멈추고(빈 곳을 끌어 이동), '화면에 맞춤'으로 돌아간다. ⌘/Ctrl+스크롤·핀치로도 확대한다.
+function ZoomControls({ manual, onZoom, onFit }: { manual: boolean; onZoom: (direction: 1 | -1) => void; onFit: () => void }) {
+  const zoom = useStore((s) => s.transform[2]);
+  return (
+    <Panel position="top-right" className="!m-2 flex items-center gap-0.5 rounded-lg border border-[var(--lab-border-strong)] bg-[var(--lab-panel)] p-0.5">
+      <button type="button" className={ZOOM_BUTTON_CLASS} onClick={() => onZoom(-1)} disabled={zoom <= MIN_ZOOM + 1e-3} aria-label={t("축소")} title={t("축소")}>
+        <MagnifyingGlassMinus size={15} weight="bold" />
+      </button>
+      <span className="w-10 text-center font-mono text-[10px] font-bold tabular-nums text-[var(--text-label)]" data-testid="experiment-zoom-level">
+        {Math.round(zoom * 100)}%
+      </span>
+      <button type="button" className={ZOOM_BUTTON_CLASS} onClick={() => onZoom(1)} disabled={zoom >= MAX_ZOOM - 1e-3} aria-label={t("확대")} title={t("확대")}>
+        <MagnifyingGlassPlus size={15} weight="bold" />
+      </button>
+      <button type="button" className={ZOOM_BUTTON_CLASS} onClick={onFit} disabled={!manual} aria-label={t("화면에 맞춤")} title={t("화면에 맞춤")}>
+        <CornersOut size={15} weight="bold" />
+      </button>
+    </Panel>
+  );
+}
 
 const NODE_TYPES = { experiment: ExperimentStepNode, schedule: WalkForwardScheduleNode, report: ReportPanelNode, context: ContextPanelNode };
 
@@ -275,13 +319,18 @@ function CanvasInner({ graph, onFocusSection, onEdit }: ExperimentCanvasProps) {
   const [width, setWidth] = useState(0);
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>(graph.nodes);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [dragging, setDragging] = useState(false);
+  // 끌거나 크기를 바꾸는 중 — 이 동안에는 화면 맞춤을 멈춘다.
+  const [interacting, setInteracting] = useState(false);
+  // 사용자가 확대·축소·이동한 뒤 — '화면에 맞춤'을 누를 때까지 자동 맞춤을 하지 않는다.
+  const [manual, setManual] = useState(false);
   const graphRef = useRef(graph);
   graphRef.current = graph;
-  // 사용자가 옮긴 노드의 자리 — 자동 배치(stackNodes)보다 우선한다.
+  // 사용자가 옮긴 노드의 자리와 바꾼 크기 — 자동 배치(stackNodes)보다 우선한다.
   const moved = useRef(new Map<string, XYPosition>());
+  const resized = useRef(new Map<string, number>());
 
-  // 그래프가 정한 자리에서 측정 높이로 다시 쌓은 뒤, 옮긴 노드만 옮긴 자리에 둔다. 잰 크기는 이어받는다.
+  // 그래프가 정한 자리에서 측정 높이로 다시 쌓은 뒤, 옮긴 노드만 옮긴 자리에, 크기를 바꾼 노드는 그 폭으로 둔다.
+  // 높이는 손잡이가 정해도 버린다 — 내용이 폭에 비례해 커지므로 높이는 내용을 따른다. 잰 크기는 이어받는다.
   const relayout = useCallback((prev: CanvasNode[]) => {
     const measured = new Map(prev.map((n) => [n.id, n.measured]));
     const { nodes: base, stack } = graphRef.current;
@@ -290,7 +339,8 @@ function CanvasInner({ graph, onFocusSection, onEdit }: ExperimentCanvasProps) {
       stack,
     ).map((n) => {
       const position = moved.current.get(n.id);
-      return position ? { ...n, position } : n;
+      const width = resized.current.get(n.id);
+      return { ...n, ...(position && { position }), ...(width && { width }) };
     });
   }, []);
 
@@ -299,11 +349,15 @@ function CanvasInner({ graph, onFocusSection, onEdit }: ExperimentCanvasProps) {
     setNodes(relayout);
   }, [graph, setNodes, relayout]);
 
-  // 노드를 끌면 자리를 기억하고, 크기가 (다시) 재지면 세로로 다시 쌓는다.
+  // 노드를 끌거나 크기를 바꾸면 기억하고, 크기가 (다시) 재지면 세로로 다시 쌓는다.
   const handleNodesChange = useCallback(
     (changes: NodeChange<CanvasNode>[]) => {
       for (const change of changes) {
         if (change.type === "position" && change.position) moved.current.set(change.id, change.position);
+        if (change.type === "dimensions" && change.resizing !== undefined) {
+          if (change.setAttributes && change.dimensions) resized.current.set(change.id, change.dimensions.width);
+          setInteracting(change.resizing);
+        }
       }
       onNodesChange(changes);
       if (changes.some((change) => change.type === "dimensions")) setNodes(relayout);
@@ -337,22 +391,30 @@ function CanvasInner({ graph, onFocusSection, onEdit }: ExperimentCanvasProps) {
     }
     return { left, top, width: right - left, height: bottom - top };
   }, [nodes]);
-  // 끄는 동안에는 맞춤을 멈춘다 — 노드가 가장자리를 넘을 때마다 화면이 줄어들면 손끝에서 노드가 미끄러진다.
+  // 끌거나 크기를 바꾸는 동안에는 맞춤을 멈춘다 — 노드가 가장자리를 넘을 때마다 화면이 줄어들면 손끝에서 노드가 미끄러진다.
   const lastBounds = useRef(measuredBounds);
-  if (!dragging) lastBounds.current = measuredBounds;
+  if (!interacting) lastBounds.current = measuredBounds;
   const bounds = lastBounds.current;
 
   const zoom = bounds && width > 0 ? Math.min(1, (width - PAD * 2) / bounds.width) : 1;
   const height = bounds ? Math.ceil(bounds.height * zoom + PAD * 2) : MIN_HEIGHT;
 
   useEffect(() => {
-    if (!bounds || width <= 0) return;
+    if (manual || !bounds || width <= 0) return;
     void flow.setViewport({
       x: Math.max(PAD, (width - bounds.width * zoom) / 2) - bounds.left * zoom,
       y: PAD - bounds.top * zoom,
       zoom,
     });
-  }, [flow, bounds, width, zoom]);
+  }, [flow, bounds, width, zoom, manual]);
+
+  const handleZoom = useCallback(
+    (direction: 1 | -1) => {
+      setManual(true);
+      void (direction > 0 ? flow.zoomIn({ duration: 150 }) : flow.zoomOut({ duration: 150 }));
+    },
+    [flow],
+  );
 
   return (
     <div ref={wrapRef} style={{ height }} data-testid="experiment-monitor">
@@ -362,8 +424,8 @@ function CanvasInner({ graph, onFocusSection, onEdit }: ExperimentCanvasProps) {
         edges={graph.edges}
         nodeTypes={NODE_TYPES}
         onNodesChange={handleNodesChange}
-        onNodeDragStart={() => setDragging(true)}
-        onNodeDragStop={() => setDragging(false)}
+        onNodeDragStart={() => setInteracting(true)}
+        onNodeDragStop={() => setInteracting(false)}
         onNodeClick={(_e, node) => {
           const n = node as CanvasNode;
           if (n.type === "report" || n.type === "context") return;
@@ -371,22 +433,27 @@ function CanvasInner({ graph, onFocusSection, onEdit }: ExperimentCanvasProps) {
           else onFocusSection(n.data.section);
         }}
         onPaneClick={() => setEditingId(null)}
+        // 사용자 조작(핀치·⌘+스크롤·빈 곳 끌기)만 수동으로 바꾼다 — 자동 맞춤의 setViewport는 event가 없다.
+        onMoveStart={(event) => {
+          if (event) setManual(true);
+        }}
         nodesDraggable
         nodesConnectable={false}
         elementsSelectable={false}
-        panOnDrag={false}
+        panOnDrag={manual}
         panOnScroll={false}
         zoomOnScroll={false}
-        zoomOnPinch={false}
+        zoomOnPinch
         zoomOnDoubleClick={false}
         preventScrolling={false}
         deleteKeyCode={null}
-        minZoom={0.2}
-        maxZoom={1}
+        minZoom={MIN_ZOOM}
+        maxZoom={MAX_ZOOM}
         proOptions={{ hideAttribution: true }}
         className="lab-flow"
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1.4} color="var(--lab-dot)" />
+        <ZoomControls manual={manual} onZoom={handleZoom} onFit={() => setManual(false)} />
       </ReactFlow>
       </EditContext.Provider>
     </div>
