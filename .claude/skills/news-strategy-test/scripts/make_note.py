@@ -1,6 +1,6 @@
 """뉴스 전략 테스트 결과(result.json)로 해설 note.txt를 만든다 — 같은 입력이면 같은 글.
 
-사용: python3 make_note.py <전략 폴더>     폴더에 result.json, spec.json({"prompt", "post_name", "news": {"title", "link", "published"}, "why"})
+사용: python3 make_note.py <전략 폴더>     폴더에 result.json, spec.json({"prompt", "post_name", "news": {"title", "link", "published"}, "why", "utm_source"(선택, 기본 news)})
 note.txt와 함께 link.txt(같은 문장으로 널스탁을 여는 링크 한 줄)를 남긴다.
 수치는 앱 화면·백테스트 로그에서 그대로 옮긴다. 계산은 벤치마크와의 차이(%p)뿐이다.
 평가·전망·권유 표현을 쓰지 않는다(규제 원칙) — "과거 데이터 기준" 사실만 적는다.
@@ -16,9 +16,9 @@ SITE_URL = "https://www.nullstock.im"
 MAX_OPEN_LINK_PROMPT_LENGTH = 1000  # 앱(lib/strategy/strategyOpenLink.ts) 한도와 같다
 
 
-def open_link(prompt: str) -> str:
+def open_link(prompt: str, source: str = "news") -> str:
     """같은 문장을 널스탁 입력창에 채워 여는 링크 — 홈(/)이어야 비로그인 방문자도 쿼리를 잃지 않는다
-    (x-backtest-post의 post_to_x.strategy_open_url과 같은 규칙, 유입 출처만 news)."""
+    (x-backtest-post의 post_to_x.strategy_open_url과 같은 규칙, 유입 출처만 다르다 — 기본 news, 트윗 스킬은 spec의 utm_source=tweet)."""
     prompt = prompt.strip()
     if not prompt or len(prompt) > MAX_OPEN_LINK_PROMPT_LENGTH:
         sys.exit(f"[중단] 링크에 넣을 전략 문장이 비었거나 {MAX_OPEN_LINK_PROMPT_LENGTH}자를 넘는다")
@@ -27,17 +27,44 @@ def open_link(prompt: str) -> str:
     unsafe = {" ": "+", "%": "%25", "&": "%26", "#": "%23", "+": "%2B", "(": "%28", ")": "%29",
               "<": "%3C", ">": "%3E", "\"": "%22", "'": "%27", "[": "%5B", "]": "%5D", "?": "%3F", "=": "%3D"}
     query = "".join(unsafe.get(c, c) for c in " ".join(prompt.split()))
-    return f"{SITE_URL}/?prompt={query}&utm_source=news"
+    return f"{SITE_URL}/?prompt={query}&utm_source={source}"
 
 
 num = lambda t: float(re.sub(r"[^\d.\-]", "", t))  # noqa: E731  "+3,894,378원" → 3894378.0
 
 
+# '현재까지 이해한 전략입니다' 카드의 칩 라벨 — app/analytics/new/builderProgressPresentation.ts의 summaryItems 라벨과 같다.
+# 앱이 칩 라벨을 새로 더하면 여기에도 더한다(모르는 라벨이 나오면 card_pairs가 멈춰 알린다).
+CARD_LABELS = frozenset({
+    "유니버스", "대상 종목", "투자 대상", "업종", "매수 조건", "매도 조건", "분위 그룹", "편입 비율", "포트폴리오", "최대 보유",
+    "종목당 비중 상한", "섹터별 비중 상한", "리밸런싱", "리밸런싱 방식", "백테스트 기간", "초기 자본", "정기 납입", "정기 인출",
+    "비교 지수", "납입액 규칙", "현금 관리", "리스크 관리", "매매 설정", "거래 비용",
+})
+# 값 칸 안의 펼침 버튼 글자(page.tsx CollapsibleSummaryValue — "종목 {n}개 펼쳐보기"·"펼쳐보기"·"접기") — 값이 아니라 화면 조작 글자다
+CARD_CONTROL_TEXT = re.compile(r"(?:종목 \d+개 )?펼쳐보기|접기")
+
+
 def card_pairs(summary: str) -> list[tuple[str, str]]:
-    """'현재까지 이해한 전략입니다' 카드 → (칸 이름, 값) 목록. 카드는 이름 줄과 값 줄이 번갈아 나온다(앱 출력의 표기 정규화)."""
+    """'현재까지 이해한 전략입니다' 카드(innerText) → (칸 이름, 값) 목록 — 앱 출력의 표기 정규화.
+    칩마다 라벨 한 줄과 값 한 줄이 나오지만, 값 칸에 펼침 버튼이 붙으면 버튼 글자가 한 줄 더 끼어
+    줄 순서만으로 짝지으면 그 뒤 라벨·값이 한 칸씩 밀린다(2026-11-03 ESS 노트). 그래서 알려진 라벨 줄에서
+    새 칩을 열고, 버튼 글자는 버리고, 칩 하나에 값 줄이 정확히 하나인지 확인한다. 어긋나면 틀린 글을 쓰지 않고 멈춘다."""
     lines = [l.strip() for l in summary.splitlines() if l.strip()]
     body = lines[1:] if lines and lines[0].startswith("현재까지 이해한") else lines
-    return list(zip(body[0::2], body[1::2]))
+    chips: list[tuple[str, list[str]]] = []
+    for line in body:
+        if line in CARD_LABELS:
+            chips.append((line, []))
+        elif CARD_CONTROL_TEXT.fullmatch(line):
+            continue
+        elif chips:
+            chips[-1][1].append(line)
+        else:
+            sys.exit(f"[중단] 해석 카드가 라벨이 아닌 줄로 시작한다: {line!r} — CARD_LABELS를 앱 라벨과 맞춘다")
+    bad = [(k, v) for k, v in chips if len(v) != 1]
+    if bad:
+        sys.exit(f"[중단] 해석 카드 칩의 값 줄이 하나가 아니다: {bad} — 앱이 새 라벨을 더했으면 CARD_LABELS에 더한다")
+    return [(k, v[0]) for k, v in chips]
 
 
 def log_find(log: list[str], pattern: str) -> re.Match | None:
@@ -93,7 +120,7 @@ def build(folder: Path) -> str:
         if spec.get("why"):
             out.append(f"→ {spec['why']}")
         out.append("")
-    out += [f"{spec.get('post_name') or r['prompt']} 전략 백테스트", "", f"입력 문장: “{r['prompt']}”", "", "널스탁 해석"]
+    out += [f"{spec.get('post_name') or r['prompt']} 전략 백테스트를 해보았습니다", "", f"입력 문장: “{r['prompt']}”", "", "널스탁 해석"]
     out += [f"- {k}: {v}" for k, v in card_pairs(r["summary"])]
     cost = log_find(log, r"수수료\s*([\d.]+%)\s*/\s*슬리피지\s*([\d.]+%)\s*/\s*거래세\s*([\d.]+%)(?:\s*→\s*([\d.]+%))?")
     if cost:
@@ -104,7 +131,7 @@ def build(folder: Path) -> str:
         out.append(f"- 실제 데이터 구간: {period.group(1)} ~ {period.group(2)}")
     if r.get("answered"):
         out.append(f"- 문장에 없던 나머지 설정: {' · '.join(r['answered'])}")
-    out += ["", f"널스탁에서 같은 전략으로 열기: {open_link(r['prompt'])}"]
+    out += ["", f"널스탁에서 같은 전략으로 열기: {open_link(r['prompt'], spec.get('utm_source', 'news'))}"]
 
     diff = num(m["roi"]) - num(m["benchmark"])
     out += ["", "결과 (과거 데이터 기준)",
@@ -131,5 +158,5 @@ if __name__ == "__main__":
     folder = Path(sys.argv[1])
     text = build(folder)
     (folder / "note.txt").write_text(text)
-    (folder / "link.txt").write_text(open_link(json.loads((folder / "result.json").read_text())["prompt"]) + "\n")
+    (folder / "link.txt").write_text(open_link(json.loads((folder / "result.json").read_text())["prompt"], json.loads((folder / "spec.json").read_text()).get("utm_source", "news")) + "\n")
     print(text)

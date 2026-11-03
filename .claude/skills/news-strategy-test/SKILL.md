@@ -90,6 +90,7 @@ for d in ~/nullstock-news/<날짜>/*/; do bash .claude/skills/news-strategy-test
 - 화면에 다른 대화(문장에 없는 종목·테마)가 보였으면 계정 충돌이다 — 그 결과는 버리고 위 "데모 계정" 항목대로 처리한다.
 - 사진을 열어 본다. **전략마다 3~4장을 고른다**: `shot_b_overview`(지표+수익 곡선)는 항상, 나머지는 이 결과의 특징을 보여 주는 것(`c_contrib` 종목·섹터 기여도, `d_dist` 수익률·보유 기간 분포, `e_factor` 팩터, `f_risk` 회전율·하방 위험, `i_ai` AI 점수 카드). `g_stocks`·`h_trades`는 일부 행(코드순·가장 이른 거래)이라 쓸 때 그렇다고 밝힌다.
 - `note.txt`에 "해석" 절이 있는지 확인한다(없으면 `python3 scripts/make_note.py <폴더>`로 다시 만든다). 해석의 숫자가 `result.json`·`trades.txt`와 맞는지 한두 개 대조한다.
+- `note.txt`의 "널스탁 해석" 줄은 `- <칸 이름>: <값>`이다(예: `- 업종: 이차전지`). `make_note.py`의 `card_pairs`가 앱 카드 칩 라벨 목록(`CARD_LABELS`, 앱 `builderProgressPresentation.ts`와 같은 이름)으로 칸을 나누고 "종목 N개 펼쳐보기" 같은 버튼 글자는 버린다 — 줄 순서로만 짝지으면 버튼 글자 때문에 칸이 한 칸씩 밀리고 마지막 "리스크 관리" 값이 빠진다(2026-11-04 수리, 이전 노트 25건이 이 상태). 앱이 새 칩 라벨을 더해 `make_note.py`가 "[중단] 해석 카드 칩의 값 줄이 하나가 아니다"로 멈추면 그 라벨을 `CARD_LABELS`에 더하고 다시 만든다.
 - 수익 곡선에 급락·급등이 있으면 `trades.txt`에서 그 무렵 큰 거래를 찾아 확인된 사실만 해설에 한 줄 덧붙인다.
 
 ## ⑥ 보고
