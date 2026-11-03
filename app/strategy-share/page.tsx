@@ -1,5 +1,18 @@
 import StrategyShareView from "@/components/strategy-share/StrategyShareView";
 import { getRequestLanguage } from "@/lib/i18n/server";
+import type { Metadata } from "next";
+import { buildOpenGraph } from "@/lib/seo/site";
+
+const TITLE = "전략공유";
+const DESCRIPTION =
+  "널스탁 사용자들이 공개한 전략과, 그 전략으로 운용하는 공개 모의투자 계좌의 과거 수익률을 살펴봅니다.";
+
+export const metadata: Metadata = {
+  title: TITLE,
+  description: DESCRIPTION,
+  openGraph: buildOpenGraph("ko", { title: TITLE, description: DESCRIPTION, url: "/strategy-share" }),
+  alternates: { canonical: "/strategy-share" },
+};
 
 // 전략공유(2026-10-20) — 사용자들이 공개한 전략과, 그 전략을 쓰는 공개 모의투자 계좌의 수익률.
 export default function StrategySharePage() {

@@ -175,6 +175,15 @@ function buildNote(m: Myth): GuideArticle {
   };
 }
 
+/**
+ * 검색 결과에 뜨는 `<title>` — 글 제목(h1)은 규칙까지 담아 60자를 넘기 쉬워 검색 결과에서 잘린다.
+ * 검색어가 될 속설 문구를 앞에 두고 짧게 만든다(문구는 본문 소개·FAQ에 그대로 있다). 속설 글이 아니면 undefined.
+ */
+export function mythNoteSeoTitle(slug: string): string | undefined {
+  const myth = MYTHS.find((m) => m.slug === slug);
+  return myth ? `“${myth.myth}” 백테스트 결과` : undefined;
+}
+
 const GUIDE_READ = "how-to-read-backtest-results";
 const GUIDE_COST = "backtest-trading-costs";
 const GUIDE_STOP = "backtest-stop-loss-take-profit";

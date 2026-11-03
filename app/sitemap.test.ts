@@ -15,15 +15,13 @@ afterEach(() => {
 });
 
 describe("sitemap", () => {
-  it("lists only public entry points and pairs the two regional homes with hreflang", async () => {
+  it("lists only public entry points and leaves out /us while the global service is blocked", async () => {
     vi.stubEnv("DOMAIN", "");
     const entries = await sitemap();
     const urls = entries.map((entry) => entry.url);
 
     expect(urls).toEqual([
       "https://www.nullstock.im",
-      "https://www.nullstock.im/us",
-      "https://www.nullstock.im/us/pricing",
       "https://www.nullstock.im/guide",
       ...GUIDE_ARTICLES.map((article) => `https://www.nullstock.im/guide/${article.slug}`),
       "https://www.nullstock.im/notes",
@@ -32,14 +30,11 @@ describe("sitemap", () => {
     // 한국 요금제는 비로그인 요청을 `/`로 리다이렉트한다 — 리다이렉트 URL은 사이트맵에 넣지 않는다.
     expect(urls).not.toContain("https://www.nullstock.im/pricing");
 
+    // 2026-11-04 — `/us`가 404인 동안(US_REGION_BLOCKED) 404 URL·hreflang을 안내하지 않는다.
     const home = entries[0];
     expect(home.priority).toBe(1);
-    expect(home.alternates?.languages).toEqual({
-      "ko-KR": "https://www.nullstock.im",
-      "en-US": "https://www.nullstock.im/us",
-      "x-default": "https://www.nullstock.im",
-    });
-    expect(entries[1].alternates?.languages).toEqual(home.alternates?.languages);
+    expect(home.alternates).toBeUndefined();
+    expect(urls.some((url) => url.includes("/us"))).toBe(false);
   });
 
   it("omits /notes while the DB has no notes (an empty list is noindex)", async () => {

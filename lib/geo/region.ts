@@ -20,6 +20,11 @@ export const REGION_HEADER = "x-nullstock-region";
 
 export const US_PATH_PREFIX = "/us";
 
+// 글로벌(/us) 서비스 일시 차단 스위치 — 2026-09-20 사용자 지시.
+// 켜져 있는 동안 미들웨어는 `/us` 트리를 404로 돌리고, 사이트맵·hreflang도 `/us`를 싣지 않는다(2026-11-04).
+// 재개할 때는 이 상수를 false 로 바꾸고 배포한다(다른 설정 변경 없음).
+export const US_REGION_BLOCKED = true;
+
 /** 지역별 표시 언어. 언어 토글은 없다 — 지역이 곧 언어다. */
 export const REGION_LANGUAGE: Record<Region, "ko" | "en"> = {
   kr: "ko",

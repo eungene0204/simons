@@ -112,16 +112,14 @@ describe("HomePage", () => {
 });
 
 describe("HomePage metadata", () => {
-  it("uses the absolute keyword-led site title and hreflang pair on the Korean home", async () => {
+  it("uses the absolute keyword-led site title and no /us hreflang while the global service is blocked", async () => {
     const { generateMetadata } = await import("./page");
     const metadata = generateMetadata({});
 
     expect(metadata.title).toEqual({ absolute: "널스탁 | 퀀트 전략 백테스트·시뮬레이션 플랫폼" });
     expect(metadata.description).toMatch(/퀀트.*백테스트/);
-    expect(metadata.alternates).toEqual({
-      canonical: "/",
-      languages: { "ko-KR": "/", "en-US": "/us", "x-default": "/" },
-    });
+    // 2026-11-04 — `/us`가 404인 동안 hreflang으로 안내하면 서치콘솔에 오류가 쌓인다(US_REGION_BLOCKED).
+    expect(metadata.alternates).toEqual({ canonical: "/" });
     expect(metadata.openGraph).toMatchObject({ siteName: "널스탁", locale: "ko_KR", url: "/" });
   });
 

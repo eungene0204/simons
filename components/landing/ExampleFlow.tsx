@@ -1,9 +1,11 @@
 import { EXAMPLES, type Example } from "@/components/strategy/strategyExamples";
 import { STRATEGY_PROMPT_PARAM } from "@/lib/strategy/strategyOpenLink";
+import { ExampleFlowCopy } from "./ExampleFlowCopy";
 
 // 소개 페이지의 전략 예시 흐름 — 예시 카드가 왼쪽으로 천천히 흐른다. 카드를 누르면 전략연구소가
 // 그 문장을 입력창에 채워 연다(`/?prompt=`, 보내기는 방문자가 누른다 — strategyOpenLink.ts).
-// 흐름은 같은 목록을 두 번 이어 붙여 끊김 없이 돈다. 두 번째 목록은 읽기·탭 이동에서 뺀다.
+// 흐름은 같은 목록을 두 번 이어 붙여 끊김 없이 돈다. 두 번째 목록은 브라우저가 첫 목록을 복사해 채우고
+// (ExampleFlowCopy — 서버 HTML에는 한 번만 싣는다) 읽기·탭 이동에서 뺀다.
 // 마우스를 올리거나 키보드 포커스가 들어오면 멈추고, '움직임 줄이기'를 켠 사용자에게는 흐르지 않고 가로로 넘겨 본다.
 
 const CATEGORY_LABEL: Record<Example["category"], string> = {
@@ -19,12 +21,10 @@ export function exampleHref(prompt: string): string {
   return `/?${STRATEGY_PROMPT_PARAM}=${encodeURIComponent(prompt)}&utm_source=landing&utm_medium=example`;
 }
 
-function ExampleCard({ example, hidden }: { example: Example; hidden: boolean }) {
+function ExampleCard({ example }: { example: Example }) {
   return (
     <a
       href={exampleHref(example.prompt)}
-      tabIndex={hidden ? -1 : undefined}
-      aria-hidden={hidden || undefined}
       data-example-card
       className="flex h-full w-[300px] shrink-0 flex-col gap-3 rounded-2xl bg-[var(--card-bg)] p-5 text-left transition-colors hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)]/50"
     >
@@ -60,17 +60,11 @@ export function ExampleFlow() {
           <ul className="example-flow-half list-none">
             {EXAMPLES.map((example) => (
               <li key={example.title}>
-                <ExampleCard example={example} hidden={false} />
+                <ExampleCard example={example} />
               </li>
             ))}
           </ul>
-          <ul className="example-flow-half list-none" aria-hidden="true">
-            {EXAMPLES.map((example) => (
-              <li key={`${example.title}-copy`}>
-                <ExampleCard example={example} hidden />
-              </li>
-            ))}
-          </ul>
+          <ExampleFlowCopy />
         </div>
       </div>
     </div>

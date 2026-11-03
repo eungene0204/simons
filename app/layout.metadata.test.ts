@@ -39,9 +39,11 @@ describe("root layout metadata", () => {
     });
     expect(metadata.description).toMatch(/퀀트.*백테스트/);
     expect(metadata.keywords).toEqual(expect.arrayContaining(["퀀트", "백테스트"]));
-    expect(metadata.robots).toEqual({ index: true, follow: true });
+    // robots를 명시하면 404 페이지에 Next의 noindex와 index가 겹쳐 찍힌다(2026-11-04 실측).
+    expect(metadata.robots).toBeUndefined();
     expect(metadata.openGraph).toMatchObject({ siteName: "널스탁", locale: "ko_KR", url: "/" });
-    expect(metadata.twitter).toMatchObject({ card: "summary_large_image" });
+    // 제목·설명을 실으면 하위 페이지가 홈 문구로 공유된다 — og:title·og:description 폴백에 맡긴다.
+    expect(metadata.twitter).toEqual({ card: "summary_large_image" });
     expect(metadata.verification).toBeUndefined();
   });
 

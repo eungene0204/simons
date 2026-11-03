@@ -53,6 +53,13 @@ describe("buildOpenGraph", () => {
       url: "/us",
     });
   });
+
+  it("carries the share image so page-level overrides do not drop it", () => {
+    // 2026-11-04 — 하위 페이지가 openGraph를 덮으면 루트 opengraph-image.png를 물려받지 못했다.
+    expect(buildOpenGraph("ko", { title: "T", description: "D", url: "/guide" }).images).toEqual([
+      { url: "/opengraph-image.png", width: 1200, height: 630, alt: "널스탁" },
+    ]);
+  });
 });
 
 describe("siteVerification", () => {

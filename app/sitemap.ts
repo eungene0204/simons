@@ -2,9 +2,11 @@ import type { MetadataRoute } from "next";
 import { GUIDE_ARTICLES, GUIDE_BASE_PATH, guideArticlePath } from "@/lib/guide/articles";
 import { NOTES_BASE_PATH, notePath } from "@/lib/notes/notes";
 import { listNotes } from "@/lib/notes/notesStore";
+import { US_REGION_BLOCKED } from "@/lib/geo/region";
 import { HOME_LANGUAGE_ALTERNATES, siteUrl } from "@/lib/seo/site";
 
 // 공개 페이지만 담는다 — 지역별 진입점을 모두 노출해 양쪽 서비스가 각각 색인되게 한다.
+// 글로벌(/us) 서비스가 차단된 동안은 `/us` 진입점과 hreflang을 싣지 않는다(404 URL을 안내하지 않는다).
 // 한국 요금제(`/pricing`)는 비로그인 요청을 `/`로 리다이렉트하므로 넣지 않는다(리다이렉트 URL은
 // 서치콘솔에서 오류로 잡힌다). 공개로 바뀌면 여기에 추가한다.
 // 연구노트가 DB에 있으므로 요청 시 생성한다(빌드 시점에 DB를 읽지 않는다).
@@ -19,10 +21,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       Object.entries(HOME_LANGUAGE_ALTERNATES).map(([lang, path]) => [lang, absolute(path)]),
     ),
   };
+  const regionalHomes: MetadataRoute.Sitemap = US_REGION_BLOCKED
+    ? [{ url: absolute("/"), changeFrequency: "weekly", priority: 1 }]
+    : [
+        { url: absolute("/"), changeFrequency: "weekly", priority: 1, alternates: homeAlternates },
+        { url: absolute("/us"), changeFrequency: "weekly", priority: 1, alternates: homeAlternates },
+        { url: absolute("/us/pricing"), changeFrequency: "monthly", priority: 0.6 },
+      ];
   return [
-    { url: absolute("/"), changeFrequency: "weekly", priority: 1, alternates: homeAlternates },
-    { url: absolute("/us"), changeFrequency: "weekly", priority: 1, alternates: homeAlternates },
-    { url: absolute("/us/pricing"), changeFrequency: "monthly", priority: 0.6 },
+    ...regionalHomes,
     // 백테스트 가이드(한국어 전용 공개 글) — 검색어 '백테스트'에 답하는 본문 페이지.
     { url: absolute(GUIDE_BASE_PATH), changeFrequency: "monthly", priority: 0.8 },
     ...GUIDE_ARTICLES.map((article) => ({

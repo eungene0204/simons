@@ -1,4 +1,4 @@
-// 백테스트 가이드 구조화 데이터(JSON-LD) — 글은 Article, 목록은 CollectionPage.
+// 백테스트 가이드·연구노트 구조화 데이터(JSON-LD) — 글은 Article, 목록은 CollectionPage.
 // 조직 노드는 홈 JSON-LD(`buildHomeJsonLd`)의 `@id`를 그대로 가리킨다.
 
 import { SITE_NAME, siteUrl } from "@/lib/seo/site";
@@ -7,7 +7,6 @@ import {
   GUIDE_COLLECTION,
   GUIDE_DESCRIPTION,
   GUIDE_TITLE,
-  guideArticlePath,
   type ArticleCollection,
   type GuideArticle,
 } from "./articles";
@@ -61,19 +60,29 @@ export function buildGuideArticleJsonLd(
   };
 }
 
+/** 목록 페이지 하나의 이름·설명·경로 — 가이드와 연구노트가 같은 CollectionPage 모양을 쓴다. */
+export type ArticleIndexInfo = { basePath: string; title: string; description: string };
+
+const GUIDE_INDEX: ArticleIndexInfo = {
+  basePath: GUIDE_BASE_PATH,
+  title: GUIDE_TITLE,
+  description: GUIDE_DESCRIPTION,
+};
+
 export function buildGuideIndexJsonLd(
   articles: GuideArticle[],
   base: string = siteUrl(),
+  index: ArticleIndexInfo = GUIDE_INDEX,
 ): Record<string, unknown> {
-  const url = `${base}${GUIDE_BASE_PATH}`;
+  const url = `${base}${index.basePath}`;
   return {
     "@context": "https://schema.org",
     "@graph": [
       {
         "@type": "CollectionPage",
         "@id": `${url}#page`,
-        name: GUIDE_TITLE,
-        description: GUIDE_DESCRIPTION,
+        name: index.title,
+        description: index.description,
         inLanguage: "ko-KR",
         url,
         isPartOf: { "@id": `${base}/#website` },
@@ -83,7 +92,7 @@ export function buildGuideIndexJsonLd(
             "@type": "ListItem",
             position: index + 1,
             name: article.title,
-            url: `${base}${guideArticlePath(article.slug)}`,
+            url: `${url}/${article.slug}`,
           })),
         },
       },
@@ -91,7 +100,7 @@ export function buildGuideIndexJsonLd(
         "@type": "BreadcrumbList",
         itemListElement: [
           { "@type": "ListItem", position: 1, name: SITE_NAME.ko, item: base },
-          { "@type": "ListItem", position: 2, name: GUIDE_TITLE, item: url },
+          { "@type": "ListItem", position: 2, name: index.title, item: url },
         ],
       },
     ],

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { GuideArticlePage } from "@/components/guide/GuideArticlePage";
 import { buildNotesCollection, notePath } from "@/lib/notes/notes";
 import { findNote, listNotes } from "@/lib/notes/notesStore";
+import { mythNoteSeoTitle } from "@/lib/notes/mythNotes";
 import { buildOpenGraph } from "@/lib/seo/site";
 
 type NoteRouteProps = { params: { slug: string } };
@@ -15,11 +16,12 @@ export async function generateMetadata({ params }: NoteRouteProps): Promise<Meta
   const note = await findNote(params.slug);
   if (!note) return {};
   const path = notePath(note.slug);
+  const title = mythNoteSeoTitle(note.slug) ?? note.title;
   return {
-    title: note.title,
+    title,
     description: note.description,
     openGraph: {
-      ...buildOpenGraph("ko", { title: note.title, description: note.description, url: path }),
+      ...buildOpenGraph("ko", { title, description: note.description, url: path }),
       type: "article",
       publishedTime: note.published,
       modifiedTime: note.updated,

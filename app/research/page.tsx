@@ -3,6 +3,10 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import ResearchTestConsole from "@/components/research/ResearchTestConsole";
 import { t } from "@/lib/i18n";
 import { getRequestLanguage } from "@/lib/i18n/server";
+import type { Metadata } from "next";
+
+// 내부 시험 콘솔이라 검색 결과에 내지 않는다.
+export const metadata: Metadata = { title: "전략 연구 에이전트", robots: { index: false, follow: true } };
 
 export default async function ResearchPage() {
   const user = await getCurrentUser();

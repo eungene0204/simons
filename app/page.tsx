@@ -6,6 +6,7 @@ import { getSessionUserId } from "@/lib/get-user";
 import { TermsOfServicePage } from "@/components/landing/TermsOfServicePage";
 import { HomeStructuredData } from "@/components/seo/HomeStructuredData";
 import { getRequestLanguage } from "@/lib/i18n/server";
+import { US_REGION_BLOCKED } from "@/lib/geo/region";
 import {
   buildOpenGraph,
   HOME_LANGUAGE_ALTERNATES,
@@ -49,9 +50,10 @@ export function generateMetadata({ searchParams }: HomePageProps): Metadata {
     description,
     openGraph: buildOpenGraph(language, { title, description, url: home }),
     // 지역별 대체 URL — 지오 리다이렉트가 크롤러 색인을 한쪽으로 몰지 않도록 안내한다.
+    // 글로벌(/us) 서비스가 차단된 동안은 404인 `/us`를 안내하지 않는다.
     alternates: {
       canonical: home,
-      languages: { ...HOME_LANGUAGE_ALTERNATES },
+      ...(US_REGION_BLOCKED ? {} : { languages: { ...HOME_LANGUAGE_ALTERNATES } }),
     },
   };
 }

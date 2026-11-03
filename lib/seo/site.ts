@@ -70,7 +70,13 @@ export const HOME_LANGUAGE_ALTERNATES = {
   "x-default": "/",
 } as const;
 
-/** 페이지별 Open Graph — Next는 openGraph를 얕게 덮어쓰므로 siteName·locale을 매번 채운다. */
+/** 공유 미리보기 이미지 — app/opengraph-image.png 파일 규약이 내보내는 주소. */
+export const OG_IMAGE = { url: "/opengraph-image.png", width: 1200, height: 630 } as const;
+
+/**
+ * 페이지별 Open Graph — Next는 openGraph를 얕게 덮어쓰므로 siteName·locale·이미지를 매번 채운다.
+ * (이미지를 빼면 하위 페이지는 루트의 opengraph-image.png를 물려받지 못해 공유 미리보기가 빈다.)
+ */
 export function buildOpenGraph(
   language: Language,
   page: { title: string; description: string; url: string },
@@ -82,6 +88,7 @@ export function buildOpenGraph(
     title: page.title,
     description: page.description,
     url: page.url,
+    images: [{ ...OG_IMAGE, alt: SITE_NAME[language] }],
   };
 }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getGuideArticle } from "@/lib/guide/articles";
 import { buildGuideArticleJsonLd } from "@/lib/guide/jsonLd";
 import { NOTES_DISCLAIMER, SEED_NOTES as NOTES, buildNotesCollection, notePath } from "./notes";
+import { mythNoteSeoTitle } from "./mythNotes";
 
 const NOTES_COLLECTION = buildNotesCollection(NOTES);
 const getNote = NOTES_COLLECTION.find;
@@ -104,5 +105,24 @@ describe("research notes", () => {
         note.faq!.map((item) => [item.question, item.answer]),
       );
     }
+  });
+});
+
+describe("mythNoteSeoTitle", () => {
+  // 2026-11-04 — 속설 글 제목(h1)이 브랜드 포함 60자를 넘어 검색 결과에서 잘렸다. `<title>`은 속설 문구를 앞세워 짧게.
+  it("front-loads the myth phrase, which also appears in the note body", () => {
+    const myths = NOTES.filter((note) => note.slug.startsWith("myth-"));
+    for (const note of myths) {
+      const title = mythNoteSeoTitle(note.slug);
+      expect(title).toMatch(/^“.+” 백테스트 결과$/);
+      const phrase = title!.slice(1, title!.indexOf("”"));
+      expect(note.sections.flatMap((section) => section.paragraphs).join(" ")).toContain(phrase);
+      // 가장 긴 속설 문구(33자)도 브랜드 포함 52자 안 — 종전 최장 67자.
+      expect(`${title} | 널스탁`.length).toBeLessThanOrEqual(52);
+    }
+  });
+
+  it("leaves non-myth notes to their own title", () => {
+    expect(mythNoteSeoTitle("cost-sensitivity-ma-crossover")).toBeUndefined();
   });
 });

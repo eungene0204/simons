@@ -3,6 +3,10 @@ import DashboardLayout from "@/components/layout/DashboardLayout";
 import StrategyScreener from "@/components/screener/StrategyScreener";
 import { t } from "@/lib/i18n";
 import { getRequestLanguage } from "@/lib/i18n/server";
+import type { Metadata } from "next";
+
+// 로그인한 사용자만 쓰는 도구라 검색 결과에 내지 않는다(비로그인 크롤러에는 안내 문구뿐이다).
+export const metadata: Metadata = { title: "스크리너", robots: { index: false, follow: true } };
 
 // 독립 스크리너(엔진 v16.33) — 저장한 전략의 조건을 오늘 데이터에 적용해 충족 종목을 본다.
 export default async function ScreenerPage() {

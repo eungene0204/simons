@@ -16,14 +16,11 @@ import {
   REGION_HEADER,
   regionFromPathname,
   stripRegionPrefix,
+  US_REGION_BLOCKED,
   type Region,
 } from "@/lib/geo/region";
 
 const REGION_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
-
-// 글로벌(/us) 서비스 일시 차단 스위치 — 2026-09-20 사용자 지시.
-// 재개할 때는 이 상수를 false 로 바꾸고 배포한다(다른 설정 변경 없음).
-const US_REGION_BLOCKED = true;
 
 function requestHeadersWithRegion(request: NextRequest, region: Region): Headers {
   const requestHeaders = new Headers(request.headers);

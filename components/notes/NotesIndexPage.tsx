@@ -6,11 +6,28 @@ import {
   NOTES_DISCLAIMER,
   NOTES_TITLE,
 } from "@/lib/notes/notes";
+import { buildGuideIndexJsonLd } from "@/lib/guide/jsonLd";
+import { serializeJsonLd } from "@/lib/seo/site";
 
 // 연구노트 목록 — 한국어 전용 공개 페이지(서버 컴포넌트). 글이 아직 없으면 준비 중 안내를 보인다.
 export function NotesIndexPage({ notes }: { notes: GuideArticle[] }) {
   return (
     <main className="min-h-[100dvh] bg-[var(--background)] text-white">
+      {notes.length > 0 && (
+        <script
+          type="application/ld+json"
+          data-testid="notes-structured-data"
+          dangerouslySetInnerHTML={{
+            __html: serializeJsonLd(
+              buildGuideIndexJsonLd(notes, undefined, {
+                basePath: NOTES_BASE_PATH,
+                title: NOTES_TITLE,
+                description: NOTES_DESCRIPTION,
+              }),
+            ),
+          }}
+        />
+      )}
       <section className="border-b border-white/[0.08] px-4 pb-10 pt-24 sm:px-6 sm:pb-12 sm:pt-28">
         <div className="mx-auto max-w-3xl">
           <h1 className="font-serif text-4xl font-bold tracking-normal text-white sm:text-5xl">

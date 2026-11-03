@@ -27,7 +27,7 @@ describe("middleware 지역 라우팅", () => {
     expect(res.headers.get("location")).toBeNull();
   });
 
-  // 2026-09-20 — `/us` 글로벌 서비스 일시 차단(middleware.ts::US_REGION_BLOCKED).
+  // 2026-09-20 — `/us` 글로벌 서비스 일시 차단(lib/geo/region.ts::US_REGION_BLOCKED).
   // 차단을 해제하면 아래 두 테스트를 `/us` rewrite 검증으로 되돌린다:
   //   x-middleware-rewrite = https://www.nullstock.im/pricing, 지역 헤더·쿠키 = us
   it("차단 중에는 `/us` 트리를 없는 경로(404)로 돌려준다", () => {

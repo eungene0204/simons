@@ -36,7 +36,8 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-// 전 페이지 공통 메타 — 문구 정본은 lib/seo/site.ts. 하위 페이지는 `title`만 주면
+// 전 페이지 공통 메타 — 문구 정본은 lib/seo/site.ts. robots는 기본값(색인 허용)이라 내지 않는다 —
+// 명시하면 404 페이지에 Next의 noindex와 함께 index가 겹쳐 찍힌다. 하위 페이지는 `title`만 주면
 // "<페이지> | 널스탁" 템플릿이 붙는다(홈은 absolute로 사이트 제목 그대로).
 // 파비콘·OG 이미지는 app/icon.png·apple-icon.png·opengraph-image.png 파일 규약이 자동 배선한다.
 export function generateMetadata(): Metadata {
@@ -49,13 +50,13 @@ export function generateMetadata(): Metadata {
     title: { default: title, template: `%s | ${SITE_NAME[language]}` },
     description,
     keywords: SITE_KEYWORDS[language],
-    robots: { index: true, follow: true },
     openGraph: buildOpenGraph(language, {
       title,
       description,
       url: language === "en" ? "/us" : "/",
     }),
-    twitter: { card: "summary_large_image", title, description },
+    // 제목·설명은 싣지 않는다 — 하위 페이지가 홈 문구를 물려받지 않고 각자의 og:title·og:description을 쓰게 한다.
+    twitter: { card: "summary_large_image" },
     verification: siteVerification(),
   };
 }

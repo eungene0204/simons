@@ -16,8 +16,18 @@ describe("NotesIndexPage", () => {
     expect(screen.getByText(/미래 수익은 보장되지 않습니다/)).toBeInTheDocument();
   });
 
+  it("publishes a CollectionPage list of every note (2026-11-04 — the list page had no JSON-LD)", () => {
+    render(<NotesIndexPage notes={NOTES} />);
+    const graph = JSON.parse(screen.getByTestId("notes-structured-data").innerHTML)["@graph"];
+    expect(graph[0]).toMatchObject({ "@type": "CollectionPage", name: "연구노트" });
+    expect(graph[0].mainEntity.itemListElement.map((item: { url: string }) => item.url)).toEqual(
+      NOTES.map((note) => `https://www.nullstock.im/notes/${note.slug}`),
+    );
+  });
+
   it("shows the preparing notice when the DB has no notes", () => {
     render(<NotesIndexPage notes={[]} />);
     expect(screen.getByText("연구노트를 준비하고 있습니다.")).toBeInTheDocument();
+    expect(screen.queryByTestId("notes-structured-data")).toBeNull();
   });
 });
