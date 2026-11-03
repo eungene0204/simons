@@ -11,22 +11,23 @@ import json
 import re
 import sys
 from pathlib import Path
-from urllib.parse import quote, urlencode
 
 SITE_URL = "https://www.nullstock.im"
 MAX_OPEN_LINK_PROMPT_LENGTH = 1000  # 앱(lib/strategy/strategyOpenLink.ts) 한도와 같다
 
 
-def open_link(prompt: str, folder: Path) -> str:
+def open_link(prompt: str) -> str:
     """같은 문장을 널스탁 입력창에 채워 여는 링크 — 홈(/)이어야 비로그인 방문자도 쿼리를 잃지 않는다
     (x-backtest-post의 post_to_x.strategy_open_url과 같은 규칙, 유입 출처만 news)."""
     prompt = prompt.strip()
     if not prompt or len(prompt) > MAX_OPEN_LINK_PROMPT_LENGTH:
         sys.exit(f"[중단] 링크에 넣을 전략 문장이 비었거나 {MAX_OPEN_LINK_PROMPT_LENGTH}자를 넘는다")
-    campaign = f"news-{folder.resolve().parent.name}-{folder.resolve().name}"
-    query = urlencode({"prompt": prompt, "utm_source": "news", "utm_medium": "report", "utm_campaign": campaign},
-                      quote_via=quote)
-    return f"{SITE_URL}/?{query}"
+    # 한글은 그대로 두고(퍼센트 인코딩하면 글자당 9자) 주소·마크다운을 깨는 글자만 인코딩한다. 공백은 '+'.
+    # 브라우저가 열 때 알아서 인코딩하고, 앱은 URLSearchParams로 읽으므로 '+'는 공백으로 돌아온다.
+    unsafe = {" ": "+", "%": "%25", "&": "%26", "#": "%23", "+": "%2B", "(": "%28", ")": "%29",
+              "<": "%3C", ">": "%3E", "\"": "%22", "'": "%27", "[": "%5B", "]": "%5D", "?": "%3F", "=": "%3D"}
+    query = "".join(unsafe.get(c, c) for c in " ".join(prompt.split()))
+    return f"{SITE_URL}/?prompt={query}&utm_source=news"
 
 
 num = lambda t: float(re.sub(r"[^\d.\-]", "", t))  # noqa: E731  "+3,894,378원" → 3894378.0
@@ -92,8 +93,7 @@ def build(folder: Path) -> str:
         if spec.get("why"):
             out.append(f"→ {spec['why']}")
         out.append("")
-    out += [f"{spec.get('post_name') or r['prompt']} 전략 백테스트", "", f"입력 문장: “{r['prompt']}”",
-            f"널스탁에서 같은 문장으로 열기: {open_link(r['prompt'], folder)}", "", "널스탁 해석"]
+    out += [f"{spec.get('post_name') or r['prompt']} 전략 백테스트", "", f"입력 문장: “{r['prompt']}”", "", "널스탁 해석"]
     out += [f"- {k}: {v}" for k, v in card_pairs(r["summary"])]
     cost = log_find(log, r"수수료\s*([\d.]+%)\s*/\s*슬리피지\s*([\d.]+%)\s*/\s*거래세\s*([\d.]+%)(?:\s*→\s*([\d.]+%))?")
     if cost:
@@ -104,6 +104,7 @@ def build(folder: Path) -> str:
         out.append(f"- 실제 데이터 구간: {period.group(1)} ~ {period.group(2)}")
     if r.get("answered"):
         out.append(f"- 문장에 없던 나머지 설정: {' · '.join(r['answered'])}")
+    out += ["", f"널스탁에서 같은 전략으로 열기: {open_link(r['prompt'])}"]
 
     diff = num(m["roi"]) - num(m["benchmark"])
     out += ["", "결과 (과거 데이터 기준)",
@@ -130,5 +131,5 @@ if __name__ == "__main__":
     folder = Path(sys.argv[1])
     text = build(folder)
     (folder / "note.txt").write_text(text)
-    (folder / "link.txt").write_text(open_link(json.loads((folder / "result.json").read_text())["prompt"], folder) + "\n")
+    (folder / "link.txt").write_text(open_link(json.loads((folder / "result.json").read_text())["prompt"]) + "\n")
     print(text)
