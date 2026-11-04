@@ -164,7 +164,8 @@ class DataLoader:
         - Transient spike (1-day print that reverts next bar): replace the bar with neighbours.
         - Persistent level shift (price stays on the new side): scale all *prior* bars by the
           jump ratio so the discontinuity disappears (standard back-adjustment).
-        - The final _CA_TAIL_GUARD bars are never back-adjusted: a 정리매매 delisting crash sits
+        - A down-jump in the final _CA_TAIL_GUARD bars and every bar after it are left untouched
+          (neither back-adjusted nor interpolated as a bad print): a 정리매매 delisting crash sits
           there and must remain a real loss on the equity curve (back-adjusting would erase it
           by rescaling the entry alongside the exit).
         """
@@ -194,6 +195,15 @@ class DataLoader:
                     i += 1
                     continue
 
+                # protect the delisting (정리매매) crash at the very end of the series.
+                # 정리매매 is always a DOWN crash, so only down-jumps in the tail are shielded;
+                # an up-jump (reverse split / 감자) is still adjusted even near the end.
+                # Checked before the transient rule: 정리매매 has no price limit, so the crash
+                # day is often followed by a >43% bounce that looks like a reverting bad print.
+                # Every bar after the crash is 정리매매 trading too — stop adjusting there.
+                if r < dn and i >= n - tail:
+                    break
+
                 # transient bad print: jumps then reverts toward the prior level next bar
                 nxt = close[i + 1]
                 rev = (nxt / cur) if cur > 0 else 1.0
@@ -201,13 +211,6 @@ class DataLoader:
                     for c in cols:
                         arr[c][i] = (arr[c][i - 1] + arr[c][i + 1]) / 2.0
                     changed = True
-                    i += 1
-                    continue
-
-                # protect the delisting (정리매매) crash at the very end of the series.
-                # 정리매매 is always a DOWN crash, so only down-jumps in the tail are shielded;
-                # an up-jump (reverse split / 감자) is still adjusted even near the end.
-                if r < dn and i >= n - tail:
                     i += 1
                     continue
 

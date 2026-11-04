@@ -79,3 +79,17 @@ def test_ohlc_scaled_together():
     out = DataLoader._sanitize_corporate_actions(df)
     assert np.allclose(out["high"].to_numpy() / out["close"].to_numpy(), 1.05)
     assert np.allclose(out["low"].to_numpy() / out["close"].to_numpy(), 0.95)
+
+
+def test_delisting_crash_with_rebound_preserved():
+    # 2026-11-05: 정리매매 첫날 폭락 뒤 이튿날 반등(227100: 612→18→50)을 하루짜리 오류 프린트로 보고
+    # 양옆 평균으로 덮어 그날 매도가 −97%가 아닌 −46%로 기록됐다. 끝 구간의 하락 점프는 반등이 있어도 보존한다.
+    closes = [612] * 30 + [18, 50, 27, 15, 9, 5, 2]
+    out = DataLoader._sanitize_corporate_actions(_series(closes))
+    assert np.allclose(out["close"].to_numpy(), np.array(closes, dtype=float))
+
+
+def test_transient_down_print_before_tail_still_neutralised():
+    # 끝 구간 밖의 하루짜리 하락 오류 프린트는 종전대로 보간한다
+    out = DataLoader._sanitize_corporate_actions(_series([100] * 20 + [5] + [100] * 20))
+    assert _max_abs_ret(out) <= LIMIT

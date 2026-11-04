@@ -346,6 +346,7 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
         "trailing_stop_activation_pct": strategy.trailing_stop_activation_pct,
         "entry_limit_pct": strategy.entry_limit_pct,
         "exit_limit_pct": strategy.exit_limit_pct,
+        "volatility_breakout_k": strategy.volatility_breakout_k,
         # 사다리(v16.36)가 없으면 빈 levels를 빼 기존 균등 분할 전략의 해시가 변하지 않는다.
         "entry_tranches": (strategy.entry_tranches.model_dump(
                                exclude_none=True, exclude=None if strategy.entry_tranches.levels else {"levels"})
@@ -682,6 +683,7 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
         "trailing_stop_activation_pct": strategy.trailing_stop_activation_pct,
         "entry_limit_pct": strategy.entry_limit_pct,
         "exit_limit_pct": strategy.exit_limit_pct,
+        "volatility_breakout_k": strategy.volatility_breakout_k,
         "entry_tranches": (strategy.entry_tranches.to_request()
                            if strategy.entry_tranches and strategy.entry_tranches.is_complete() else None),
         "partial_take_profits": ([p.to_request() for p in strategy.partial_take_profits if p.is_complete()]

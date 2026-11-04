@@ -1363,6 +1363,10 @@ class ParsedStrategy(BaseModel):
     entry_limit_pct: Optional[float] = Field(
         default=None, gt=0, lt=50, description="매수 지정가 — 전일 종가 대비 -x%",
     )
+    volatility_breakout_k: Optional[float] = Field(
+        default=None, gt=0, le=2,
+        description="변동성 돌파 체결(v16.46) — 시가 + 전일 고저폭 × k 돌파 시 매수, 다음 거래일 시가 매도",
+    )
     exit_limit_pct: Optional[float] = Field(
         default=None, gt=0, lt=50, description="매도(조건 청산) 지정가 — 전일 종가 대비 +y%",
     )

@@ -174,6 +174,8 @@ VOL_TARGET_REDUCE = "목표 변동성 비중 조정 (목표 연변동성 {0}%)"
 BAND_REBALANCE = "밴드 리밸런싱 (목표 비중에서 {0}%p 넘게 이탈, 비중 재조정)"
 PARTIAL_TAKE_PROFIT = "분할 익절 (+{0}% 도달, 보유 비중의 {1}% 매도)"
 TRANCHE_BUY = "분할 매수 {0}/{1}회차 (기준가 대비 -{2}%)"
+VOLATILITY_BREAKOUT_BUY = "변동성 돌파 매수 (시가 + 전일 고저폭 × {0} 돌파)"
+VOLATILITY_BREAKOUT_EXIT = "변동성 돌파 청산 (매수 다음 거래일 시가)"
 CASH_ASSET_PARK = "현금 대체 자산 매수 (미투자 현금 보유)"
 CASH_ASSET_RELEASE = "현금 대체 자산 매도 (투자 자금 충당)"
 # 캔들 패턴·다중 타임프레임(v16.29).

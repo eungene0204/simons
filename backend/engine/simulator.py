@@ -618,6 +618,8 @@ class Simulator:
         ts_act = float(risk_params.get('trailing_stop_activation_pct') or 0)
         entry_limit = float(risk_params.get('entry_limit_pct') or 0)
         exit_limit = float(risk_params.get('exit_limit_pct') or 0)
+        # 변동성 돌파 체결(v16.46) — 시가 체결(next_open)에서만. 엔진이 그 밖의 타이밍에선 넘기지 않는다.
+        vb_k = float(risk_params.get('volatility_breakout_k') or 0)
         tranches = _tranche_plan(risk_params)
         partial_tps = _partial_take_profits(risk_params)
         sizing = _position_sizing(risk_params)
@@ -682,7 +684,7 @@ class Simulator:
         has_position_risk = use_risk_mgmt and (sl_pct > 0 or tp_pct > 0 or ts_pct > 0 or max_hold > 0)
         # 조건 루프에서만 표현되는 설정(v16.28) — 최소 보유일·재진입 금지·지정가·분할·사이징.
         loop_only = bool(min_hold > 0 or cooldown > 0 or entry_limit > 0 or exit_limit > 0
-                         or tranches or partial_tps or sizing)
+                         or tranches or partial_tps or sizing or vb_k > 0)
         # 매수 조건이 있는 전략은 순수 경로로 보내지 않는다(v16.3) — 그 경로는 매도 신호를
         # 읽지 않고 리밸런싱일이 아닌 날의 매수 신호도 버린다(순수 랭킹 회전 전용).
         if rebalance_mode and not has_position_risk and not entry_signal_driven and not loop_only:
@@ -704,7 +706,7 @@ class Simulator:
 
         price_values = price_df.values
         # 지정가·분할 매수는 셀 체결가를 바꾼다 — 그때만 복사해 vbt에 넘긴다(없으면 원본 그대로).
-        price_override = bool(entry_limit > 0 or exit_limit > 0 or tranches)
+        price_override = bool(entry_limit > 0 or exit_limit > 0 or tranches or vb_k > 0)
         exec_price_values = exec_price_df.values.copy() if price_override else exec_price_df.values
         entries_values = entries_df.values
         exits_values = exits_df.values.copy()
@@ -764,6 +766,8 @@ class Simulator:
                                else tr.part(tr.TAKE_PROFIT)])
         ts_reason = tr.encode([tr.part(tr.TRAILING_STOP_EXEC_PCT, _fmt_pct(ts_pct)) if ts_pct > 0
                                else tr.part(tr.TRAILING_STOP_EXEC)])
+        vb_entry_reason = tr.encode([tr.part(tr.VOLATILITY_BREAKOUT_BUY, _fmt_g(vb_k))]) if vb_k > 0 else ""
+        vb_exit_reason = tr.encode([tr.part(tr.VOLATILITY_BREAKOUT_EXIT)]) if vb_k > 0 else ""
 
         # from_orders 입력: NaN=주문 없음, 양수=진입 목표비중(NAV 대비), 0=전량 청산
         target_values = np.full((n_rows, num_symbols), np.nan)
@@ -1230,6 +1234,17 @@ class Simulator:
                                 continue          # 미체결 — 후보가 남아 있으면 다음 날 다시
                             ep = min(float(ep), lim)
                             exec_price_values[i, s_idx] = ep
+                        if vb_k > 0:
+                            # 변동성 돌파(v16.46): 시가 + 전일 고저폭 × k에 오늘 고가가 닿아야 체결,
+                            # 체결가는 그 돌파가(시가가 이미 넘었으면 시가). 전일이 거래 불가(정지)였으면
+                            # 고저폭을 알 수 없어 사지 않는다.
+                            if i == 0 or not avail_values[i - 1, s_idx]:
+                                continue
+                            target = float(ep) + vb_k * (high_values[i - 1, s_idx] - low_values[i - 1, s_idx])
+                            if high_values[i, s_idx] < target:
+                                continue          # 미돌파 — 후보가 남아 있으면 다음 후보로
+                            ep = max(float(ep), target)
+                            exec_price_values[i, s_idx] = ep
                         sizing_w = None
                         if sizing is not None:
                             if sizing['method'] == 'atr_risk':
@@ -1246,6 +1261,12 @@ class Simulator:
                         active_count += 1
                         entry_day[s_idx] = i
                         entry_price[s_idx] = ep
+                        if vb_k > 0:
+                            # 다음 거래 가능일 시가에 판다 — 이월 청산으로 예약해 Step 0이 방출한다.
+                            pending_exit[s_idx] = True
+                            exit_reason_pending[s_idx] = vb_exit_reason
+                            self.entry_reason_overrides.setdefault(
+                                symbols[s_idx], {})[date_strs[i]] = vb_entry_reason
                         peak_price[s_idx] = ep   # Fix 1: init peak at entry price
                         if (inv_vals is None and exp_vals is None and alloc_row is None
                                 and sizing_w is None):

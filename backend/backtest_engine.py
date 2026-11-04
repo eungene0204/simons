@@ -534,6 +534,9 @@ class BacktestEngine:
         if risk_params.get('trailing_stop_activation_pct') and risk_params.get('trailing_stop_pct'):
             self.warnings.add(rw.warning(rw.TRAILING_ACTIVATION_APPLIED,
                                          f"{float(risk_params['trailing_stop_activation_pct']):g}"))
+        if risk_params.get('volatility_breakout_k'):
+            self.warnings.add(rw.warning(rw.VOLATILITY_BREAKOUT_APPLIED,
+                                         f"{float(risk_params['volatility_breakout_k']):g}"))
         if risk_params.get('entry_limit_pct'):
             self.warnings.add(rw.warning(rw.LIMIT_ENTRY_APPLIED, f"{float(risk_params['entry_limit_pct']):g}"))
         if risk_params.get('exit_limit_pct'):
@@ -1326,6 +1329,10 @@ class BacktestEngine:
                 _exec_price_basis = 'avg'
                 options['exec_price_basis'] = 'avg'
                 self.warnings.add(rw.warning(rw.EXEC_AVG_PRICE))
+            # 변동성 돌파 체결(v16.46)은 시가 체결에서만 계산된다(돌파가 = 시가 + 전일 고저폭 × k).
+            if risk_params.get('volatility_breakout_k') and (exec_type != 'next_open' or _exec_price_basis != 'open'):
+                self.warnings.add(rw.warning(rw.VOLATILITY_BREAKOUT_NEEDS_OPEN))
+                risk_params = {k: v for k, v in risk_params.items() if k != 'volatility_breakout_k'}
             # 신호 후 N거래일 지연 체결 — next_open 분기들이 신호·랭킹·마스크를 미는 shift 폭.
             # 1(기본)=다음 거래일 시가, N=N번째 거래일 시가. same_close는 지연 개념이 없다.
             signal_delay = self._resolve_signal_delay(options, risk_params, exec_type)
@@ -2003,6 +2010,10 @@ class BacktestEngine:
                         all_exit_reasons[_s] = pd.concat([_p["exit_reasons"], all_exit_reasons[_s]])
             ents_df &= available_df
             exts_df &= available_df
+            # 변동성 돌파 체결(v16.46): 매수 조건이 없으면 거래 가능한 모든 종목이 후보다 — 실제 매수는
+            # 시뮬레이터가 그날 고가가 돌파가에 닿았는지로 정한다. 아래 유니버스·유동성 마스크는 그대로 걸린다.
+            if risk_params.get('volatility_breakout_k') and not (req.get('entry') or {}).get('conditions'):
+                ents_df = available_df.astype(bool).copy()
 
             # 횡단면 AI 하락 랭킹 청산 주입: 매일 유니버스 상위 X% 하락위험 종목을 청산 신호로.
             # 시뮬레이터는 보유 종목에만 청산을 적용하므로 유니버스 전체에 신호를 켜도 안전.

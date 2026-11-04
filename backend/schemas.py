@@ -114,6 +114,9 @@ class RiskManagement(BaseModel):
     trailing_stop_activation_pct: Optional[float] = None
     # 지정가(%): 매수는 전일 종가 대비 -x%, 매도(조건 청산)는 +y%. next_open에서만 뜻이 있다.
     entry_limit_pct: Optional[float] = None
+    # 변동성 돌파 체결(v16.46): 그날 고가가 시가 + 전일 고저폭 × k에 닿으면 그 가격에 매수, 다음 거래일 시가에 매도.
+    # next_open(시가 체결)에서만 뜻이 있다. 매수 조건이 없으면 거래 가능한 모든 종목이 후보다.
+    volatility_breakout_k: Optional[float] = None
     exit_limit_pct: Optional[float] = None
     # 분할 매수 {count, step_pct} / 분할 익절 [{profit_pct, sell_pct}].
     entry_tranches: Optional[Dict[str, Any]] = None
