@@ -25,8 +25,9 @@ export const SITE_TITLE: Record<Language, string> = {
   en: "NullStock | Quant Strategy Backtesting Platform for U.S. Stocks",
 };
 
+/** 사이트 설명 — 한국어는 80자 이내(네이버 서치어드바이저 진단 기준, 2026-11-05). */
 export const SITE_DESCRIPTION: Record<Language, string> = {
-  ko: "자연어로 퀀트 투자 전략을 설계하고 과거 데이터로 백테스트하세요. 한국 주식 백테스팅, 워크포워드·몬테카를로 검증, 모의투자 시뮬레이션까지 한곳에서 진행하는 투자 연구 플랫폼입니다.",
+  ko: "자연어로 퀀트 전략을 만들어 한국 주식 과거 데이터로 백테스트하고, 워크포워드·몬테카를로 검증과 모의투자까지 하는 투자 연구 플랫폼입니다.",
   en: "Design quant trading strategies in plain English and backtest them on historical U.S. stock data. Walk-forward and Monte Carlo validation plus paper-trading simulation in one research platform.",
 };
 

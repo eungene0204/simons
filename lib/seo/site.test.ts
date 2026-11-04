@@ -31,6 +31,10 @@ describe("site copy", () => {
     expect(SITE_DESCRIPTION.ko).toMatch(/백테스트/);
   });
 
+  it("keeps the Korean description within 80 characters (Naver Search Advisor, 2026-11-05)", () => {
+    expect(SITE_DESCRIPTION.ko.length).toBeLessThanOrEqual(80);
+  });
+
   it("never uses recommendation or forecast wording (regulatory guard)", () => {
     const copy = [SITE_TITLE.ko, SITE_DESCRIPTION.ko, ...Object.values(buildHomeJsonLd("ko")).map(String)].join(" ");
     expect(copy).not.toMatch(/추천|유망|보장|전망/);
