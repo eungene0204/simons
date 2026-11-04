@@ -1,5 +1,6 @@
 /**
  * 연구노트 원본 결과 업로드 — research_classic_techniques.py의 결과 JSON을 ResearchNoteResult에 slug별로 넣는다.
+ * 결과 JSON 하나는 한 시장(market, 없으면 KOSPI)의 규칙들이다 — 시장·규칙으로 기록 slug를 찾는다.
  *
  *   npx ts-node -r dotenv/config --project tsconfig.scripts.json scripts/upload-research-note-results.ts <결과 JSON>          # dry-run(기본)
  *   npx ts-node -r dotenv/config --project tsconfig.scripts.json scripts/upload-research-note-results.ts <결과 JSON> --apply
@@ -9,10 +10,11 @@
  */
 import { readFileSync } from "fs";
 import { PrismaClient, type Prisma } from "@prisma/client";
-import { CLASSIC_SLUG_BY_RULE } from "../lib/notes/classicNotes";
+import { classicNoteSlug } from "../lib/notes/classicNotes";
 
 type ResultFile = {
   engine_version: string;
+  market?: string;
   rows: Record<string, { request: Prisma.InputJsonObject; result: Prisma.InputJsonObject }>;
   sensitivity?: Record<string, Record<string, Prisma.InputJsonObject>>;
 };
@@ -23,7 +25,7 @@ async function main() {
   const apply = process.argv.includes("--apply");
   const data = JSON.parse(readFileSync(path, "utf-8")) as ResultFile;
   const rows = Object.entries(data.rows).map(([rule, row]) => {
-    const slug = (CLASSIC_SLUG_BY_RULE as Record<string, string>)[rule];
+    const slug = classicNoteSlug(data.market ?? "KOSPI", rule);
     if (!slug) throw new Error(`노트가 없는 규칙: ${rule}`);
     // 시작일별 요약은 규칙 단위로 묶어 둔다 — {시작일: 지표}.
     const sensitivity: Prisma.InputJsonObject = Object.fromEntries(

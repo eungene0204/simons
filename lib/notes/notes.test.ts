@@ -3,7 +3,7 @@ import { getGuideArticle } from "@/lib/guide/articles";
 import { buildGuideArticleJsonLd } from "@/lib/guide/jsonLd";
 import { NOTES_DISCLAIMER, SEED_NOTES as NOTES, buildNotesCollection, notePath } from "./notes";
 import { mythNoteDataset, mythNoteOpenPrompt, mythNoteSeoTitle } from "./mythNotes";
-import { CLASSIC_NOTES, CLASSIC_SLUG_BY_RULE, classicNoteDataset } from "./classicNotes";
+import { CLASSIC_NOTES, CLASSIC_SUMMARY_SLUG, classicNoteDataset, classicNoteSlug } from "./classicNotes";
 import { CLASSIC_RESULTS } from "./classicResults";
 
 const NOTES_COLLECTION = buildNotesCollection(NOTES);
@@ -161,42 +161,99 @@ describe("myth-note reproduction and dataset", () => {
   });
 });
 
-describe("classic-technique notes (KOSPI 3y)", () => {
-  it("has nine notes, each resolving under /notes with a question title", () => {
-    expect(CLASSIC_NOTES).toHaveLength(9);
-    for (const note of CLASSIC_NOTES) {
+describe("classic-technique notes (KOSPI·KOSDAQ 3y)", () => {
+  const reports = CLASSIC_NOTES.filter((note) => /^(kospi|kosdaq)-3y-/.test(note.slug));
+  const hubs = CLASSIC_NOTES.filter((note) => note.slug.startsWith("techniques-"));
+  type Row = (typeof CLASSIC_RESULTS)["KOSPI"]["golden_cross_5_20"];
+  const allResults = [...Object.values(CLASSIC_RESULTS.KOSPI), ...Object.values(CLASSIC_RESULTS.KOSDAQ)] as Row[];
+
+  it("has ten techniques in two markets, five hubs and one summary, all under /notes", () => {
+    expect(reports).toHaveLength(20);
+    expect(hubs).toHaveLength(5);
+    expect(getNote(CLASSIC_SUMMARY_SLUG)).toBeDefined();
+    for (const note of reports) {
       expect(getNote(note.slug)?.slug).toBe(note.slug);
-      expect(note.title).toMatch(/KOSPI 최근 3년 백테스트하면 수익이 났을까\?$/);
+      expect(note.title).toMatch(/(KOSPI|KOSDAQ) 최근 3년 백테스트하면 수익이 났을까\?$/);
+    }
+  });
+
+  it("keeps the slugs of the KOSPI notes published on 2026-11-04", () => {
+    for (const base of ["golden-cross-5-20", "ma-alignment-5-20-60", "rsi-30-70", "macd-signal-cross", "bollinger-lower", "52-week-high", "dual-momentum-12m", "low-per-pbr-20", "magic-formula-20"]) {
+      expect(getNote(`kospi-3y-${base}`)?.published).toBe("2026-11-04");
+    }
+  });
+
+  it("fits titles and descriptions within search snippet lengths", () => {
+    for (const note of CLASSIC_NOTES) {
+      expect(note.title.length, note.slug).toBeLessThanOrEqual(60);
+      expect(note.description.length, note.slug).toBeLessThanOrEqual(155);
     }
   });
 
   it("states the generated figures, the start-date range and the short disclaimer in each summary", () => {
-    const results = Object.values(CLASSIC_RESULTS);
-    for (const [index, note] of CLASSIC_NOTES.entries()) {
-      const r = results.find((item) => note.summary.includes(`${item.start}~${item.end}`) && note.summary.includes(item.ret))!;
+    for (const note of reports) {
+      const r = allResults.find((item) => note.summary.includes(`${item.start}~${item.end}`) && note.summary.includes(item.ret))!;
       expect(r, note.slug).toBeDefined();
       for (const figure of [r.cagr, r.mdd, r.win, r.trades, r.benchCagr, ...r.retRange]) expect(note.summary).toContain(figure);
       expect(note.summary).toMatch(/미래 수익을 보장하지 않습니다\.$/);
-      expect(index).toBeGreaterThanOrEqual(0);
     }
   });
 
   it("shows every start-date run, including the worst one, in a table", () => {
-    for (const note of CLASSIC_NOTES) {
+    for (const note of reports) {
       const table = note.sections.find((s) => s.heading === "시작일을 하루씩 바꿔 본 결과")?.table;
       expect(table?.rows.length).toBe(5);
     }
   });
 
-  it("links each note to a Dataset covering the backtest window", () => {
-    for (const note of CLASSIC_NOTES) {
+  it("labels holding-period exits as such, not as sell signals", () => {
+    const exits = getNote("kospi-3y-52-week-high")!.sections.find((s) => s.heading === "청산 내역")!.table!.rows.map((row) => row[0]);
+    expect(exits).toContain("보유 기간 만료");
+    expect(exits).not.toContain("매도 신호");
+  });
+
+  it("discloses data coverage for the fundamental rules and the engine price-repair defect", () => {
+    const caveats = (slug: string) => getNote(slug)!.sections.find((s) => s.heading === "읽을 때 주의할 점")!.paragraphs.join(" ");
+    expect(caveats("kosdaq-3y-magic-formula-20")).toContain("EV/EBIT 데이터가 전체 기간의 54.3%");
+    expect(caveats("kosdaq-3y-magic-formula-20")).toMatch(/외부 재무 데이터 조회가 실패해 조건에서 빠진 종목이 \d+개/);
+    expect(caveats("kosdaq-3y-bollinger-lower")).toContain("227100");
+    // 2026-11-05 엔진 v16.47: 정리매매 첫날 폭락이 보정으로 덮이지 않고 실제 손실로 남는다.
+    expect(caveats("kosdaq-3y-bollinger-lower")).toContain("−93.94%");
+    expect(caveats("kospi-3y-golden-cross-5-20")).not.toContain("재무 값이 없는 종목");
+  });
+
+  it("puts every report of a family in its hub table and links them", () => {
+    for (const hub of hubs) {
+      const rows = hub.sections.find((s) => s.heading === "결과 한눈에 보기")!.table!.rows;
+      expect(rows).toHaveLength(4);
+      expect(hub.related).toHaveLength(4);
+      for (const slug of hub.related) expect(getNote(slug)!.related[0]).toBe(hub.slug);
+    }
+  });
+
+  it("counts the summary figures from the same results", () => {
+    const summary = getNote(CLASSIC_SUMMARY_SLUG)!;
+    const positive = allResults.filter((r) => !r.ret.startsWith("−")).length;
+    const above = allResults.filter((r) => !r.below).length;
+    expect(summary.summary).toContain(`20번의 계산 중 투자 수익률이 플러스였던 것은 ${positive}번`);
+    expect(summary.summary).toContain(`보다 높았던 것은 ${above}번`);
+    expect(summary.sections.find((s) => s.heading === "결과 표")!.table!.rows).toHaveLength(20);
+  });
+
+  it("links each report to a Dataset covering the backtest window", () => {
+    for (const note of reports) {
       expect(classicNoteDataset(note.slug)?.temporalCoverage).toBe("2023-11-03/2026-11-03");
     }
+    expect(classicNoteDataset(CLASSIC_SUMMARY_SLUG)).toBeUndefined();
     expect(classicNoteDataset("myth-09-ma-5-20-cross")).toBeUndefined();
   });
 
-  it("maps every result rule to its note slug for the raw-result upload", () => {
-    expect(Object.keys(CLASSIC_SLUG_BY_RULE).sort()).toEqual(Object.keys(CLASSIC_RESULTS).sort());
-    expect(Object.values(CLASSIC_SLUG_BY_RULE).sort()).toEqual(CLASSIC_NOTES.map((note) => note.slug).sort());
+  it("maps every result row to its report slug for the raw-result upload", () => {
+    for (const market of ["KOSPI", "KOSDAQ"] as const) {
+      for (const rule of Object.keys(CLASSIC_RESULTS[market])) {
+        expect(getNote(classicNoteSlug(market, rule)!)).toBeDefined();
+      }
+    }
+    expect(classicNoteSlug("KOSPI", "unknown_rule")).toBeUndefined();
   });
 });

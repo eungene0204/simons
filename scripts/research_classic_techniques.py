@@ -4,11 +4,13 @@ AEO 설계서 3단계(2026-11-04). 기법마다 규칙을 실행 전에 고정�
 (ParsedStrategy → strategy_converter.to_backtest_request → BacktestEngine.run_backtest)로 계산한다.
 공통: KOSPI(시점별 구성·상장폐지 포함), 기간 2023-11-03~2026-11-03(최근 3년, 날짜 고정), 시작 자금 1,000만 원,
 다음 거래일 시가 체결, 수수료 0.015%·슬리피지 0.05%(사용자 결정), 거래세는 시행일 기준 법정 세율.
-래리 윌리엄스 변동성 돌파는 장중 돌파 가격 체결이 필요해 일봉 엔진으로 표현할 수 없어 제외했다.
+래리 윌리엄스 변동성 돌파는 엔진 v16.46의 변동성 돌파 체결(`volatility_breakout_k` — 그날 고가가 시가 + 전일
+고저폭 × k에 닿으면 그 가격에 매수, 다음 거래일 시가 매도)로 계산한다(2026-11-05 추가).
 결과 JSON은 연구노트 숫자의 원천이다 — 글에는 이 JSON의 값을 그대로 옮긴다.
 
-실행:  cd backend && uv run --frozen python ../scripts/research_classic_techniques.py --json <경로> [--only <이름>]
+실행:  cd backend && uv run --frozen python ../scripts/research_classic_techniques.py --json <경로> [--only <이름>] [--market KOSDAQ]
        시작일 민감도: 같은 명령에 --starts 2023-11-06,2023-11-07,... (같은 JSON의 sensitivity에 덧붙인다)
+       시장(--market, 기본 KOSPI)은 규칙과 무관하게 유니버스만 바꾼다 — 시장마다 결과 JSON을 따로 둔다.
 """
 
 from __future__ import annotations
@@ -56,6 +58,8 @@ def rules():
             max_positions=10,
             entry_signals=[T(indicator="macd", signal_type="buy", mode="crossover")],
             exit_signals=[T(indicator="macd", signal_type="sell", mode="crossover")]),
+        "volatility_breakout_k05": dict(
+            max_positions=10, volatility_breakout_k=0.5, entry_signals=[], exit_signals=[]),
         "bollinger_lower": dict(
             max_positions=10,
             entry_signals=[T(indicator="bollinger_bands", signal_type="buy")],
@@ -86,6 +90,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", required=True)
     ap.add_argument("--only", default="", help="규칙 이름 부분 일치")
+    ap.add_argument("--market", default="KOSPI", choices=["KOSPI", "KOSDAQ"])
     ap.add_argument("--starts", default="",
                     help="시작일 민감도: 쉼표로 구분한 시작일마다 요약 지표만 sensitivity에 저장(종료일 고정)")
     args = ap.parse_args()
@@ -98,6 +103,8 @@ def main() -> int:
     out_path = Path(args.json)
     out = json.loads(out_path.read_text(encoding="utf-8")) if out_path.exists() else {"rows": {}}
     out["engine_version"] = ENGINE_VERSION
+    out["market"] = args.market
+    common = {**COMMON, "universe": [args.market]}
     if args.starts:
         # 10종목만 들고 넓은 유니버스에서 고르는 규칙은 첫날 산 종목에 따라 경로가 갈린다 — 시작일만 바꿔 범위를 잰다.
         sens = out.setdefault("sensitivity", {})
@@ -105,7 +112,7 @@ def main() -> int:
             for name, spec in rules().items():
                 if args.only and args.only not in name:
                     continue
-                req = to_backtest_request(ParsedStrategy(**{**COMMON, "backtest_start_date": start}, **spec))
+                req = to_backtest_request(ParsedStrategy(**{**common, "backtest_start_date": start}, **spec))
                 with contextlib.redirect_stdout(io.StringIO()):
                     res = BacktestEngine().run_backtest(copy.deepcopy(req))
                 sens.setdefault(start, {})[name] = {k: res.get(k) for k in ("totalReturn", "cagr", "maxDrawdown", "trades")}
@@ -115,7 +122,7 @@ def main() -> int:
     for name, spec in rules().items():
         if args.only and args.only not in name:
             continue
-        strategy = ParsedStrategy(**COMMON, **spec)
+        strategy = ParsedStrategy(**common, **spec)
         req = to_backtest_request(strategy)
         t0 = time.time()
         with contextlib.redirect_stdout(io.StringIO()):
