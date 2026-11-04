@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next";
 import { GUIDE_ARTICLES, GUIDE_BASE_PATH, guideArticlePath } from "@/lib/guide/articles";
 import { NOTES_BASE_PATH, notePath } from "@/lib/notes/notes";
 import { listNotes } from "@/lib/notes/notesStore";
+import { METHODOLOGY_ARTICLE, METHODOLOGY_PATH } from "@/lib/methodology/methodology";
 import { US_REGION_BLOCKED } from "@/lib/geo/region";
 import { HOME_LANGUAGE_ALTERNATES, siteUrl } from "@/lib/seo/site";
 
@@ -38,6 +39,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: "monthly" as const,
       priority: 0.7,
     })),
+    // 방법론 — 모든 연구노트가 링크하는 계산 가정·데이터 출처 페이지.
+    {
+      url: absolute(METHODOLOGY_PATH),
+      lastModified: METHODOLOGY_ARTICLE.updated,
+      changeFrequency: "monthly",
+      priority: 0.7,
+    },
     // 연구노트는 글이 생긴 뒤부터 노출한다(빈 목록은 noindex라 사이트맵에도 넣지 않는다).
     ...(notes.length > 0
       ? [

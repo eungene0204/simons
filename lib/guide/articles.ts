@@ -52,6 +52,10 @@ export type ArticleCollection = {
   title: string;
   disclaimer: string;
   find: (slug: string) => GuideArticle | undefined;
+  /** 요약 바로 아래 한 줄 고지 — AI가 요약만 발췌해도 면책이 함께 가도록 요약 곁에 둔다. */
+  summaryNote?: string;
+  /** 계산 가정·데이터 출처 페이지로 거는 링크를 보일지. */
+  linksMethodology?: boolean;
 };
 
 export const GUIDE_TITLE = "백테스트 가이드";

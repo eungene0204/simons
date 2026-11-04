@@ -6,6 +6,7 @@
 // 순수 데이터 모듈이다(react·next 의존 없음). 글이 생기면 가이드와 같은 `GuideArticle` 모양을 쓴다.
 
 import type { ArticleCollection, GuideArticle } from "../guide/articles";
+import { CLASSIC_NOTES } from "./classicNotes";
 import { MYTH_NOTES } from "./mythNotes";
 
 export const NOTES_BASE_PATH = "/notes";
@@ -15,7 +16,10 @@ export const NOTES_DESCRIPTION =
   "널스탁 백테스트 엔진으로 직접 계산한 과거 데이터 기반 결과를 기준일·설정값과 함께 정리한 노트입니다.";
 
 export const NOTES_DISCLAIMER =
-  "연구노트는 과거 데이터에서 관측된 계산 결과를 기준일과 설정값과 함께 기록한 자료입니다. 특정 종목·전략의 매수·매도를 권유하거나 우열을 판단하지 않으며, 모든 결과는 과거 데이터 기반 시뮬레이션이므로 미래 수익은 보장되지 않습니다.";
+  "이 페이지는 특정 매매 규칙을 과거 시장 데이터에 적용한 백테스트(모의 검증) 결과를 기록한 것입니다. 널스탁은 투자자문업자 또는 투자일임업자가 아니며, 이 페이지는 특정 금융투자상품의 매수·매도를 권유하거나 투자 판단을 대신하지 않습니다. 백테스트 결과는 실제 거래가 아닌 가정에 기반하며, 수수료·세금·슬리피지·유동성·생존편향 등 실제 거래 조건과 다를 수 있습니다. 과거 성과는 미래 수익을 보장하지 않으며, 투자에 따른 손익은 투자자 본인에게 귀속됩니다.";
+
+/** 요약 곁의 짧은 면책 — 하단 전문만 두면 요약만 발췌될 때 면책이 빠진다. */
+export const NOTES_SUMMARY_NOTE = "과거 데이터 기준 결과이며, 미래 수익을 보장하지 않습니다.";
 
 const EXPERIMENT_NOTES: GuideArticle[] = [
   {
@@ -556,9 +560,10 @@ const EXPERIMENT_NOTES: GuideArticle[] = [
 ];
 
 // 시드 원본 — DB 이관(2026-10-21) 전의 정본이다. `scripts/seed-research-notes.ts`가 slug 기준으로
-// DB에 넣는 용도로만 남겼다. 화면·sitemap·RSS는 DB(`notesStore.ts`)를 읽으므로 새 노트는 여기 추가하지 않는다.
+// DB에 넣는 용도로만 남겼다. 화면·sitemap·RSS는 DB(`notesStore.ts`)를 읽는다. 유명 기법 노트(2026-11-04)는 코드 모듈
+// (`classicNotes.ts`)로 쓰고 시드로 DB에 넣었다 — 숫자 파일(`classicResults.ts`)에서 생성되는 글이라 여기에 잇는다.
 // 실험 노트 뒤에 속설 검증 시리즈(편 번호순)를 잇는다.
-export const SEED_NOTES: GuideArticle[] = [...EXPERIMENT_NOTES, ...MYTH_NOTES];
+export const SEED_NOTES: GuideArticle[] = [...EXPERIMENT_NOTES, ...MYTH_NOTES, ...CLASSIC_NOTES];
 
 export function notePath(slug: string): string {
   return `${NOTES_BASE_PATH}/${slug}`;
@@ -571,5 +576,7 @@ export function buildNotesCollection(notes: GuideArticle[]): ArticleCollection {
     title: NOTES_TITLE,
     disclaimer: NOTES_DISCLAIMER,
     find: (slug) => notes.find((note) => note.slug === slug),
+    summaryNote: NOTES_SUMMARY_NOTE,
+    linksMethodology: true,
   };
 }

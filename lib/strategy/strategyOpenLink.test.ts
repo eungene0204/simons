@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_STRATEGY_PROMPT_LENGTH,
   readStrategyPromptParam,
+  strategyOpenHref,
   withoutStrategyPromptParam,
 } from "./strategyOpenLink";
 
@@ -32,5 +33,22 @@ describe("withoutStrategyPromptParam", () => {
 
   it("남는 파라미터가 없으면 경로만", () => {
     expect(withoutStrategyPromptParam("/analytics/new", "?prompt=abc")).toBe("/analytics/new");
+  });
+});
+
+describe("strategyOpenHref", () => {
+  it("홈 주소에 문장과 유입 구분값을 싣고, 앱이 같은 문장으로 읽는다", () => {
+    const prompt = "KOSPI에서 5일 이동평균선이 20일 이동평균선을 위로 뚫으면 매수해 주세요.";
+    const href = strategyOpenHref(prompt, "notes", "myth-09-ma-5-20-cross")!;
+    expect(href.startsWith("/?")).toBe(true);
+    const params = new URLSearchParams(href.slice(2));
+    expect(readStrategyPromptParam(params)).toBe(prompt);
+    expect(params.get("utm_source")).toBe("notes");
+    expect(params.get("utm_campaign")).toBe("myth-09-ma-5-20-cross");
+  });
+
+  it("앱이 채우지 않을 문장(빈 값·한도 초과)이면 링크를 만들지 않는다", () => {
+    expect(strategyOpenHref("  ", "notes", "c")).toBeUndefined();
+    expect(strategyOpenHref("가".repeat(MAX_STRATEGY_PROMPT_LENGTH + 1), "notes", "c")).toBeUndefined();
   });
 });

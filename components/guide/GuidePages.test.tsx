@@ -2,7 +2,8 @@ import { render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { GUIDE_ARTICLES } from "@/lib/guide/articles";
-import { SEED_NOTES as NOTES, buildNotesCollection } from "@/lib/notes/notes";
+import { NOTES_SUMMARY_NOTE, SEED_NOTES as NOTES, buildNotesCollection } from "@/lib/notes/notes";
+import { METHODOLOGY_ARTICLE, METHODOLOGY_COLLECTION } from "@/lib/methodology/methodology";
 
 const NOTES_COLLECTION = buildNotesCollection(NOTES);
 import { GuideArticlePage } from "./GuideArticlePage";
@@ -80,5 +81,29 @@ describe("GuideArticlePage with the research-notes collection", () => {
     const hrefs = screen.getAllByRole("link").map((link) => link.getAttribute("href"));
     expect(hrefs).toContain("/guide/backtest-trading-costs");
     expect(screen.getByTestId("guide-structured-data").textContent).toContain(`/notes/${note.slug}`);
+  });
+});
+
+describe("GuideArticlePage reproduction and methodology links", () => {
+  const note = NOTES.find((item) => item.slug.startsWith("myth-"))!;
+
+  it("puts the short disclaimer next to the summary and links the methodology page from notes", () => {
+    render(<GuideArticlePage article={note} collection={NOTES_COLLECTION} />);
+    expect(screen.getByText(NOTES_SUMMARY_NOTE)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "백테스트 방법론" })).toHaveAttribute("href", "/methodology");
+  });
+
+  it("turns the call to action into an open-this-strategy link when a prompt is given", () => {
+    render(<GuideArticlePage article={note} collection={NOTES_COLLECTION} openHref="/?prompt=x" />);
+    expect(screen.getByRole("link", { name: "이 전략 그대로 열기" })).toHaveAttribute("href", "/?prompt=x");
+    expect(screen.queryByRole("link", { name: "전략 백테스트하기" })).toBeNull();
+  });
+
+  it("renders the top-level methodology page without a collection crumb or methodology self-link", () => {
+    render(<GuideArticlePage article={METHODOLOGY_ARTICLE} collection={METHODOLOGY_COLLECTION} />);
+    const crumbs = within(screen.getByRole("navigation", { name: "경로" })).getAllByRole("link");
+    expect(crumbs.map((link) => link.getAttribute("href"))).toEqual(["/"]);
+    expect(screen.queryByRole("link", { name: "백테스트 방법론" })).toBeNull();
+    expect(screen.getAllByRole("table")).toHaveLength(1);
   });
 });

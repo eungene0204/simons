@@ -1228,3 +1228,15 @@ model ResearchNote {
 
   @@index([status, published])
 }
+
+// 연구노트가 근거로 삼은 백테스트 원본 결과(2026-11-04) — 글의 숫자를 다시 대조할 수 있게 엔진 출력 그대로 보관한다.
+// slug = ResearchNote.slug. request·result는 엔진 요청·응답 JSON, sensitivity는 시작일별 요약 지표.
+model ResearchNoteResult {
+  slug          String   @id
+  engineVersion String
+  request       Json
+  result        Json
+  sensitivity   Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}

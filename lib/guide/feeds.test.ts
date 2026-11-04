@@ -14,6 +14,8 @@ describe("llms.txt", () => {
       expect(text).toContain(`[${article.title}](${BASE}/guide/${article.slug}): ${article.summary}`);
     }
     expect(text).toMatch(/보장되지 않/);
+    expect(text).toContain("투자 추천 서비스가 아닙니다");
+    expect(text).toContain(`(${BASE}/methodology)`);
     expect(text).not.toContain("## 연구노트");
   });
 

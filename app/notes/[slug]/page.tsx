@@ -3,8 +3,10 @@ import { notFound } from "next/navigation";
 import { GuideArticlePage } from "@/components/guide/GuideArticlePage";
 import { buildNotesCollection, notePath } from "@/lib/notes/notes";
 import { findNote, listNotes } from "@/lib/notes/notesStore";
-import { mythNoteSeoTitle } from "@/lib/notes/mythNotes";
+import { classicNoteDataset } from "@/lib/notes/classicNotes";
+import { mythNoteDataset, mythNoteOpenPrompt, mythNoteSeoTitle } from "@/lib/notes/mythNotes";
 import { buildOpenGraph } from "@/lib/seo/site";
+import { strategyOpenHref } from "@/lib/strategy/strategyOpenLink";
 
 type NoteRouteProps = { params: { slug: string } };
 
@@ -34,5 +36,13 @@ export default async function NoteRoute({ params }: NoteRouteProps) {
   const notes = await listNotes();
   const note = notes.find((item) => item.slug === params.slug);
   if (!note) notFound();
-  return <GuideArticlePage article={note} collection={buildNotesCollection(notes)} />;
+  const prompt = mythNoteOpenPrompt(note.slug);
+  return (
+    <GuideArticlePage
+      article={note}
+      collection={buildNotesCollection(notes)}
+      dataset={mythNoteDataset(note.slug) ?? classicNoteDataset(note.slug)}
+      openHref={prompt ? strategyOpenHref(prompt, "notes", note.slug) : undefined}
+    />
+  );
 }

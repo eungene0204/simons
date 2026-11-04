@@ -11,13 +11,27 @@ import {
   type GuideArticle,
 } from "./articles";
 
+/** 백테스트 기록 한 편이 근거로 삼은 결과 데이터 — Article의 isBasedOn으로 연결된다. */
+export type BacktestDataset = {
+  name: string;
+  description: string;
+  /** ISO 8601 구간(`YYYY-MM-DD/YYYY-MM-DD`). */
+  temporalCoverage?: string;
+  variableMeasured: string[];
+};
+
 export function buildGuideArticleJsonLd(
   article: GuideArticle,
   base: string = siteUrl(),
   collection: ArticleCollection = GUIDE_COLLECTION,
+  dataset?: BacktestDataset,
 ): Record<string, unknown> {
   const url = `${base}${collection.basePath}/${article.slug}`;
   const organizationId = `${base}/#organization`;
+  // basePath가 빈 묶음은 최상위 단독 페이지(방법론)라 경로가 홈 → 글 두 단계다.
+  const crumbs = collection.basePath
+    ? [{ name: collection.title, item: `${base}${collection.basePath}` }, { name: article.title, item: url }]
+    : [{ name: article.title, item: url }];
   return {
     "@context": "https://schema.org",
     "@graph": [
@@ -32,14 +46,30 @@ export function buildGuideArticleJsonLd(
         mainEntityOfPage: url,
         author: { "@id": organizationId },
         publisher: { "@id": organizationId },
+        ...(dataset ? { isBasedOn: { "@id": `${url}#dataset` } } : {}),
       },
+      ...(dataset
+        ? [
+            {
+              "@type": "Dataset",
+              "@id": `${url}#dataset`,
+              name: dataset.name,
+              description: dataset.description,
+              inLanguage: "ko-KR",
+              ...(dataset.temporalCoverage ? { temporalCoverage: dataset.temporalCoverage } : {}),
+              variableMeasured: dataset.variableMeasured,
+              creator: { "@id": organizationId },
+              dateModified: article.updated,
+            },
+          ]
+        : []),
       {
         "@type": "BreadcrumbList",
-        itemListElement: [
-          { "@type": "ListItem", position: 1, name: SITE_NAME.ko, item: base },
-          { "@type": "ListItem", position: 2, name: collection.title, item: `${base}${collection.basePath}` },
-          { "@type": "ListItem", position: 3, name: article.title, item: url },
-        ],
+        itemListElement: [{ name: SITE_NAME.ko, item: base }, ...crumbs].map((crumb, index) => ({
+          "@type": "ListItem",
+          position: index + 1,
+          ...crumb,
+        })),
       },
       // 화면의 FAQ 섹션과 같은 문자열만 싣는다 — 가시 텍스트와 다른 구조화 데이터 금지.
       ...(article.faq?.length

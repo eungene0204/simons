@@ -6,6 +6,7 @@
 // 순수 데이터 모듈이다(react·next 의존 없음).
 
 import type { GuideArticle, GuideFaq, GuideSection } from "@/lib/guide/articles";
+import type { BacktestDataset } from "@/lib/guide/jsonLd";
 
 type Row = [string, string];
 
@@ -182,6 +183,28 @@ function buildNote(m: Myth): GuideArticle {
 export function mythNoteSeoTitle(slug: string): string | undefined {
   const myth = MYTHS.find((m) => m.slug === slug);
   return myth ? `“${myth.myth}” 백테스트 결과` : undefined;
+}
+
+/**
+ * "이 전략 그대로 열기" 링크에 넣을 입력 문장 — 노트에 적은 원문 그대로다. 예시 이름만 적은 편(입력 문장 없음)이나
+ * 속설 글이 아니면 undefined. DB 노트에는 이 필드가 없으므로 원본에서 slug로 찾는다(마이그레이션 없이 붙인다).
+ */
+export function mythNoteOpenPrompt(slug: string): string | undefined {
+  const input = MYTHS.find((m) => m.slug === slug)?.input;
+  return input && input.length > 0 ? input.join(" ") : undefined;
+}
+
+/** 속설 노트가 근거로 삼은 백테스트 결과 데이터(Dataset 구조화 데이터). 속설 글이 아니면 undefined. */
+export function mythNoteDataset(slug: string): BacktestDataset | undefined {
+  const m = MYTHS.find((item) => item.slug === slug);
+  if (!m) return undefined;
+  const period = /^(\d{4}-\d{2}-\d{2})~(\d{4}-\d{2}-\d{2})$/.exec(m.result.period);
+  return {
+    name: `${m.rule} ${m.market} ${m.result.period} 백테스트 결과`,
+    description: `${m.market} 일별 가격 기반, ${COMMON_COST} 널스탁 백테스트 엔진 v${m.engine}으로 ${m.date}에 계산했습니다.`,
+    ...(period ? { temporalCoverage: `${period[1]}/${period[2]}` } : {}),
+    variableMeasured: ["투자 수익률", "CAGR", "최대 낙폭(MDD)", "승률", "거래 수", "같은 기간 벤치마크 수익률"],
+  };
 }
 
 const GUIDE_READ = "how-to-read-backtest-results";

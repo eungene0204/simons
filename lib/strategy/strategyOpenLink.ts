@@ -22,3 +22,16 @@ export function withoutStrategyPromptParam(pathname: string, search: string): st
   const rest = params.toString();
   return rest ? `${pathname}?${rest}` : pathname;
 }
+
+/** 사이트 안 글(연구노트 등)에서 거는 "이 전략 그대로 열기" 주소. 비로그인도 열리는 홈(`/`)으로 보낸다. */
+export function strategyOpenHref(prompt: string, source: string, campaign: string): string | undefined {
+  const trimmed = prompt.trim();
+  if (!trimmed || trimmed.length > MAX_STRATEGY_PROMPT_LENGTH) return undefined;
+  const params = new URLSearchParams({
+    [STRATEGY_PROMPT_PARAM]: trimmed,
+    utm_source: source,
+    utm_medium: "referral",
+    utm_campaign: campaign,
+  });
+  return `/?${params.toString()}`;
+}

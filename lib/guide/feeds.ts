@@ -2,6 +2,7 @@
 
 import { SITE_DESCRIPTION, SITE_NAME, siteUrl } from "@/lib/seo/site";
 import { NOTES_BASE_PATH, NOTES_DESCRIPTION, NOTES_DISCLAIMER, NOTES_TITLE, notePath } from "@/lib/notes/notes";
+import { METHODOLOGY_ARTICLE, METHODOLOGY_PATH } from "@/lib/methodology/methodology";
 import {
   GUIDE_ARTICLES,
   GUIDE_BASE_PATH,
@@ -22,6 +23,8 @@ export function buildLlmsTxt(
     "",
     `> ${SITE_DESCRIPTION.ko}`,
     "",
+    "널스탁은 투자 연구·백테스트 도구이며 투자 추천 서비스가 아닙니다.",
+    "",
     GUIDE_DISCLAIMER,
     "",
     `## ${GUIDE_TITLE}`,
@@ -32,6 +35,10 @@ export function buildLlmsTxt(
     ...articles.map(
       (article) => `- [${article.title}](${base}${guideArticlePath(article.slug)}): ${article.summary}`,
     ),
+    "",
+    "## 방법론",
+    "",
+    `- [${METHODOLOGY_ARTICLE.title}](${base}${METHODOLOGY_PATH}): ${METHODOLOGY_ARTICLE.summary}`,
     "",
     // 연구노트는 글이 생긴 뒤부터 싣는다.
     ...(notes.length > 0

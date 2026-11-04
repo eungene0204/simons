@@ -24,6 +24,7 @@ describe("sitemap", () => {
       "https://www.nullstock.im",
       "https://www.nullstock.im/guide",
       ...GUIDE_ARTICLES.map((article) => `https://www.nullstock.im/guide/${article.slug}`),
+      "https://www.nullstock.im/methodology",
       "https://www.nullstock.im/notes",
       ...NOTES.map((note) => `https://www.nullstock.im/notes/${note.slug}`),
     ]);

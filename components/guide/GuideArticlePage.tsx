@@ -6,17 +6,23 @@ import {
   type ArticleCollection,
   type GuideArticle,
 } from "@/lib/guide/articles";
-import { buildGuideArticleJsonLd } from "@/lib/guide/jsonLd";
+import { buildGuideArticleJsonLd, type BacktestDataset } from "@/lib/guide/jsonLd";
+import { METHODOLOGY_PATH } from "@/lib/methodology/methodology";
 import { serializeJsonLd } from "@/lib/seo/site";
 
 // 가이드·연구노트 글 한 편 — 한국어 전용 공개 페이지(서버 컴포넌트). 약관 페이지와 같은 문서형 레이아웃.
 // 함께 읽을 글은 자기 묶음에서 먼저 찾고, 없으면 가이드에서 찾는다(연구노트 → 가이드 개념 글 연결).
+// openHref가 있으면 하단 버튼이 글에 적은 입력 문장을 그대로 채워 여는 링크가 된다(재현).
 export function GuideArticlePage({
   article,
   collection = GUIDE_COLLECTION,
+  dataset,
+  openHref,
 }: {
   article: GuideArticle;
   collection?: ArticleCollection;
+  dataset?: BacktestDataset;
+  openHref?: string;
 }) {
   const related = article.related
     .map((slug) => {
@@ -33,7 +39,7 @@ export function GuideArticlePage({
         type="application/ld+json"
         data-testid="guide-structured-data"
         dangerouslySetInnerHTML={{
-          __html: serializeJsonLd(buildGuideArticleJsonLd(article, undefined, collection)),
+          __html: serializeJsonLd(buildGuideArticleJsonLd(article, undefined, collection, dataset)),
         }}
       />
       <section className="border-b border-white/[0.08] px-4 pb-10 pt-24 sm:px-6 sm:pb-12 sm:pt-28">
@@ -42,12 +48,16 @@ export function GuideArticlePage({
             <Link href="/" className="transition-colors hover:text-white">
               널스탁
             </Link>
-            <span aria-hidden="true" className="mx-2 text-gray-600">
-              /
-            </span>
-            <Link href={collection.basePath} className="transition-colors hover:text-white">
-              {collection.title}
-            </Link>
+            {collection.basePath && (
+              <>
+                <span aria-hidden="true" className="mx-2 text-gray-600">
+                  /
+                </span>
+                <Link href={collection.basePath} className="transition-colors hover:text-white">
+                  {collection.title}
+                </Link>
+              </>
+            )}
           </nav>
           <h1 className="mt-8 font-serif text-3xl font-bold tracking-normal text-white sm:text-4xl">
             {article.title}
@@ -58,6 +68,9 @@ export function GuideArticlePage({
           <p className="mt-6 border-l-2 border-[var(--chat-accent)] pl-4 text-base font-bold leading-8 text-gray-300">
             {article.summary}
           </p>
+          {collection.summaryNote && (
+            <p className="mt-3 pl-4 text-sm font-bold text-[var(--text-label)]">{collection.summaryNote}</p>
+          )}
         </div>
       </section>
 
@@ -159,15 +172,27 @@ export function GuideArticlePage({
 
           <div className="mt-10 flex flex-col gap-4 border border-white/[0.08] p-5 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm font-bold leading-6 text-gray-300">
-              떠오른 전략 아이디어를 문장으로 입력하면 과거 데이터로 백테스트해 볼 수 있습니다.
+              {openHref
+                ? "이 글에 적은 입력 문장을 전략 입력창에 채워 같은 규칙으로 다시 계산해 볼 수 있습니다."
+                : "떠오른 전략 아이디어를 문장으로 입력하면 과거 데이터로 백테스트해 볼 수 있습니다."}
             </p>
             <Link
-              href="/"
+              href={openHref ?? "/"}
               className="inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-xl bg-[var(--chat-accent)] px-4 py-2 text-sm font-bold text-[var(--chat-accent-ink)] transition-colors duration-200 hover:brightness-110 active:translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent)]/50"
             >
-              전략 백테스트하기
+              {openHref ? "이 전략 그대로 열기" : "전략 백테스트하기"}
             </Link>
           </div>
+
+          {collection.linksMethodology && (
+            <p className="mt-6 text-sm font-bold leading-6 text-gray-400">
+              데이터 출처와 수수료·세금·체결 가정은{" "}
+              <Link href={METHODOLOGY_PATH} className="text-gray-200 underline underline-offset-4 hover:text-white">
+                백테스트 방법론
+              </Link>
+              에 정리했습니다.
+            </p>
+          )}
 
           {related.length > 0 && (
             <nav aria-label="함께 읽을 글" className="mt-10">
