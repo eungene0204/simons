@@ -2527,7 +2527,9 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 
 전략 시뮬레이션에서 공개 전략 2건이 "저장된 실행 조건이 없어 계산할 수 없습니다"로 나온 원인 — 결과 화면 '전략 저장'이 실행 설정 없이 `dsl ?? {}`로 빈 설정을 저장. 세 저장 경로가 엔진 요청형 설정만 받도록 통일(`lib/strategy/executableRequest.ts`, 400 `STRATEGY_NOT_EXECUTABLE`), 결과 화면은 화면 DSL → 결과의 `executedRequest` 순으로 저장 설정을 고르고 둘 다 없으면 저장 차단·계좌 만들기 숨김. 회귀 테스트: `lib/strategy/executableRequest.test.ts`, `app/api/strategy/route.post.test.ts`, ensure·save-with-backtest 라우트, 결과 화면 저장·계좌 만들기. 기존 2건은 다시 백테스트 후 저장해야 계산된다.
 
-### 전략 시뮬레이션 (2026-10-27) ✅ 완료
+### 전략 시뮬레이션 (2026-10-27) ✅ 완료 → 2026-11-04 제거
+
+- **2026-11-04 제거(사용자 지시 "실용성이 없어 보인다")** — `/strategy-simulation` 화면·`/api/strategy-simulation/**`·`components/strategy-simulation`·`lib/server/publicSimulation`·FastAPI `/internal/public-simulation/*`(`backend/public_simulation`)·예시 실행 설정 생성 스크립트와 고정 파일·상단 메뉴·홈 링크를 지웠다. `ExampleSimulationResult` 모델과 운영 DB 테이블은 남겨 두었다(삭제는 별도 결정).
 
 - 공개(`Strategy.isPublic`) 저장 전략의 최근 3년(Asia/Seoul) 과거 데이터 시뮬레이션 결과를 로그인 없이 카드 목록·상세 모달로 공개하고, 방문자가 지표 파라미터만 바꾼 임시 사본으로 같은 조건의 결과 차이를 본다. 추천·자동 최적화·우열 판단 없음.
 - ✅ 완료(2026-10-27) 실행 명세와 전용 Boundary Z 정의: [strategy-simulation.md](development/strategy-simulation.md), `docs/architecture/boundaries.md`.
@@ -2540,7 +2542,6 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
   - ✅ 완료(2026-10-28) 운영 DB 마이그레이션 적용(`ExampleSimulationResult` 생성, `PublicSimulationResult` 삭제).
   - ✅ 완료(2026-10-29) 되묻기는 칩 중 무작위로 골라 공개(`--random`, 사용자 지시) — 고른 값은 상세·카드에 표시, 선택지 없는 4개 제외. 지표 값 수정은 [적용] 버튼 시점에 계산, 카드 계산 완료 폴링.
   - 공개 77개: 파서가 해석에 실패한 "60일선 위 종목만 보유"는 제외(실패 안내의 칩으로 전부 채워져 예시 문장과 다른 전략이 실행됨, 2026-10-29 계약 검토에서 발견). 남은 일: 해석 실패 원인 규명(파서), "바이오 업종 과매도 반등"의 무작위 유니버스 범위 확인, 무작위 가정값의 사람 검토, 배포.
-  - ✅ 완료(2026-11-04, 미커밋·미배포, 워크트리 `wt/sim-daily-refresh`) 매일 00:00 KST 원본 결과 일괄 재계산(사용자 지시 "매일 0시에 자동 갱신"). 인-프로세스 스케줄러(`lib/scheduler.ts`)가 `refreshAllOriginals()`(`lib/server/publicSimulation/originals.ts`)를 부른다 — 조회 때의 지연 갱신과 같은 순차 큐(동시 1건)·리스 CAS·행 단위 저장을 쓰고, 최신이거나 리스가 잡힌 예시는 건너뛴다. 갱신 전까지 카드는 이전 결과를 '갱신 중'으로 보여 준다. 운영 서버(`NODE_ENV=production`)에서만 돌고(로컬 dev도 같은 Supabase DB를 써서), 0시대에 재시작하면 그날 분을 이어서 돈다. 데이터는 전날 21:00 KST 동기화분(`scripts/scheduler.py`). 테스트 `tests/scheduler.test.ts`·`lib/server/publicSimulation/publicSimulation.test.ts`.
 
 ### 전략 연구소 캔버스 레이아웃 (2026-10-28) ✅ 완료(미커밋·미배포)
 

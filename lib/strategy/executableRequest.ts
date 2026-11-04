@@ -1,5 +1,5 @@
-// 엔진 요청(BacktestRequest) 계약의 키 — 저장 전략을 다시 실행(재백테스트·워크포워드·전략 시뮬레이션)할 수 있는
-// 최소 형태의 단일 정의. 클라이언트(저장 버튼)와 서버(저장 경로·기록·공개 시뮬레이션)가 같은 기준을 쓴다.
+// 엔진 요청(BacktestRequest) 계약의 키 — 저장 전략을 다시 실행(재백테스트·워크포워드)할 수 있는
+// 최소 형태의 단일 정의. 클라이언트(저장 버튼)와 서버(저장 경로·기록)가 같은 기준을 쓴다.
 export const ENGINE_REQUEST_KEYS = [
   "symbols", "universe_id", "backtest_mode", "target_stocks", "sector", "etf_theme",
   "listing_from", "listing_to", "entry", "exit", "risk", "period", "startDate", "endDate", "options",

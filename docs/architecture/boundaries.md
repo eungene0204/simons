@@ -906,6 +906,8 @@ Represent and execute a user's strict comparison of the latest reported quarter'
 
 ## Boundary Z: Public Strategy Simulation
 
+> Removed 2026-11-04 by user instruction: the `/strategy-simulation` page, its API routes, components, `lib/server/publicSimulation`, FastAPI `/internal/public-simulation/*` (`backend/public_simulation`), the example-snapshot generator and its fixed file, and the nav/home links are deleted. The `ExampleSimulationResult` model and production table remain until a separate decision. The rules below are historical.
+
 ### Purpose
 공개(`Strategy.isPublic`) 저장 전략의 최근 3년 과거 데이터 시뮬레이션 결과를 로그인 없이 열람하고, 방문자가
 지표 파라미터만 바꾼 임시 사본으로 같은 조건의 결과 차이를 확인하는 '전략 시뮬레이션' 기능 전용 boundary.

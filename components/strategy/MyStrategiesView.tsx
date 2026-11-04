@@ -80,7 +80,7 @@ export default function MyStrategiesView() {
     }
   };
 
-  // 공개 전환(2026-10-20) — 공개 전략은 '전략공유' 화면에 카드로 실린다. 전략 시뮬레이션은 예시 전략만 쓴다(2026-10-28).
+  // 공개 전환(2026-10-20) — 공개 전략은 '전략공유' 화면에 카드로 실린다.
   const handleToggleStrategyVisibility = async (strategy: SavedStrategy) => {
     const nextPublic = !strategy.isPublic;
     setUpdatingVisibilityIds((prev) => new Set(prev).add(strategy.id));

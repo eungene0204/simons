@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isExecutableStrategy, pickExecutedRequest, resolveStrategyToSave } from "./executableRequest";
 
 // 2026-10-27 사고: 결과 화면이 실행 설정 없이 '저장'을 보내면 `dsl ?? {}`로 빈 설정이 저장돼
-// 이름·설명만 남은 전략(다시 실행·전략 시뮬레이션 불가)이 생겼다.
+// 이름·설명만 남은 전략(다시 실행 불가)이 생겼다.
 const EXECUTABLE = {
   universe_id: "kospi200",
   entry: { conditions: [{ type: "filter", id: "pbr", params: { operator: "<=", value: 1 } }] },
