@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import HomePage from "./page";
 
-vi.mock("./analytics/page", () => ({
+vi.mock("./analytics/new/page", () => ({
   default: () => <div>전략연구소 메인 화면</div>,
 }));
 

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import StrategyLabPage from "./analytics/page";
+import StrategyLabPage from "./analytics/new/page";
 import { HomeLanding } from "@/components/landing/HomeLanding";
 import { PrivacyPolicyPage } from "@/components/landing/PrivacyPolicyPage";
 import { getSessionUserId } from "@/lib/get-user";
