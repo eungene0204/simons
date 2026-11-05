@@ -1,7 +1,7 @@
 """뉴스 전략 테스트 결과(result.json)로 해설 note.txt를 만든다 — 같은 입력이면 같은 글.
 
 사용: python3 make_note.py <전략 폴더>     폴더에 result.json, spec.json({"prompt", "post_name", "news": {"title", "link", "published"}, "why", "utm_source"(선택, 기본 news)})
-note.txt와 함께 link.txt(같은 문장으로 널스탁을 여는 링크 한 줄)를 남긴다.
+note.txt와 함께 link.txt(같은 문장으로 널스탁을 여는 링크 한 줄, utm_source·medium·campaign 포함)를 남긴다.
 수치는 앱 화면·백테스트 로그에서 그대로 옮긴다. 계산은 벤치마크와의 차이(%p)뿐이다.
 평가·전망·권유 표현을 쓰지 않는다(규제 원칙) — "과거 데이터 기준" 사실만 적는다.
 """
@@ -16,7 +16,13 @@ SITE_URL = "https://www.nullstock.im"
 MAX_OPEN_LINK_PROMPT_LENGTH = 1000  # 앱(lib/strategy/strategyOpenLink.ts) 한도와 같다
 
 
-def open_link(prompt: str, source: str = "news") -> str:
+def campaign_of(folder: Path) -> str:
+    """링크의 utm_campaign — 날짜 폴더와 전략 폴더 이름(예: 2026-11-06-01-ess-ma)이라 글마다 다르다."""
+    folder = folder.resolve()
+    return f"{folder.parent.name}-{folder.name}"
+
+
+def open_link(prompt: str, campaign: str, source: str = "news") -> str:
     """같은 문장을 널스탁 입력창에 채워 여는 링크 — 홈(/)이어야 비로그인 방문자도 쿼리를 잃지 않는다
     (x-backtest-post의 post_to_x.strategy_open_url과 같은 규칙, 유입 출처만 다르다 — 기본 news, 트윗 스킬은 spec의 utm_source=tweet)."""
     prompt = prompt.strip()
@@ -27,7 +33,7 @@ def open_link(prompt: str, source: str = "news") -> str:
     unsafe = {" ": "+", "%": "%25", "&": "%26", "#": "%23", "+": "%2B", "(": "%28", ")": "%29",
               "<": "%3C", ">": "%3E", "\"": "%22", "'": "%27", "[": "%5B", "]": "%5D", "?": "%3F", "=": "%3D"}
     query = "".join(unsafe.get(c, c) for c in " ".join(prompt.split()))
-    return f"{SITE_URL}/?prompt={query}&utm_source={source}"
+    return f"{SITE_URL}/?prompt={query}&utm_source={source}&utm_medium=referral&utm_campaign={campaign}"
 
 
 num = lambda t: float(re.sub(r"[^\d.\-]", "", t))  # noqa: E731  "+3,894,378원" → 3894378.0
@@ -131,7 +137,7 @@ def build(folder: Path) -> str:
         out.append(f"- 실제 데이터 구간: {period.group(1)} ~ {period.group(2)}")
     if r.get("answered"):
         out.append(f"- 문장에 없던 나머지 설정: {' · '.join(r['answered'])}")
-    out += ["", f"널스탁에서 같은 전략으로 열기: {open_link(r['prompt'], spec.get('utm_source', 'news'))}"]
+    out += ["", f"널스탁에서 같은 전략으로 열기: {open_link(r['prompt'], campaign_of(folder), spec.get('utm_source', 'news'))}"]
 
     diff = num(m["roi"]) - num(m["benchmark"])
     out += ["", "결과 (과거 데이터 기준)",
@@ -158,5 +164,5 @@ if __name__ == "__main__":
     folder = Path(sys.argv[1])
     text = build(folder)
     (folder / "note.txt").write_text(text)
-    (folder / "link.txt").write_text(open_link(json.loads((folder / "result.json").read_text())["prompt"], json.loads((folder / "spec.json").read_text()).get("utm_source", "news")) + "\n")
+    (folder / "link.txt").write_text(open_link(json.loads((folder / "result.json").read_text())["prompt"], campaign_of(folder), json.loads((folder / "spec.json").read_text()).get("utm_source", "news")) + "\n")
     print(text)

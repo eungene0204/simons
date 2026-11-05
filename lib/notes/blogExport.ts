@@ -69,7 +69,9 @@ function sectionText(section: GuideSection): string {
 }
 
 export function buildBlogExport(note: GuideArticle, base: string = DEFAULT_SITE_URL): BlogExport {
-  const url = `${base}${notePath(note.slug)}`;
+  // 블로그에서 들어온 방문을 집계할 수 있게 원문 링크에 유입 출처를 붙인다.
+  const utm = new URLSearchParams({ utm_source: "naver_blog", utm_medium: "referral", utm_campaign: note.slug });
+  const url = `${base}${notePath(note.slug)}?${utm.toString()}`;
   const sections = blogSections(note);
   const link = `<a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`;
 

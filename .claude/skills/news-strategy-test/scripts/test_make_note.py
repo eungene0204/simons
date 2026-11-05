@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from make_note import card_pairs  # noqa: E402
+from make_note import campaign_of, card_pairs, open_link  # noqa: E402
 
 # 2026-11-03 01-ess-ma/result.json의 summary 그대로
 ESS_SUMMARY = (
@@ -44,3 +44,12 @@ def test_unknown_label_stops_instead_of_shifting():
     summary = "현재까지 이해한 전략입니다\n유니버스\nKOSPI\n새 칸\n어떤 값\n리스크 관리\n손절 안 함"
     with pytest.raises(SystemExit):
         card_pairs(summary)
+
+
+def test_open_link_carries_full_utm(tmp_path):
+    folder = tmp_path / "2026-11-06" / "01-ess-ma"
+    assert campaign_of(folder) == "2026-11-06-01-ess-ma"
+    assert open_link("ESS 골든크로스", campaign_of(folder), "tweet") == (
+        "https://www.nullstock.im/?prompt=ESS+골든크로스"
+        "&utm_source=tweet&utm_medium=referral&utm_campaign=2026-11-06-01-ess-ma"
+    )

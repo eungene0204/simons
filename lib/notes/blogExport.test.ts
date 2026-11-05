@@ -35,8 +35,9 @@ describe("buildBlogExport", () => {
 
   it("links the original note first and last, and closes with the shared summary, without the full disclaimer", () => {
     const { html, text } = buildBlogExport(NOTE, "https://example.test");
-    const url = "https://example.test/notes/sample-note";
-    expect(text.startsWith(`원문: ${url}`)).toBe(true);
+    const url = "https://example.test/notes/sample-note?utm_source=naver_blog&amp;utm_medium=referral&amp;utm_campaign=sample-note";
+    const plainUrl = "https://example.test/notes/sample-note?utm_source=naver_blog&utm_medium=referral&utm_campaign=sample-note";
+    expect(text.startsWith(`원문: ${plainUrl}`)).toBe(true);
     expect(text.endsWith(SITE_SUMMARY_KO)).toBe(true);
     expect(text).not.toContain(NOTES_DISCLAIMER);
     expect(html).not.toContain("투자자문업자");
@@ -64,7 +65,7 @@ describe("buildBlogExport", () => {
   });
 
   it("links production, not the local dev host, by default", () => {
-    expect(buildBlogExport(NOTE).text.startsWith("원문: https://www.nullstock.im/notes/sample-note")).toBe(true);
+    expect(buildBlogExport(NOTE).text.startsWith("원문: https://www.nullstock.im/notes/sample-note?utm_source=naver_blog")).toBe(true);
   });
 
   it("gives every seed note a result table in its export", () => {
