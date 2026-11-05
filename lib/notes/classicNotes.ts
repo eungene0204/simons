@@ -121,7 +121,7 @@ function summary(market: Market, t: Technique, r: Result): string {
     `투자 수익률은 ${r.ret}, 연평균 수익률(CAGR)은 ${r.cagr}로 같은 기간 ${BENCH_SHORT[market]} 보유(CAGR ${r.benchCagr})보다 ${r.below ? "낮았" : "높았"}습니다. ` +
     `최대낙폭(MDD)은 ${r.mdd}, 승률은 ${r.win}, 총 거래는 ${r.trades}였습니다. ` +
     (r.retRange ? `시작일만 하루씩 바꿔 다섯 번 계산하면 투자 수익률은 ${r.retRange[0]}~${r.retRange[1]}였습니다. ` : "") +
-    `수수료 0.015%와 슬리피지 0.05%를 반영한 과거 데이터 기준 결과이며, 미래 수익을 보장하지 않습니다.`
+    `수수료 0.015%와 슬리피지 0.05%를 반영한 과거 데이터 기준 결과입니다.`
   );
 }
 
@@ -255,7 +255,7 @@ function buildReport(rep: Report): GuideArticle {
   const faq: GuideFaq[] = [
     {
       question: `${t.name}은 ${m}에서 효과가 있었나요?`,
-      answer: `이 기록의 설정에서는 ${r.start}~${r.end} 동안 투자 수익률 ${r.ret}, CAGR ${r.cagr}, 최대 낙폭 ${r.mdd}였고 같은 기간 ${bench} 보유는 ${r.benchRet}였습니다. 한 기간·한 설정의 과거 값이며 기법 전체의 효과를 판정하지 않고, 미래 수익을 보장하지 않습니다.`,
+      answer: `이 기록의 설정에서는 ${r.start}~${r.end} 동안 투자 수익률 ${r.ret}, CAGR ${r.cagr}, 최대 낙폭 ${r.mdd}였고 같은 기간 ${bench} 보유는 ${r.benchRet}였습니다. 한 기간·한 설정의 과거 값이며 기법 전체의 효과를 판정하지 않습니다.`,
     },
     {
       question: "같은 기법인데 다른 곳의 백테스트 결과와 숫자가 다른 이유는 무엇인가요?",
@@ -802,7 +802,7 @@ function buildHub(hub: Hub): GuideArticle {
     summary:
       `${names} 전략을 KOSPI와 KOSDAQ의 ${r.start}~${r.end} 데이터로 백테스트한 기록 ${members.length * 2}편을 모았습니다. ` +
       `투자 수익률은 ${perMarket}였고, 같은 기간 ${benches}였습니다. ` +
-      `과거 데이터 기준 결과이며, 미래 수익을 보장하지 않습니다.`,
+      `과거 데이터 기준 결과입니다.`,
     published: "2026-11-05",
     updated: "2026-11-05",
     sections: [
@@ -869,7 +869,7 @@ function buildSummary(): GuideArticle {
     summary:
       `널리 알려진 매매기법 10개를 KOSPI와 KOSDAQ의 ${r.start}~${r.end} 데이터로 각각 백테스트했습니다. ` +
       `${n}번의 계산 중 투자 수익률이 플러스였던 것은 ${positive}번이었고, CAGR이 같은 기간 시장 ETF 보유(${benches})보다 높았던 것은 ${aboveBench}번이었습니다. ` +
-      `수수료 0.015%와 슬리피지 0.05%를 반영한 과거 데이터 기준 결과이며, 미래 수익을 보장하지 않습니다.`,
+      `수수료 0.015%와 슬리피지 0.05%를 반영한 과거 데이터 기준 결과입니다.`,
     published: "2026-11-05",
     updated: "2026-11-05",
     sections: [
@@ -914,7 +914,7 @@ function buildSummary(): GuideArticle {
     faq: [
       {
         question: "유명 매매기법들은 백테스트에서 수익이 났나요?",
-        answer: `이 모음의 설정에서는 ${n}번의 계산 중 ${positive}번이 플러스 수익률이었고, CAGR이 같은 기간 시장 ETF 보유보다 높았던 것은 ${aboveBench}번이었습니다. 한 기간·한 설정의 과거 값이며 기법 전체의 효과를 판정하지 않고, 미래 수익을 보장하지 않습니다.`,
+        answer: `이 모음의 설정에서는 ${n}번의 계산 중 ${positive}번이 플러스 수익률이었고, CAGR이 같은 기간 시장 ETF 보유보다 높았던 것은 ${aboveBench}번이었습니다. 한 기간·한 설정의 과거 값이며 기법 전체의 효과를 판정하지 않습니다.`,
       },
       {
         question: "결과를 직접 다시 계산해 볼 수 있나요?",

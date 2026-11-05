@@ -190,12 +190,11 @@ describe("classic-technique notes (KOSPI·KOSDAQ 3y)", () => {
     }
   });
 
-  it("states the generated figures, the start-date range and the short disclaimer in each summary", () => {
+  it("states the generated figures, and the start-date range in each summary", () => {
     for (const note of reports) {
       const r = allResults.find((item) => note.summary.includes(`${item.start}~${item.end}`) && note.summary.includes(item.ret))!;
       expect(r, note.slug).toBeDefined();
       for (const figure of [r.cagr, r.mdd, r.win, r.trades, r.benchCagr, ...r.retRange]) expect(note.summary).toContain(figure);
-      expect(note.summary).toMatch(/미래 수익을 보장하지 않습니다\.$/);
     }
   });
 

@@ -18,9 +18,6 @@ export const NOTES_DESCRIPTION =
 export const NOTES_DISCLAIMER =
   "이 페이지는 특정 매매 규칙을 과거 시장 데이터에 적용한 백테스트(모의 검증) 결과를 기록한 것입니다. 널스탁은 투자자문업자 또는 투자일임업자가 아니며, 이 페이지는 특정 금융투자상품의 매수·매도를 권유하거나 투자 판단을 대신하지 않습니다. 백테스트 결과는 실제 거래가 아닌 가정에 기반하며, 수수료·세금·슬리피지·유동성·생존편향 등 실제 거래 조건과 다를 수 있습니다. 과거 성과는 미래 수익을 보장하지 않으며, 투자에 따른 손익은 투자자 본인에게 귀속됩니다.";
 
-/** 요약 곁의 짧은 면책 — 하단 전문만 두면 요약만 발췌될 때 면책이 빠진다. */
-export const NOTES_SUMMARY_NOTE = "과거 데이터 기준 결과이며, 미래 수익을 보장하지 않습니다.";
-
 const EXPERIMENT_NOTES: GuideArticle[] = [
   {
     slug: "cost-sensitivity-ma-crossover",
@@ -576,7 +573,6 @@ export function buildNotesCollection(notes: GuideArticle[]): ArticleCollection {
     title: NOTES_TITLE,
     disclaimer: NOTES_DISCLAIMER,
     find: (slug) => notes.find((note) => note.slug === slug),
-    summaryNote: NOTES_SUMMARY_NOTE,
     linksMethodology: true,
   };
 }

@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { GUIDE_ARTICLES } from "@/lib/guide/articles";
-import { NOTES_SUMMARY_NOTE, SEED_NOTES as NOTES, buildNotesCollection } from "@/lib/notes/notes";
+import { SEED_NOTES as NOTES, buildNotesCollection } from "@/lib/notes/notes";
 import { METHODOLOGY_ARTICLE, METHODOLOGY_COLLECTION } from "@/lib/methodology/methodology";
 
 const NOTES_COLLECTION = buildNotesCollection(NOTES);
@@ -87,9 +87,8 @@ describe("GuideArticlePage with the research-notes collection", () => {
 describe("GuideArticlePage reproduction and methodology links", () => {
   const note = NOTES.find((item) => item.slug.startsWith("myth-"))!;
 
-  it("puts the short disclaimer next to the summary and links the methodology page from notes", () => {
+  it("links the methodology page from notes", () => {
     render(<GuideArticlePage article={note} collection={NOTES_COLLECTION} />);
-    expect(screen.getByText(NOTES_SUMMARY_NOTE)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "백테스트 방법론" })).toHaveAttribute("href", "/methodology");
   });
 
