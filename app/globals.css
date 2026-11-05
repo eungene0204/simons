@@ -640,3 +640,8 @@ input[type=number] {
   animation: labNodeRunning 1.6s ease-in-out infinite;
   animation-delay: var(--lab-run-delay, 0ms);
 }
+
+/* AdSense가 채울 광고가 없다고 표시한 칸은 "광고" 표지까지 통째로 숨긴다(components/ads/AdSlot.tsx). */
+.ad-slot:has(ins[data-ad-status="unfilled"]) {
+  display: none;
+}

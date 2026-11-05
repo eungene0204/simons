@@ -6,6 +6,8 @@ import { SEED_NOTES as NOTES, buildNotesCollection } from "@/lib/notes/notes";
 import { METHODOLOGY_ARTICLE, METHODOLOGY_COLLECTION } from "@/lib/methodology/methodology";
 
 const NOTES_COLLECTION = buildNotesCollection(NOTES);
+import * as AdSlotModule from "@/components/ads/AdSlot";
+import { AD_SLOTS } from "@/lib/ads/adsense";
 import { GuideArticlePage } from "./GuideArticlePage";
 import { GuideIndexPage } from "./GuideIndexPage";
 
@@ -104,5 +106,48 @@ describe("GuideArticlePage reproduction and methodology links", () => {
     expect(crumbs.map((link) => link.getAttribute("href"))).toEqual(["/"]);
     expect(screen.queryByRole("link", { name: "백테스트 방법론" })).toBeNull();
     expect(screen.getAllByRole("table")).toHaveLength(1);
+  });
+});
+
+describe("GuideArticlePage ads", () => {
+  const adSlots = () =>
+    screen.queryAllByRole("complementary", { name: "광고" }).map((slot) => slot.querySelector("ins")?.getAttribute("data-ad-slot"));
+
+  it("places the side, mid-article and end ad units on a guide article and requests a fill for each", () => {
+    window.adsbygoogle = [];
+    const article = GUIDE_ARTICLES.find((item) => item.sections.length > 2)!;
+    render(<GuideArticlePage article={article} />);
+    expect(adSlots()).toEqual([AD_SLOTS.sideLeft, AD_SLOTS.sideRight, AD_SLOTS.articleMid, AD_SLOTS.articleEnd]);
+    expect(window.adsbygoogle).toHaveLength(4);
+  });
+
+  it("pins the side ads to a fixed 160x600 size instead of the responsive format", () => {
+    render(<GuideArticlePage article={GUIDE_ARTICLES[0]} />);
+    const side = screen
+      .getAllByRole("complementary", { name: "광고" })
+      .map((slot) => slot.querySelector("ins")!)
+      .find((ins) => ins.getAttribute("data-ad-slot") === AD_SLOTS.sideLeft)!;
+    expect(side.style.width).toBe("160px");
+    expect(side.style.height).toBe("600px");
+    expect(side.hasAttribute("data-ad-format")).toBe(false);
+  });
+
+  it("keeps the end ad away from the open-this-strategy button on research notes", () => {
+    const note = NOTES.find((item) => item.slug.startsWith("myth-"))!;
+    render(<GuideArticlePage article={note} collection={NOTES_COLLECTION} openHref="/?prompt=x" />);
+    expect(adSlots()).toContain(AD_SLOTS.articleEnd);
+    const related = screen.getByRole("navigation", { name: "함께 읽을 글" });
+    const endAd = screen.getAllByRole("complementary", { name: "광고" }).at(-1)!;
+    expect(related.compareDocumentPosition(endAd) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("exports only the component from the client ad module so server pages get real slot numbers", () => {
+    // "use client" 모듈의 상수를 서버 컴포넌트가 import하면 값이 아니라 클라이언트 참조가 와서 글 페이지가 500이 났다(2026-11-06).
+    expect(Object.keys(AdSlotModule)).toEqual(["AdSlot"]);
+  });
+
+  it("shows no ads on the methodology page", () => {
+    render(<GuideArticlePage article={METHODOLOGY_ARTICLE} collection={METHODOLOGY_COLLECTION} />);
+    expect(adSlots()).toEqual([]);
   });
 });

@@ -1,5 +1,7 @@
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import Link from "next/link";
+import { AdSlot } from "@/components/ads/AdSlot";
+import { AD_SLOTS } from "@/lib/ads/adsense";
 import {
   GUIDE_COLLECTION,
   getGuideArticle,
@@ -15,6 +17,11 @@ import { serializeJsonLd } from "@/lib/seo/site";
 // 함께 읽을 글은 자기 묶음에서 먼저 찾고, 없으면 가이드에서 찾는다(연구노트 → 가이드 개념 글 연결).
 // openHref가 있으면 하단 버튼이 글에 적은 입력 문장을 그대로 채워 여는 링크가 된다(재현).
 // headerAction은 요약 아래에 붙는 도구 자리다(연구노트의 로컬 전용 블로그 복사 버튼).
+// collection.showsAds면 광고 칸을 둘째 단락 뒤(단락이 셋 이상일 때)와 함께 읽을 글 뒤에 둔다 —
+// "이 전략 그대로 열기" 버튼과는 떼어 놓는다(오클릭 유도 배치 금지).
+// 넓은 화면(xl 이상)에서는 글 양옆에 160×600 세로 광고가 스크롤을 따라온다 — 본문(max-w-3xl) 밖 여백에만 놓여 글을 가리지 않는다.
+const SIDE_AD_SIZE = { width: 160, height: 600 };
+
 export function GuideArticlePage({
   article,
   collection = GUIDE_COLLECTION,
@@ -38,7 +45,17 @@ export function GuideArticlePage({
     .filter((item): item is { slug: string; title: string; href: string } => item !== undefined);
 
   return (
-    <main className="min-h-[100dvh] bg-[var(--background)] text-white">
+    <main className="relative min-h-[100dvh] bg-[var(--background)] text-white">
+      {collection.showsAds && (
+        <>
+          <div className="absolute inset-y-0 left-[calc(50%_-_26rem_-_160px)] hidden w-[160px] pt-28 xl:block">
+            <AdSlot key={`${article.slug}-left`} slot={AD_SLOTS.sideLeft} size={SIDE_AD_SIZE} className="sticky top-24" />
+          </div>
+          <div className="absolute inset-y-0 right-[calc(50%_-_26rem_-_160px)] hidden w-[160px] pt-28 xl:block">
+            <AdSlot key={`${article.slug}-right`} slot={AD_SLOTS.sideRight} size={SIDE_AD_SIZE} className="sticky top-24" />
+          </div>
+        </>
+      )}
       <script
         type="application/ld+json"
         data-testid="guide-structured-data"
@@ -99,8 +116,8 @@ export function GuideArticlePage({
 
           <div className="mt-4">
             {article.sections.map((section, index) => (
+              <Fragment key={section.heading}>
               <article
-                key={section.heading}
                 id={`section-${index + 1}`}
                 className="scroll-mt-20 border-b border-white/[0.08] py-8"
               >
@@ -156,6 +173,10 @@ export function GuideArticlePage({
                   </ul>
                 )}
               </article>
+              {collection.showsAds && index === 1 && article.sections.length > 2 && (
+                <AdSlot key={`${article.slug}-mid`} slot={AD_SLOTS.articleMid} className="py-8" />
+              )}
+              </Fragment>
             ))}
           </div>
 
@@ -215,6 +236,10 @@ export function GuideArticlePage({
                 ))}
               </ul>
             </nav>
+          )}
+
+          {collection.showsAds && (
+            <AdSlot key={`${article.slug}-end`} slot={AD_SLOTS.articleEnd} className="mt-10" />
           )}
 
           <p className="mt-10 text-xs font-bold leading-relaxed text-[var(--text-label)]">{collection.disclaimer}</p>

@@ -46,4 +46,14 @@ describe("PrivacyPolicyPage", () => {
     expect(screen.getByText("2026-서울서대문-0758")).toBeInTheDocument();
     expect(screen.queryByText("미정")).not.toBeInTheDocument();
   });
+
+  it("discloses AdSense advertising cookies and how to opt out", () => {
+    // 가이드·연구노트에 광고를 싣는 일과 함께 나가야 하는 고지(애드센스 정책).
+    const { container } = render(<PrivacyPolicyPage />);
+    const text = container.textContent ?? "";
+    expect(text).toContain("Google AdSense");
+    expect(text).toContain("adssettings.google.com");
+    expect(text).toContain("aboutads.info");
+    expect(screen.getByText("광고 게재")).toBeInTheDocument();
+  });
 });

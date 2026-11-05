@@ -58,6 +58,8 @@ export type ArticleCollection = {
   summaryNote?: string;
   /** 계산 가정·데이터 출처 페이지로 거는 링크를 보일지. */
   linksMethodology?: boolean;
+  /** 글 중간·끝에 AdSense 광고 칸을 둘지(가이드·연구노트만, 방법론 페이지는 제외). */
+  showsAds?: boolean;
 };
 
 export const GUIDE_TITLE = "백테스트 가이드";
@@ -832,4 +834,5 @@ export const GUIDE_COLLECTION: ArticleCollection = {
   title: GUIDE_TITLE,
   disclaimer: GUIDE_DISCLAIMER,
   find: getGuideArticle,
+  showsAds: true,
 };

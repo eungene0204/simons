@@ -574,5 +574,6 @@ export function buildNotesCollection(notes: GuideArticle[]): ArticleCollection {
     disclaimer: NOTES_DISCLAIMER,
     find: (slug) => notes.find((note) => note.slug === slug),
     linksMethodology: true,
+    showsAds: true,
   };
 }
