@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { AD_SLOTS } from "@/lib/ads/adsense";
 import { SEED_NOTES as NOTES } from "@/lib/notes/notes";
 import { NotesIndexPage } from "./NotesIndexPage";
 
@@ -30,5 +31,15 @@ describe("NotesIndexPage", () => {
     render(<NotesIndexPage notes={[]} />);
     expect(screen.getByText("연구노트를 준비하고 있습니다.")).toBeInTheDocument();
     expect(screen.queryByTestId("notes-structured-data")).toBeNull();
+  });
+
+  it("places side and below-list ads when notes exist, and none on the empty page", () => {
+    const { unmount } = render(<NotesIndexPage notes={NOTES} />);
+    const slots = () =>
+      screen.queryAllByRole("complementary", { name: "광고" }).map((el) => el.querySelector("ins")?.getAttribute("data-ad-slot"));
+    expect(slots()).toEqual([AD_SLOTS.sideLeft, AD_SLOTS.sideRight, AD_SLOTS.articleEnd]);
+    unmount();
+    render(<NotesIndexPage notes={[]} />);
+    expect(slots()).toEqual([]);
   });
 });

@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { AdSideRails } from "@/components/ads/AdSideRails";
+import { AdSlot } from "@/components/ads/AdSlot";
+import { AD_SLOTS } from "@/lib/ads/adsense";
 import type { GuideArticle } from "@/lib/guide/articles";
 import {
   NOTES_BASE_PATH,
@@ -10,9 +13,11 @@ import { buildGuideIndexJsonLd } from "@/lib/guide/jsonLd";
 import { serializeJsonLd } from "@/lib/seo/site";
 
 // 연구노트 목록 — 한국어 전용 공개 페이지(서버 컴포넌트). 글이 아직 없으면 준비 중 안내를 보인다.
+// 광고는 양옆과 목록 아래에만 두고(글 링크 사이에 끼우지 않는다), 글이 없는 빈 페이지에는 싣지 않는다.
 export function NotesIndexPage({ notes }: { notes: GuideArticle[] }) {
   return (
-    <main className="min-h-[100dvh] bg-[var(--background)] text-white">
+    <main className="relative min-h-[100dvh] bg-[var(--background)] text-white">
+      {notes.length > 0 && <AdSideRails pageKey="notes-index" />}
       {notes.length > 0 && (
         <script
           type="application/ld+json"
@@ -58,6 +63,7 @@ export function NotesIndexPage({ notes }: { notes: GuideArticle[] }) {
               ))}
             </ul>
           )}
+          {notes.length > 0 && <AdSlot key="notes-index-end" slot={AD_SLOTS.articleEnd} className="mt-10" />}
           <p className="mt-10 text-xs font-bold leading-relaxed text-[var(--text-label)]">{NOTES_DISCLAIMER}</p>
         </div>
       </section>

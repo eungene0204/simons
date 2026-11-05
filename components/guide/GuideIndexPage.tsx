@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { AdSideRails } from "@/components/ads/AdSideRails";
+import { AdSlot } from "@/components/ads/AdSlot";
+import { AD_SLOTS } from "@/lib/ads/adsense";
 import {
   GUIDE_ARTICLES,
   GUIDE_DESCRIPTION,
@@ -9,10 +12,11 @@ import {
 import { buildGuideIndexJsonLd } from "@/lib/guide/jsonLd";
 import { serializeJsonLd } from "@/lib/seo/site";
 
-// 백테스트 가이드 목록 — 한국어 전용 공개 페이지(서버 컴포넌트).
+// 백테스트 가이드 목록 — 한국어 전용 공개 페이지(서버 컴포넌트). 광고는 양옆과 목록 아래에만 둔다(글 링크 사이에 끼우지 않는다).
 export function GuideIndexPage() {
   return (
-    <main className="min-h-[100dvh] bg-[var(--background)] text-white">
+    <main className="relative min-h-[100dvh] bg-[var(--background)] text-white">
+      <AdSideRails pageKey="guide-index" />
       <script
         type="application/ld+json"
         data-testid="guide-structured-data"
@@ -44,6 +48,7 @@ export function GuideIndexPage() {
               </li>
             ))}
           </ul>
+          <AdSlot key="guide-index-end" slot={AD_SLOTS.articleEnd} className="mt-10" />
           <p className="mt-10 text-xs font-bold leading-relaxed text-[var(--text-label)]">{GUIDE_DISCLAIMER}</p>
         </div>
       </section>

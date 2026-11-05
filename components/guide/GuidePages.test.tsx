@@ -30,6 +30,17 @@ describe("GuideIndexPage", () => {
     }
     expect(screen.getByTestId("guide-structured-data").textContent).toContain("CollectionPage");
   });
+
+  it("places side and below-list ads, not between article links", () => {
+    render(<GuideIndexPage />);
+    const slots = screen.getAllByRole("complementary", { name: "광고" });
+    expect(slots.map((el) => el.querySelector("ins")?.getAttribute("data-ad-slot"))).toEqual([
+      AD_SLOTS.sideLeft,
+      AD_SLOTS.sideRight,
+      AD_SLOTS.articleEnd,
+    ]);
+    expect(slots.at(-1)!.closest("ul")).toBeNull();
+  });
 });
 
 describe("GuideArticlePage", () => {
