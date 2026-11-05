@@ -42,6 +42,10 @@ describe("methodology page", () => {
     expect(table.footnote).toMatch(/엔진 v\d+\.\d+\.\d+/);
   });
 
+  it("writes every section heading as a reader's question (answer-shaped headings)", () => {
+    for (const section of METHODOLOGY_ARTICLE.sections) expect(section.heading).toMatch(/\?$/);
+  });
+
   it("never uses recommendation, forecast or guarantee wording (regulatory guard)", () => {
     const text = allText();
     expect(text).not.toMatch(/추천|유망|권장|전망|수익률 보장|수익 보장|고수익|적합|우수|유리|좋은 (전략|종목|투자)/);

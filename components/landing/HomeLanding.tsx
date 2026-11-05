@@ -5,6 +5,7 @@ import { StepVideo } from "./StepVideo";
 import { ExampleFlow } from "./ExampleFlow";
 import { LandingIcon, type LandingIconName } from "./LandingIcon";
 import { PLANS, PLAN_ORDER, type Plan } from "@/lib/plans";
+import { SITE_SUMMARY_KO } from "@/lib/seo/site";
 
 // 비로그인 방문자가 `/`에서 처음 만나는 소개 페이지(한국어 전용 서버 컴포넌트).
 // 도구(전략연구소)는 `/analytics`, 로그인 사용자와 `/?prompt=` 딥링크는 `/`가 도구를 그대로 연다(app/page.tsx).
@@ -47,8 +48,12 @@ const AUDIENCES: readonly { icon: LandingIconName; title: string; body: string }
 
 const FAQ = [
   {
+    q: "널스탁은 무엇인가요?",
+    a: SITE_SUMMARY_KO,
+  },
+  {
     q: "투자 자문이나 종목 추천을 해주는 서비스인가요?",
-    a: "아닙니다. 널스탁은 투자 연구·시뮬레이션 플랫폼입니다. 전략은 사용자가 직접 만들고, 시스템은 계산과 백테스트, 과거 데이터 표시만 합니다. 종목·전략 추천이나 매수·매도 시점 제안은 제공하지 않습니다.",
+    a: "아닙니다. 전략은 사용자가 직접 만들고, 시스템은 계산과 백테스트, 과거 데이터 표시만 합니다. 종목·전략 추천이나 매수·매도 시점 제안은 제공하지 않습니다.",
   },
   {
     q: "백테스트 결과가 좋으면 앞으로도 그렇게 되나요?",
@@ -123,7 +128,7 @@ export function HomeLanding() {
       <section className={`${SECTION}`} aria-labelledby="landing-examples">
         <div className="mx-auto max-w-5xl">
           <h2 id="landing-examples" className={`${SECTION_TITLE} text-center`}>
-            전략 예시들
+            널스탁으로 어떤 전략을 만들 수 있나요?
           </h2>
           <div className="mt-8">
             <ExampleFlow />
@@ -161,7 +166,7 @@ export function HomeLanding() {
       <section className={`${SECTION}`} aria-labelledby="landing-plans">
         <div className="mx-auto max-w-5xl">
           <h2 id="landing-plans" className={`${SECTION_TITLE} text-center`}>
-            요금제
+            널스탁 요금은 얼마인가요?
           </h2>
           <ul className="mt-10 grid gap-4 md:grid-cols-3">
             {PLAN_ORDER.map((planId) => {

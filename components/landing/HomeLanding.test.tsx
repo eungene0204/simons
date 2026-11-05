@@ -4,6 +4,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { EXAMPLES } from "@/components/strategy/strategyExamples";
 import { PLANS } from "@/lib/plans";
+import { SITE_SUMMARY_KO } from "@/lib/seo/site";
 import { readStrategyPromptParam } from "@/lib/strategy/strategyOpenLink";
 import { HomeLanding, LANDING_START_HREF } from "./HomeLanding";
 
@@ -37,6 +38,12 @@ describe("HomeLanding", () => {
     expect(paper.nextElementSibling).toBe(audience);
   });
 
+  it("answers 널스탁은 무엇인가요? with the one shared summary sentence", () => {
+    render(<HomeLanding />);
+    expect(screen.getByText("널스탁은 무엇인가요?")).toBeInTheDocument();
+    expect(screen.getByText(SITE_SUMMARY_KO)).toBeInTheDocument();
+  });
+
   it("ships the video files the page points to", () => {
     for (const name of ["landing-graph.webm", "landing-graph.mp4", "landing-graph-poster.jpg", "landing-validate.webm", "landing-validate.mp4", "landing-validate-poster.jpg", "landing-paper.webm", "landing-paper.mp4", "landing-paper-poster.jpg"]) {
       expect(existsSync(path.join(process.cwd(), "public/videos", name))).toBe(true);
@@ -54,9 +61,9 @@ describe("HomeLanding", () => {
     expect(prompts).toEqual(new Set(EXAMPLES.map((example) => example.prompt)));
   });
 
-  it("names the section 전략 예시들 and drops the old helper line", () => {
+  it("names the examples section as a question and drops the old helper line", () => {
     const { container } = render(<HomeLanding />);
-    expect(screen.getByText("전략 예시들")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "널스탁으로 어떤 전략을 만들 수 있나요?" })).toBeInTheDocument();
     expect(container.textContent).not.toMatch(/예시를 누르면 입력창에 채워 둔 채로 열립니다/);
   });
 
@@ -76,7 +83,7 @@ describe("HomeLanding", () => {
 
   it("shows plan limits from the plan table, not copies", () => {
     render(<HomeLanding />);
-    const plans = screen.getByRole("heading", { name: "요금제" }).closest("section")!;
+    const plans = screen.getByRole("heading", { name: "널스탁 요금은 얼마인가요?" }).closest("section")!;
 
     expect(within(plans).getByText(`월 백테스트 ${PLANS.PRO.monthlyBacktestLimit.toLocaleString("ko-KR")}회`)).toBeInTheDocument();
     expect(within(plans).getByText(`₩${PLANS.PRO.monthlyPrice.toLocaleString("ko-KR")}`)).toBeInTheDocument();

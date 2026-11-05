@@ -7,6 +7,7 @@ import {
   getGuideArticle,
   guideArticlePath,
 } from "./articles";
+import { SITE_SUMMARY_KO } from "@/lib/seo/site";
 import { buildGuideArticleJsonLd, buildGuideIndexJsonLd } from "./jsonLd";
 
 function allText(): string {
@@ -61,6 +62,17 @@ describe("guide articles", () => {
         expect(section.paragraphs.length + (section.bullets?.length ?? 0)).toBeGreaterThan(0);
       }
     }
+  });
+
+  it("writes every section heading as a reader's question (answer-shaped headings)", () => {
+    for (const article of GUIDE_ARTICLES) {
+      for (const section of article.sections) expect(section.heading).toMatch(/\?$/);
+    }
+  });
+
+  it("describes 널스탁 with the one shared summary sentence", () => {
+    const body = getGuideArticle("what-is-backtest")!.sections.flatMap((section) => section.paragraphs).join("\n");
+    expect(body).toContain(SITE_SUMMARY_KO);
   });
 
   it("never uses recommendation, forecast or guarantee wording (regulatory guard)", () => {

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { GuideArticlePage } from "@/components/guide/GuideArticlePage";
+import { BlogCopyButton } from "@/components/notes/BlogCopyButton";
+import { buildBlogExport } from "@/lib/notes/blogExport";
 import { buildNotesCollection, notePath } from "@/lib/notes/notes";
 import { findNote, listNotes } from "@/lib/notes/notesStore";
 import { classicNoteDataset } from "@/lib/notes/classicNotes";
@@ -43,6 +45,10 @@ export default async function NoteRoute({ params }: NoteRouteProps) {
       collection={buildNotesCollection(notes)}
       dataset={mythNoteDataset(note.slug) ?? classicNoteDataset(note.slug)}
       openHref={prompt ? strategyOpenHref(prompt, "notes", note.slug) : undefined}
+      // 블로그 붙여 넣기용 복사는 로컬 개발 서버에서만 보인다(운영 화면에는 렌더하지 않는다).
+      headerAction={
+        process.env.NODE_ENV === "development" ? <BlogCopyButton content={buildBlogExport(note)} /> : undefined
+      }
     />
   );
 }

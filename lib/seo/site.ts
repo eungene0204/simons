@@ -31,6 +31,9 @@ export const SITE_DESCRIPTION: Record<Language, string> = {
   en: "Design quant trading strategies in plain English and backtest them on historical U.S. stock data. Walk-forward and Monte Carlo validation plus paper-trading simulation in one research platform.",
 };
 
+/** 서비스 소개 한 문장 — 사이트 안팎(랜딩 FAQ·가이드·소개 페이지·외부 등록처)에서 이 문장 하나만 쓴다. */
+export const SITE_SUMMARY_KO = `널스탁은 ${SITE_DESCRIPTION.ko}`;
+
 export const SITE_KEYWORDS: Record<Language, string[]> = {
   ko: [
     "퀀트",

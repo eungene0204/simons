@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
 import Image from "next/image";
-import { buildOpenGraph } from "@/lib/seo/site";
+import { SITE_SUMMARY_KO, buildOpenGraph } from "@/lib/seo/site";
 
 // 널스탁 소개 이미지(전단지) 한 장을 공개 주소로 보여주는 페이지.
 // 원본은 docs/marketing/flyer_intro_dark.html 이고, 여기 쓰는 PNG는 그것을 렌더한 결과다.
 const TITLE = "널스탁 소개";
-const DESCRIPTION =
-  "떠오른 투자 아이디어를 말로 설명하면 과거 데이터로 검증하고 모의투자까지 돌려보는 투자 연구·백테스트 플랫폼, 널스탁 소개.";
+const DESCRIPTION = SITE_SUMMARY_KO;
 
 export function generateMetadata(): Metadata {
   return {

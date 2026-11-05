@@ -23,7 +23,7 @@ export function buildLlmsTxt(
     "",
     `> ${SITE_DESCRIPTION.ko}`,
     "",
-    "널스탁은 투자 연구·백테스트 도구이며 투자 추천 서비스가 아닙니다.",
+    "널스탁은 투자 자문·투자 추천 서비스가 아닙니다.",
     "",
     GUIDE_DISCLAIMER,
     "",

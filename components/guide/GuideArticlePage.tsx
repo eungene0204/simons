@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import {
   GUIDE_COLLECTION,
@@ -13,16 +14,19 @@ import { serializeJsonLd } from "@/lib/seo/site";
 // 가이드·연구노트 글 한 편 — 한국어 전용 공개 페이지(서버 컴포넌트). 약관 페이지와 같은 문서형 레이아웃.
 // 함께 읽을 글은 자기 묶음에서 먼저 찾고, 없으면 가이드에서 찾는다(연구노트 → 가이드 개념 글 연결).
 // openHref가 있으면 하단 버튼이 글에 적은 입력 문장을 그대로 채워 여는 링크가 된다(재현).
+// headerAction은 요약 아래에 붙는 도구 자리다(연구노트의 로컬 전용 블로그 복사 버튼).
 export function GuideArticlePage({
   article,
   collection = GUIDE_COLLECTION,
   dataset,
   openHref,
+  headerAction,
 }: {
   article: GuideArticle;
   collection?: ArticleCollection;
   dataset?: BacktestDataset;
   openHref?: string;
+  headerAction?: ReactNode;
 }) {
   const related = article.related
     .map((slug) => {
@@ -71,6 +75,7 @@ export function GuideArticlePage({
           {collection.summaryNote && (
             <p className="mt-3 pl-4 text-sm font-bold text-[var(--text-label)]">{collection.summaryNote}</p>
           )}
+          {headerAction}
         </div>
       </section>
 
