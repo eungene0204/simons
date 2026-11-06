@@ -8,7 +8,7 @@ import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/firebase";
 import { useDialogBehavior } from "@/lib/hooks/useDialogBehavior";
 import { trackEvent } from "@/lib/analytics";
 import { OPEN_LOGIN_EVENT } from "@/lib/auth/loginEvents";
-import { completeLoginReturn, isLoginReturn, type LoginReturnUser } from "@/lib/auth/loginReturn";
+import { completeLoginReturn, isLoginReturn, reloadInto, type LoginReturnUser } from "@/lib/auth/loginReturn";
 import {
   PENDING_STRATEGY_PROMPT_KEY,
 } from "@/components/strategy/strategyTemplateSession";
@@ -268,7 +268,8 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
       // 소개 페이지(`/`)에서 시작한 로그인이면 소개 페이지로 되돌아오지 말고 전략연구소로 간다.
       // 복귀 주소는 `/`(OAuth 허용 주소)라 서버는 이 시점까지 비로그인으로 그렸다.
       if (region === "kr" && stripRegionPrefix(window.location.pathname) === "/" && !new URLSearchParams(window.location.search).has("legal")) {
-        router.replace(regionHref("/analytics"));
+        reloadInto(regionHref("/analytics"));
+        return;
       }
 
       applyLoggedInUser(user);

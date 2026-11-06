@@ -53,3 +53,10 @@ async function exchange(hashToken: string | null): Promise<LoginReturnUser | nul
     }
   }
 }
+
+// 로그인 복귀 뒤 전략연구소로 보낼 때는 전체 새로 불러오기로 간다. 비로그인 동안 메뉴가 미리 받아 둔
+// `/analytics`(5분 캐시)는 "홈으로 보냄" 응답이라, 클라이언트 이동(router.replace)은 그 캐시를 다시 써서
+// 소개 페이지로 되돌아온다(2026-11-06 사고 — 서버 리다이렉트 9077b0a0 이후).
+export function reloadInto(path: string): void {
+  window.location.replace(path);
+}

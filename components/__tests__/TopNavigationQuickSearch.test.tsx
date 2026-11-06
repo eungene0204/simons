@@ -14,6 +14,7 @@ const { pathnameMock, searchParamsMock, navigateHomeMock } = vi.hoisted(() => ({
 
 const pushMock = vi.fn();
 const replaceMock = vi.fn();
+const reloadIntoMock = vi.fn();
 const fetchMock = vi.fn();
 const getSessionMock = vi.fn();
 const signOutMock = vi.fn();
@@ -58,6 +59,11 @@ vi.mock("@/components/layout/leaveStrategyConversation", async (importOriginal) 
       actual.leaveStrategyConversation(href, navigateHomeMock),
   };
 });
+
+vi.mock("@/lib/auth/loginReturn", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/loginReturn")>()),
+  reloadInto: (path: string) => reloadIntoMock(path),
+}));
 
 vi.mock("@/lib/firebase", () => ({
   getSupabaseBrowserClient: () => ({
@@ -408,11 +414,14 @@ describe("TopNavigation quick search", () => {
       });
     };
 
-    it("소개 페이지(/)에서 로그인했으면 소개 페이지로 되돌아가지 않고 전략연구소로 보낸다", async () => {
+    // 회귀(2026-11-06): router.replace는 비로그인 때 미리 받아 둔 `/analytics`("홈으로 보냄") 캐시를 다시 써서
+    // 로그인했는데도 소개 페이지에 머물렀다 — 전체 새로 불러오기로 간다.
+    it("소개 페이지(/)에서 로그인했으면 소개 페이지로 되돌아가지 않고 전략연구소를 새로 불러온다", async () => {
       mockSessionExchange();
       renderWithQueryClient(<TopNavigation />);
 
-      await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/analytics"));
+      await waitFor(() => expect(reloadIntoMock).toHaveBeenCalledWith("/analytics"));
+      expect(replaceMock).not.toHaveBeenCalledWith("/analytics");
     });
 
     // 회귀: 복귀 직후에도 `/api/user` → Supabase 세션 확인 → `/api/login`이 차례로 돌아 로그인 화면이 오래 떠 있었다.
@@ -421,7 +430,7 @@ describe("TopNavigation quick search", () => {
       window.history.replaceState({}, "", "/#access_token=hash-token&token_type=bearer");
       renderWithQueryClient(<TopNavigation />);
 
-      await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/analytics"));
+      await waitFor(() => expect(reloadIntoMock).toHaveBeenCalledWith("/analytics"));
       expect(fetchMock).not.toHaveBeenCalledWith("/api/user", expect.anything());
       expect(getSessionMock).not.toHaveBeenCalled();
       expect(fetchMock).toHaveBeenCalledWith(
@@ -436,7 +445,7 @@ describe("TopNavigation quick search", () => {
       try {
         renderWithQueryClient(<TopNavigation />);
         await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/login", expect.anything()));
-        expect(replaceMock).not.toHaveBeenCalledWith("/analytics");
+        expect(reloadIntoMock).not.toHaveBeenCalled();
       } finally {
         window.history.pushState({}, "", "/");
       }
