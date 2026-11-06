@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { AdSideRails } from "@/components/ads/AdSideRails";
 import { AdSlot } from "@/components/ads/AdSlot";
@@ -120,6 +121,19 @@ export function GuideArticlePage({
                     {paragraph}
                   </p>
                 ))}
+                {section.source && (
+                  <p className="mt-4 text-sm font-bold leading-7 text-gray-400">
+                    출처:{" "}
+                    <a
+                      href={section.source.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-gray-200 underline underline-offset-4 hover:text-white"
+                    >
+                      {section.source.label}
+                    </a>
+                  </p>
+                )}
                 {section.table && (
                   <div className="mt-5 overflow-x-auto">
                     <table className="w-full min-w-[32rem] border-collapse text-sm">
@@ -162,6 +176,23 @@ export function GuideArticlePage({
                     ))}
                   </ul>
                 )}
+                {section.images?.map((image) => (
+                  <figure key={image.src} className="mt-6">
+                    <Image
+                      src={image.src}
+                      alt={image.alt}
+                      width={image.width}
+                      height={image.height}
+                      sizes="(min-width: 768px) 768px, 100vw"
+                      className="h-auto w-full border border-white/[0.08]"
+                    />
+                    {image.caption && (
+                      <figcaption className="mt-2 text-xs font-bold leading-relaxed text-[var(--text-label)]">
+                        {image.caption}
+                      </figcaption>
+                    )}
+                  </figure>
+                ))}
               </article>
               {collection.showsAds && index === 1 && article.sections.length > 2 && (
                 <AdSlot key={`${article.slug}-mid`} slot={AD_SLOTS.articleMid} className="py-8" />

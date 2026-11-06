@@ -80,6 +80,8 @@ for d in ~/nullstock-news/<날짜>/*/; do bash .claude/skills/news-strategy-test
 
 **해석 절(2026-11-02 고정)**: `note.txt`에는 항상 "해석 (과거 데이터 기준, 사실과 계산만)" 절이 들어간다 — `make_note.py`의 `interpretation()`이 로그·지표 숫자로 만든다(손익 구조=승·패 횟수와 평균 크기, 벤치마크 차이, 연 회전·평균 보유, 최대 낙폭, 종목별 상·하위와 쏠림, 표본 30건 미만 안내, 한계). 사실과 산술만 쓰고 평가·전망·권유·"기사 때문에 그런 결과" 같은 인과 단정은 쓰지 않는다. 해석이 없는 `note.txt`·보고는 완성이 아니다. 새 문항을 더할 때도 이 규칙을 지킨다. 무인 실행의 `report.md`도 `note.txt` 전문을 싣기 때문에 해석이 같이 들어간다.
 
+**연구노트 게시(2026-11-07)**: 결과는 저장소 루트에서 `uv run --frozen python .claude/skills/news-strategy-test/scripts/build_news_notes.py`(Pillow가 필요해 `uv run`)로 연구노트 데이터(`lib/notes/newsNotes.data.json`)와 사진(`public/notes/news/<slug>/`)으로 옮긴다 — 결과 폴더 전체를 다시 훑어 만들고, 해석이 문장과 다른 폴더는 스크립트의 `EXCLUDED`에 이유와 함께 넣는다. 그 뒤 `npx vitest run lib/notes components/notes`(편 수 `toHaveLength`도 올린다) → 배포(사진·열기 링크는 코드와 함께 나간다) → `npx ts-node --project tsconfig.scripts.json scripts/seed-research-notes.ts --slug-prefix=news-`(dry-run 신규 수 확인) → `--apply`. 노트에는 종목별 손익과 종목이 보이는 사진을 싣지 않는다. 무인 실행(12시)은 아직 이 단계를 하지 않는다(사용자 결정 대기).
+
 **같은 전략으로 열기 링크(2026-10-30 도입)**: `make_note.py`가 입력 문장을 널스탁 입력창에 채워 여는 링크를 `link.txt`와 `note.txt`의 "널스탁에서 같은 전략으로 열기:" 줄에 남긴다 — `https://www.nullstock.im/?prompt=<문장>&utm_source=news&utm_medium=referral&utm_campaign=<날짜>-<NN-slug>`(캠페인은 폴더 이름에서 자동)(한글은 인코딩하지 않고 공백은 `+`, 주소를 깨는 글자만 `%XX` — 짧게 유지. 줄은 `note.txt`의 "널스탁 해석" 절 바로 뒤에 둔다). 규칙은 `x-backtest-post`의 "이 전략 그대로 열기"와 같다: 경로는 홈(`/`)이어야 하고(다른 경로는 비로그인 방문자를 홈으로 돌려보내며 쿼리를 잃는다), 앱은 문장을 채우기만 하고 보내기는 방문자가 누르며, 문장은 1,000자 이하다. 결과를 다시 만들지 않고 링크만 다시 뽑을 때는 `python3 scripts/make_note.py <폴더>`. X에 올릴 때는 `x-backtest-post`가 `utm_source=x` 링크를 따로 만든다.
 
 **"준비된 답이 없는 질문"으로 멈추면**: 매수·매도 신호를 묻는 질문이면 문장에 신호를 넣어 고친다. 그 밖의 설정 질문이면 가장 중립적인 칩 글자를 `answers`에 더한다. 고친 뒤 그 폴더만 다시 돌린다.

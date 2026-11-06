@@ -15,11 +15,24 @@ export type GuideTable = {
   footnote?: string;
 };
 
+/** 본문 사진 — `public/` 아래 정적 파일. 크기는 레이아웃 흔들림을 막으려고 원본 픽셀 크기를 적는다. */
+export type GuideImage = {
+  src: string;
+  alt: string;
+  caption?: string;
+  width: number;
+  height: number;
+};
+
 export type GuideSection = {
   heading: string;
   paragraphs: string[];
   bullets?: string[];
   table?: GuideTable;
+  /** 표·목록 뒤에 붙는 사진(연구노트 뉴스 전략의 결과 화면). */
+  images?: GuideImage[];
+  /** 단락 뒤 외부 출처 링크 한 줄(연구노트 뉴스 전략의 기사). */
+  source?: { label: string; href: string };
 };
 
 export type GuideFaq = {

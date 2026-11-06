@@ -8,6 +8,7 @@
 import type { ArticleCollection, GuideArticle } from "../guide/articles";
 import { CLASSIC_NOTES } from "./classicNotes";
 import { MYTH_NOTES } from "./mythNotes";
+import { NEWS_NOTES } from "./newsNotes";
 
 export const NOTES_BASE_PATH = "/notes";
 
@@ -559,8 +560,41 @@ const EXPERIMENT_NOTES: GuideArticle[] = [
 // 시드 원본 — DB 이관(2026-10-21) 전의 정본이다. `scripts/seed-research-notes.ts`가 slug 기준으로
 // DB에 넣는 용도로만 남겼다. 화면·sitemap·RSS는 DB(`notesStore.ts`)를 읽는다. 유명 기법 노트(2026-11-04)는 코드 모듈
 // (`classicNotes.ts`)로 쓰고 시드로 DB에 넣었다 — 숫자 파일(`classicResults.ts`)에서 생성되는 글이라 여기에 잇는다.
-// 실험 노트 뒤에 속설 검증 시리즈(편 번호순)를 잇는다.
-export const SEED_NOTES: GuideArticle[] = [...EXPERIMENT_NOTES, ...MYTH_NOTES, ...CLASSIC_NOTES];
+// 실험 노트 뒤에 속설 검증 시리즈(편 번호순)를 잇는다. 뉴스 전략 기록(2026-11-07, `newsNotes.ts`)은 맨 뒤에 잇는다.
+export const SEED_NOTES: GuideArticle[] = [...EXPERIMENT_NOTES, ...MYTH_NOTES, ...CLASSIC_NOTES, ...NEWS_NOTES];
+
+/** 목록 한 쪽에 싣는 글 수. */
+export const NOTES_PAGE_SIZE = 10;
+
+/** 목록 검색 — 검색어가 제목·소개·요약에 그대로 들어 있는 글만 남긴다(글자 그대로 찾기, 대소문자 무시).
+ *  검색어를 띄어 쓰면 낱말마다 모두 들어 있어야 한다. 빈 검색어면 전체다. */
+export function searchNotes(notes: GuideArticle[], query: string): GuideArticle[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return notes;
+  return notes.filter((note) => {
+    const text = `${note.title} ${note.description} ${note.summary}`.toLowerCase();
+    return words.every((word) => text.includes(word));
+  });
+}
+
+export type NotesPage = { notes: GuideArticle[]; page: number; totalPages: number; total: number };
+
+/** 목록의 한 쪽 — page는 1부터. 범위를 벗어난 값·숫자가 아닌 값은 가까운 쪽으로 맞춘다. */
+export function paginateNotes(notes: GuideArticle[], page: number): NotesPage {
+  const totalPages = Math.max(1, Math.ceil(notes.length / NOTES_PAGE_SIZE));
+  const current = Number.isFinite(page) ? Math.min(Math.max(1, Math.floor(page)), totalPages) : 1;
+  const start = (current - 1) * NOTES_PAGE_SIZE;
+  return { notes: notes.slice(start, start + NOTES_PAGE_SIZE), page: current, totalPages, total: notes.length };
+}
+
+/** 목록 주소 — 1쪽·빈 검색어는 생략해 기본 주소(/notes)를 canonical로 둔다. */
+export function notesListHref(page: number, query = ""): string {
+  const params = new URLSearchParams();
+  if (query) params.set("q", query);
+  if (page > 1) params.set("page", String(page));
+  const search = params.toString();
+  return search ? `${NOTES_BASE_PATH}?${search}` : NOTES_BASE_PATH;
+}
 
 export function notePath(slug: string): string {
   return `${NOTES_BASE_PATH}/${slug}`;

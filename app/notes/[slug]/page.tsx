@@ -7,6 +7,7 @@ import { buildNotesCollection, notePath } from "@/lib/notes/notes";
 import { findNote, listNotes } from "@/lib/notes/notesStore";
 import { classicNoteDataset } from "@/lib/notes/classicNotes";
 import { mythNoteDataset, mythNoteOpenPrompt, mythNoteSeoTitle } from "@/lib/notes/mythNotes";
+import { newsNoteOpenPrompt } from "@/lib/notes/newsNotes";
 import { buildOpenGraph } from "@/lib/seo/site";
 import { strategyOpenHref } from "@/lib/strategy/strategyOpenLink";
 
@@ -38,7 +39,7 @@ export default async function NoteRoute({ params }: NoteRouteProps) {
   const notes = await listNotes();
   const note = notes.find((item) => item.slug === params.slug);
   if (!note) notFound();
-  const prompt = mythNoteOpenPrompt(note.slug);
+  const prompt = mythNoteOpenPrompt(note.slug) ?? newsNoteOpenPrompt(note.slug);
   return (
     <GuideArticlePage
       article={note}

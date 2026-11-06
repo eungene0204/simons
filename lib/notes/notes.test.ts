@@ -1,8 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { getGuideArticle } from "@/lib/guide/articles";
 import { buildGuideArticleJsonLd } from "@/lib/guide/jsonLd";
-import { NOTES_DISCLAIMER, SEED_NOTES as NOTES, buildNotesCollection, notePath } from "./notes";
+import { existsSync } from "fs";
+import { join } from "path";
+import {
+  NOTES_DISCLAIMER,
+  NOTES_PAGE_SIZE,
+  SEED_NOTES as NOTES,
+  buildNotesCollection,
+  notePath,
+  notesListHref,
+  paginateNotes,
+  searchNotes,
+} from "./notes";
 import { mythNoteDataset, mythNoteOpenPrompt, mythNoteSeoTitle } from "./mythNotes";
+import { NEWS_NOTES, newsNoteOpenPrompt } from "./newsNotes";
 import { CLASSIC_NOTES, CLASSIC_SUMMARY_SLUG, classicNoteDataset, classicNoteSlug } from "./classicNotes";
 import { CLASSIC_RESULTS } from "./classicResults";
 
@@ -19,6 +31,7 @@ function allText(): string {
       ...note.sections.flatMap((section) => [
         section.heading,
         ...section.paragraphs,
+        section.source?.label ?? "",
         ...(section.bullets ?? []),
         ...(section.table ? [section.table.caption, section.table.footnote ?? "", ...section.table.rows.flat()] : []),
       ]),
@@ -254,5 +267,91 @@ describe("classic-technique notes (KOSPI·KOSDAQ 3y)", () => {
       }
     }
     expect(classicNoteSlug("KOSPI", "unknown_rule")).toBeUndefined();
+  });
+});
+
+// 2026-11-07 — 뉴스 전략 테스트(~/nullstock-news) 결과를 연구노트로 옮겼다(build_news_notes.py → newsNotes.data.json).
+describe("news strategy notes", () => {
+  it("adds the news notes with summaries matching their result tables", () => {
+    expect(NEWS_NOTES).toHaveLength(45);
+    for (const note of NEWS_NOTES) {
+      expect(note.slug).toMatch(/^news-\d{8}-/);
+      const rows = note.sections.flatMap((s) => s.table?.rows ?? []);
+      for (const label of ["투자 수익률", "CAGR", "최대 낙폭", "승률"]) {
+        const value = rows.find((row) => row[0] === label)?.[1];
+        expect(value, `${note.slug} ${label}`).toBeDefined();
+        expect(note.summary).toContain(value!);
+      }
+    }
+  });
+
+  it("links the source article and ships every photo it references", () => {
+    for (const note of NEWS_NOTES) {
+      const source = note.sections[0].source;
+      expect(source?.href).toMatch(/^https:\/\/(www\.yna\.co\.kr\/view|n\.news\.naver\.com\/article)\//);
+      const images = note.sections.flatMap((s) => s.images ?? []);
+      expect(images.length).toBeGreaterThan(0);
+      for (const image of images) {
+        expect(image.src).toMatch(new RegExp(`^/notes/news/${note.slug}/(overview|dist)\\.webp$`));
+        expect(existsSync(join(process.cwd(), "public", image.src)), image.src).toBe(true);
+      }
+    }
+  });
+
+  it("keeps per-stock profit lines out of the interpretation", () => {
+    for (const note of NEWS_NOTES) {
+      const bullets = note.sections.find((s) => s.heading === "결과 해석")!.bullets!;
+      expect(bullets.some((line) => line.startsWith("종목별"))).toBe(false);
+    }
+  });
+
+  // 2026-11-05 사용자 지시 — 하단 면책과 겹치는 '미래 수익 보장' 문장을 노트 본문·FAQ에 쓰지 않는다.
+  it("leaves the future-return sentence to the page disclaimer", () => {
+    for (const note of NEWS_NOTES) {
+      const text = JSON.stringify(note);
+      expect(text, note.slug).not.toMatch(/미래 수익/);
+    }
+  });
+
+  it("does not repeat forecast wording from a headline as the source link text", () => {
+    const note = NEWS_NOTES.find((item) => item.slug === "news-20261030-semi-op-growth")!;
+    expect(note.sections[0].source).toMatchObject({ label: "기사 원문 보기" });
+  });
+
+  it("opens the exact input sentence quoted in the note", () => {
+    for (const note of NEWS_NOTES) {
+      const prompt = newsNoteOpenPrompt(note.slug);
+      expect(prompt).toBeTruthy();
+      expect(note.sections[1].paragraphs).toContain(`“${prompt}”`);
+    }
+    expect(newsNoteOpenPrompt("myth-09-ma-5-20-cross")).toBeUndefined();
+  });
+});
+
+describe("notes list search and pages", () => {
+  it("matches every search word in the title, description or summary, ignoring case", () => {
+    const rsi = searchNotes(NOTES, "rsi 뉴스");
+    expect(rsi.length).toBeGreaterThan(0);
+    for (const note of rsi) {
+      const text = `${note.title} ${note.description} ${note.summary}`.toLowerCase();
+      expect(text).toContain("rsi");
+      expect(text).toContain("뉴스");
+    }
+    expect(searchNotes(NOTES, "   ")).toBe(NOTES);
+  });
+
+  it("clamps the page into range and slices ten notes per page", () => {
+    const last = Math.ceil(NOTES.length / NOTES_PAGE_SIZE);
+    expect(paginateNotes(NOTES, 1).notes).toEqual(NOTES.slice(0, NOTES_PAGE_SIZE));
+    expect(paginateNotes(NOTES, 999).page).toBe(last);
+    expect(paginateNotes(NOTES, 0).page).toBe(1);
+    expect(paginateNotes(NOTES, Number.NaN).page).toBe(1);
+    expect(paginateNotes([], 3)).toMatchObject({ notes: [], page: 1, totalPages: 1, total: 0 });
+  });
+
+  it("drops page 1 and empty queries from list URLs", () => {
+    expect(notesListHref(1)).toBe("/notes");
+    expect(notesListHref(3)).toBe("/notes?page=3");
+    expect(notesListHref(1, "반도체")).toBe(`/notes?q=${encodeURIComponent("반도체")}`);
   });
 });
