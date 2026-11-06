@@ -62,18 +62,23 @@ type HomePageProps = {
   searchParams?: {
     legal?: string | string[];
     prompt?: string | string[];
+    intro?: string | string[];
   };
 };
 
 // `/`는 비로그인 방문자에게 소개 페이지를, 이미 도구를 쓰는 쪽에는 전략연구소를 그대로 보여준다.
-// - 로그인 사용자: 로그인 후 이동·로고가 모두 `/`를 가리키므로 종전대로 도구.
+// - 로그인 사용자: 로그인 후 이동이 `/`를 가리키므로 종전대로 도구. 단 `?intro=1`(로고)은 소개 페이지.
 // - `?prompt=` 링크("이 전략 그대로 열기", X 글): 소개 페이지에 막히면 안 된다.
 // - 영어(/us) 트리: 소개 페이지는 한국어 전용이라 종전대로 도구.
 // 도구의 고정 주소는 `/analytics`다(메뉴·소개 페이지의 시작 버튼).
 function opensStrategyLab(searchParams: HomePageProps["searchParams"], signedIn: boolean, language: string) {
-  if (signedIn || language === "en") return true;
+  if (language === "en") return true;
   const prompt = Array.isArray(searchParams?.prompt) ? searchParams.prompt[0] : searchParams?.prompt;
-  return Boolean(prompt?.trim());
+  if (prompt?.trim()) return true;
+  // 로고 클릭(`/?intro=1`)은 로그인 상태에서도 소개 페이지를 연다.
+  const intro = Array.isArray(searchParams?.intro) ? searchParams.intro[0] : searchParams?.intro;
+  if (intro === "1") return false;
+  return signedIn;
 }
 
 export default async function HomePage({ searchParams }: HomePageProps) {

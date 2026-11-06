@@ -39,6 +39,9 @@ import {
   getUsagePercent,
 } from "./planUsageFormat";
 import NullstockLogoMark from "./NullstockLogoMark";
+
+// 로고는 로그인 여부와 무관하게 소개 랜딩으로 간다 — `/`는 로그인 상태에서 도구를 보여주므로 `intro`로 소개를 지정한다.
+const INTRO_QUERY = "?intro=1";
 import { getLocale, t } from "@/lib/i18n";
 import { stripRegionPrefix } from "@/lib/geo/region";
 import { useRegion, useRegionHref } from "@/lib/geo/useRegion";
@@ -605,11 +608,11 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
       >
         <div className="flex min-w-0 items-center gap-2">
           <Link
-            href={regionHref("/")}
+            href={regionHref("/") + INTRO_QUERY}
             onClick={(event) => {
               event.preventDefault();
               setIsMobileMenuOpen(false);
-              leaveStrategyConversation(regionHref("/"));
+              leaveStrategyConversation(regionHref("/") + INTRO_QUERY);
             }}
             className="group flex min-w-0 items-center gap-2"
           >
@@ -652,10 +655,10 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
             min-w-fit이라 좁은 데스크톱에서는 묶음이 먼저 자리를 차지해 겹치지 않는다. */}
         <div className="mr-4 flex min-w-fit flex-1 basis-0 items-center gap-3 xl:mr-6 2xl:mr-8">
           <Link
-            href={regionHref("/")}
+            href={regionHref("/") + INTRO_QUERY}
             onClick={(event) => {
               event.preventDefault();
-              leaveStrategyConversation(regionHref("/"));
+              leaveStrategyConversation(regionHref("/") + INTRO_QUERY);
             }}
             className="group flex items-center gap-3"
           >

@@ -54,6 +54,14 @@ describe("HomePage", () => {
     expect(document.querySelector('a[href="/analytics"]')).toHaveTextContent("무료로 시작하기");
   });
 
+  it("shows the intro landing for signed-in users who arrive with ?intro=1 (logo click)", async () => {
+    sessionUserId.current = 7;
+    render(await HomePage({ searchParams: { intro: "1" } }));
+
+    expect(screen.getByTestId("home-landing")).toBeInTheDocument();
+    expect(screen.queryByText("전략연구소 메인 화면")).not.toBeInTheDocument();
+  });
+
   it("keeps the strategy lab for ?prompt= deep links even when anonymous", async () => {
     render(await HomePage({ searchParams: { prompt: "RSI 30 아래 매수" } }));
 
