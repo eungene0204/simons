@@ -136,7 +136,10 @@ export function GuideArticlePage({
                 )}
                 {section.table && (
                   <div className="mt-5 overflow-x-auto">
-                    <table className="w-full min-w-[32rem] border-collapse text-sm">
+                    {/* 두 칸 표(지표 | 값)는 휴대폰 폭에 그대로 들어간다 — 최소 폭은 세 칸 이상 표에만 둔다. */}
+                    <table
+                      className={`w-full border-collapse text-sm ${section.table.headers.length > 2 ? "min-w-[32rem]" : ""}`}
+                    >
                       <caption className="pb-2 text-left text-sm font-black text-white">{section.table.caption}</caption>
                       <thead>
                         <tr className="border-y border-white/[0.12] text-gray-400">
