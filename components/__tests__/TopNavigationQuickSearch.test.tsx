@@ -267,8 +267,8 @@ describe("TopNavigation quick search", () => {
     // 모바일·데스크톱 내비가 각자 마크를 그린다(둘 다 배경 제거 필터, id만 다름)
     const logoMarks = screen.getAllByTestId("nullstock-logo-mark");
     expect(logoMarks).toHaveLength(2);
-    expect(logoMarks[0].closest("a")).toHaveAttribute("href", "/");
-    expect(logoMarks[1].closest("a")).toHaveAttribute("href", "/");
+    expect(logoMarks[0].closest("a")).toHaveAttribute("href", "/?intro=1");
+    expect(logoMarks[1].closest("a")).toHaveAttribute("href", "/?intro=1");
     expect(logoMarks[0].querySelector("image")).toHaveAttribute(
       "filter",
       "url(#nullstock-logo-mobile)"
@@ -295,8 +295,8 @@ describe("TopNavigation quick search", () => {
     renderWithQueryClient(<TopNavigation />);
 
     const logoMarks = screen.getAllByTestId("nullstock-logo-mark");
-    expect(logoMarks[0].closest("a")).toHaveAttribute("href", "/us");
-    expect(logoMarks[1].closest("a")).toHaveAttribute("href", "/us");
+    expect(logoMarks[0].closest("a")).toHaveAttribute("href", "/us?intro=1");
+    expect(logoMarks[1].closest("a")).toHaveAttribute("href", "/us?intro=1");
   });
 
   it("탑메뉴 묶음을 흐름 안에서 가운데 두어 좁은 데스크톱에서도 가려지지 않게 한다", async () => {
@@ -584,7 +584,7 @@ describe("TopNavigation quick search", () => {
 
       expect(sessionStorage.getItem("simons.strategyChatState")).toBeNull();
       expect(sessionStorage.getItem("simons.pendingStrategyPrompt")).toBeNull();
-      expect(navigateHomeMock).toHaveBeenLastCalledWith("/");
+      expect(navigateHomeMock).toHaveBeenLastCalledWith("/?intro=1");
     }
     expect(navigateHomeMock).toHaveBeenCalledTimes(2);
   });
