@@ -11,8 +11,9 @@
 - **검증에서 문제가 나오면 그 주제를 접고 다음 후보로 간다(최대 3개). 셋 다 안 되면 그날은 게시하지 않는다.**
   문제 = 해석이 문장과 다름 · 매수 표본 재계산 불일치 · 청산 손익 합≠총 손익 · 원인 못 찾은 상식 밖 결과 · 영상과 사진 실행의 지표가 다름.
   틀린 결과가 공개되는 것보다 하루 쉬는 쪽이 낫다. 문제를 글에 밝히고 올리는 길은 쓰지 않는다.
-- **연구노트(`/notes`) 추가는 하지 않고 보류 목록에 남긴다** — 코드 수정·운영 DB 쓰기는 사람이 있는 세션에서 한다.
+- **게시한 편은 이 무인 실행에서 연구노트(`/notes`)에도 올린다**(아래 6-1, 2026-11-06 사용자 지시 — 10-29의 "무인 실행은 연구노트 대기" 정책을 대신한다. 그 정책 때문에 #35~#39가 노트에 빠졌다).
 - 물을 사람이 없다: `AskUserQuestion`을 쓰지 않는다. 코드·스킬·데이터를 고치지 않는다(해석 결함은 보고만). 커밋하지 않는다.
+  예외는 6-1의 `lib/notes/mythNotes.ts`·`lib/notes/notes.test.ts` 두 파일과 연구노트 시드뿐이다.
 
 ## 1. 번호와 후보
 
@@ -67,8 +68,20 @@ uv run python scripts/post_to_x.py --file $OUT/post2_reply.txt --long --image �
 하나씩 올리고 `POSTED_ID=`를 확인한 뒤 다음을 올린다. 끝나면 `GET /2/tweets?ids=…&tweet.fields=note_tweet,attachments,referenced_tweets`로 답글 연결·첨부를 확인한다.
 첫 글 게시가 실패하면 다시 올리지 않고 끝낸다(중복 게시 방지 — 이미 올라갔을 수 있다).
 
+## 6-1. 연구노트 게시 (게시가 끝난 편만)
+
+SKILL.md "속설 검증 시리즈"의 연구노트 절차를 그대로 따른다.
+
+1. 빠진 편 확인: DB의 `myth-` slug 목록(`researchNote.findMany`)과 `myth_series.md`의 게시 번호를 대조한다. 오늘 편 말고도 빠진 편이 있으면 그 편의 `~/nullstock-cf/myth-*/post1.txt`·보고서로 함께 채운다.
+2. `lib/notes/mythNotes.ts`의 `MYTHS`에 항목을 번호 순서로 더한다. 숫자는 `post1.txt`·`result.json`과 같은 값, 음수는 `−`(U+2212), `input`은 실제 입력 문장 그대로(열기 링크가 이 문장을 쓴다). 종목명·종목 코드는 싣지 않고 판정·추천·우열 표현을 쓰지 않는다. `engine`은 게시일의 `backend/engine/version.py` `ENGINE_VERSION`.
+3. `lib/notes/notes.test.ts`의 속설 편 수(`toHaveLength`)를 올리고 `npx vitest run lib/notes components/notes` — 통과해야 한다.
+4. `npx ts-node --project tsconfig.scripts.json scripts/seed-research-notes.ts`(dry-run)에서 신규 수가 더한 편 수와 같고 덮어쓰기 0인지 확인한 뒤 `--apply`. 로컬 `.env`가 운영 DB라 바로 공개된다(목록 5분 캐시, create-only라 기존 노트는 안전).
+5. 테스트가 실패하거나 dry-run 숫자가 다르면 `--apply`하지 않고, 내가 더한 항목만 되돌린 뒤 보고서에 "연구노트 실패: <이유>"로 남긴다(X 게시는 그대로 둔다).
+
+두 파일은 커밋하지 않는다 — 노트 본문은 DB가 정본이고, 열기 링크·검색 제목은 다음 배포 때 이 파일로 붙는다.
+
 ## 7. 기록과 보고
 
 - `references/myth_series.md`에 기존 줄과 같은 형식으로 한 줄 더한다(게시 id·영상 길이·링크 `myth-NN`·`사진=` 조합·검증 사실). 접은 후보도 `—` 번호로 이유와 함께 남긴다.
 - 보고서 `~/nullstock-cf/myth-daily-<YYYY-MM-DD>.md`(게시하지 않은 날도 쓴다): 첫 줄은 `게시함: <링크>` 또는 `게시 안 함: <이유 한 줄>`.
-  이어서 핵심 수치, 결과 해석 문단 포함 여부, 접은 후보와 이유, 내가 정한 값(주제·문장·칩), **연구노트 추가 대기**, 소리를 직접 못 들었다는 것. 알림·파일 열기는 `myth_daily.sh`가 한다.
+  이어서 핵심 수치, 결과 해석 문단 포함 여부, 접은 후보와 이유, 내가 정한 값(주제·문장·칩), **연구노트 게시 결과**(올린 slug, 또는 실패 이유), 소리를 직접 못 들었다는 것. 알림·파일 열기는 `myth_daily.sh`가 한다.

@@ -263,7 +263,8 @@ uv run python scripts/post_to_x.py --file post1.txt --long --video out.mp4 --ope
   3. `lib/notes/notes.test.ts`의 속설 편 수(`toHaveLength`)를 올린다.
   4. 검증: `npx vitest run lib/notes components/notes`(전체는 `npm run test:frontend`).
   5. DB 반영: `npx ts-node --project tsconfig.scripts.json scripts/seed-research-notes.ts`(dry-run — 신규 1 · 건너뜀 N인지 확인) → `--apply`. create-only라 기존 노트는 건드리지 않는다. **로컬 `.env`가 운영 DB를 가리키므로 `--apply`는 공개 사이트에 바로 반영된다**(목록은 5분 캐시).
-  - 연구노트가 비어 있는지 점검할 때는 DB의 `researchNote` slug 목록과 `myth_series.md`의 번호를 대조한다(2026-10-22: #20·#21이 빠져 있어 추가).
+  - 연구노트가 비어 있는지 점검할 때는 DB의 `researchNote` slug 목록과 `myth_series.md`의 번호를 대조한다(2026-10-22: #20·#21이 빠져 있어 추가. 2026-11-06: #28·#29(사람 세션 누락)와 #35~#39(무인 실행이 노트를 "대기"로만 남김)가 빠져 있어 추가).
+  - **무인 실행(`references/myth_unattended.md`)도 이 절차를 직접 한다**(2026-11-06 사용자 지시) — 대기로 미루지 않는다.
 
 **글 형식 — 2026-10-13 사용자 지시로 바뀐 것(#4부터 적용, 아래가 위의 옛 규칙·템플릿보다 우선한다)**
 
