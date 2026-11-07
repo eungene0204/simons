@@ -16,12 +16,12 @@ describe("llms.txt", () => {
     expect(text).toMatch(/보장되지 않/);
     expect(text).toContain("투자 추천 서비스가 아닙니다");
     expect(text).toContain(`(${BASE}/methodology)`);
-    expect(text).not.toContain("## 연구노트");
+    expect(text).not.toContain("## 퀀트 연구노트");
   });
 
   it("adds a research-notes section once notes exist", () => {
     const text = buildLlmsTxt(GUIDE_ARTICLES, BASE, NOTES);
-    expect(text).toContain("## 연구노트");
+    expect(text).toContain("## 퀀트 연구노트");
     expect(text).toContain(NOTES_DISCLAIMER);
     expect(text).toContain(`(${BASE}/notes)`);
     for (const note of NOTES) {

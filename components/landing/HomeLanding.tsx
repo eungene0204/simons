@@ -226,7 +226,7 @@ export function HomeLanding() {
               백테스트 가이드 읽기
             </Link>
             <Link href="/notes" className={SECONDARY_BUTTON}>
-              연구노트 보기
+              퀀트 연구노트 보기
             </Link>
           </div>
         </div>
@@ -253,7 +253,7 @@ export function HomeLanding() {
               백테스트 가이드
             </Link>
             <Link href="/notes" className="hover:text-white">
-              연구노트
+              퀀트 연구노트
             </Link>
             <Link href="/board" className="hover:text-white">
               자유게시판

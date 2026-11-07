@@ -20,7 +20,7 @@ const INTERPRETATION_HEADINGS = new Set([
 ]);
 
 /** 제목 바로 아래 출처 한 줄 — 요약을 발췌해도 계산 주체가 같이 읽히도록 요약 앞에 둔다. */
-export const BLOG_SOURCE_LINE = "널스탁 연구노트에서 옮긴 요약입니다. 아래 수치는 널스탁 백테스트 엔진으로 과거 데이터를 계산한 결과입니다.";
+export const BLOG_SOURCE_LINE = "널스탁 퀀트 연구노트에서 옮긴 요약입니다. 아래 수치는 널스탁 백테스트 엔진으로 과거 데이터를 계산한 결과입니다.";
 
 export type BlogExport = { html: string; text: string };
 

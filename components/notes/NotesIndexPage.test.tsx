@@ -7,7 +7,7 @@ import { NotesIndexPage } from "./NotesIndexPage";
 describe("NotesIndexPage", () => {
   it("shows the title, the first page of notes linked under /notes, and the disclaimer", () => {
     render(<NotesIndexPage notes={NOTES} />);
-    expect(screen.getByRole("heading", { level: 1, name: "연구노트" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "퀀트 연구노트" })).toBeInTheDocument();
     // 링크는 한 번만 모은다(노트마다 역할 조회를 돌리면 느리다). 시장만 다른 기록(KOSPI·KOSDAQ)은
     // 제목 앞부분이 같아 제목 전체로 찾는다.
     const links = screen.getAllByRole("link");
@@ -22,7 +22,7 @@ describe("NotesIndexPage", () => {
   it("publishes a CollectionPage list of the notes on the current page (2026-11-04 — the list page had no JSON-LD)", () => {
     render(<NotesIndexPage notes={NOTES} page={2} />);
     const graph = JSON.parse(screen.getByTestId("notes-structured-data").innerHTML)["@graph"];
-    expect(graph[0]).toMatchObject({ "@type": "CollectionPage", name: "연구노트" });
+    expect(graph[0]).toMatchObject({ "@type": "CollectionPage", name: "퀀트 연구노트" });
     expect(graph[0].mainEntity.itemListElement.map((item: { url: string }) => item.url)).toEqual(
       NOTES.slice(NOTES_PAGE_SIZE, NOTES_PAGE_SIZE * 2).map((note) => `https://www.nullstock.im/notes/${note.slug}`),
     );
@@ -32,7 +32,7 @@ describe("NotesIndexPage", () => {
   it("splits the list into pages of ten with prev/next and page links", () => {
     const totalPages = Math.ceil(NOTES.length / NOTES_PAGE_SIZE);
     render(<NotesIndexPage notes={NOTES} page={2} />);
-    const nav = screen.getByRole("navigation", { name: "연구노트 쪽" });
+    const nav = screen.getByRole("navigation", { name: "퀀트 연구노트 쪽" });
     expect(nav.querySelector("[aria-current=page]")?.textContent).toBe("2");
     expect(screen.getByRole("link", { name: "이전" })).toHaveAttribute("href", "/notes");
     expect(screen.getByRole("link", { name: "다음" })).toHaveAttribute("href", "/notes?page=3");
@@ -44,7 +44,7 @@ describe("NotesIndexPage", () => {
     expect(matches.length).toBeGreaterThan(NOTES_PAGE_SIZE);
     render(<NotesIndexPage notes={NOTES} query="뉴스 전략" />);
     expect(screen.getByText(new RegExp(`검색 결과 ${matches.length}편`))).toBeInTheDocument();
-    expect(screen.getByRole("searchbox", { name: "연구노트 검색" })).toHaveValue("뉴스 전략");
+    expect(screen.getByRole("searchbox", { name: "퀀트 연구노트 검색" })).toHaveValue("뉴스 전략");
     expect(screen.getByRole("link", { name: "다음" })).toHaveAttribute(
       "href",
       `/notes?q=${encodeURIComponent("뉴스 전략").replace(/%20/g, "+")}&page=2`,
@@ -54,12 +54,12 @@ describe("NotesIndexPage", () => {
   it("says so when no note matches the search", () => {
     render(<NotesIndexPage notes={NOTES} query="존재하지않는검색어" />);
     expect(screen.getByText("검색어가 들어간 노트가 없습니다.")).toBeInTheDocument();
-    expect(screen.queryByRole("navigation", { name: "연구노트 쪽" })).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "퀀트 연구노트 쪽" })).toBeNull();
   });
 
   it("shows the preparing notice when the DB has no notes", () => {
     render(<NotesIndexPage notes={[]} />);
-    expect(screen.getByText("연구노트를 준비하고 있습니다.")).toBeInTheDocument();
+    expect(screen.getByText("퀀트 연구노트를 준비하고 있습니다.")).toBeInTheDocument();
     expect(screen.queryByTestId("notes-structured-data")).toBeNull();
   });
 

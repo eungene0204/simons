@@ -12,7 +12,7 @@ import { NEWS_NOTES } from "./newsNotes";
 
 export const NOTES_BASE_PATH = "/notes";
 
-export const NOTES_TITLE = "연구노트";
+export const NOTES_TITLE = "퀀트 연구노트";
 export const NOTES_DESCRIPTION =
   "널스탁 백테스트 엔진으로 직접 계산한 과거 데이터 기반 결과를 기준일·설정값과 함께 정리한 노트입니다.";
 

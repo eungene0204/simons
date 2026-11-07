@@ -90,7 +90,7 @@ describe("GuideArticlePage with the research-notes collection", () => {
     const tables = screen.getAllByRole("table");
     expect(tables.length).toBe(note.sections.filter((section) => section.table).length);
     expect(within(tables[0]).getAllByRole("row")).toHaveLength(1 + note.sections.find((s) => s.table)!.table!.rows.length);
-    expect(screen.getByRole("link", { name: "연구노트" })).toHaveAttribute("href", "/notes");
+    expect(screen.getByRole("link", { name: "퀀트 연구노트" })).toHaveAttribute("href", "/notes");
     const hrefs = screen.getAllByRole("link").map((link) => link.getAttribute("href"));
     expect(hrefs).toContain("/guide/backtest-trading-costs");
     expect(screen.getByTestId("guide-structured-data").textContent).toContain(`/notes/${note.slug}`);

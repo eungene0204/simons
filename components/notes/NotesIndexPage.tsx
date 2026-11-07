@@ -65,7 +65,7 @@ export function NotesIndexPage({
                 name="q"
                 defaultValue={query}
                 placeholder="제목·내용으로 찾기 (예: 반도체, RSI)"
-                aria-label="연구노트 검색"
+                aria-label="퀀트 연구노트 검색"
                 className="min-w-0 flex-1 rounded-xl border border-white/[0.12] bg-white/[0.03] px-4 py-2 text-sm font-bold text-white outline-none placeholder:text-[var(--text-placeholder)] focus-visible:border-[var(--chat-accent)]"
               />
               <button
@@ -86,7 +86,7 @@ export function NotesIndexPage({
           )}
           {allNotes.length === 0 ? (
             <p className="border-y border-white/[0.08] py-10 text-center text-sm font-bold text-gray-400">
-              연구노트를 준비하고 있습니다.
+              퀀트 연구노트를 준비하고 있습니다.
             </p>
           ) : notes.length === 0 ? (
             <p className="border-y border-white/[0.08] py-10 text-center text-sm font-bold text-gray-400">
@@ -131,7 +131,7 @@ function NotesPagination({ page, totalPages, query }: { page: number; totalPages
   const item = "inline-flex min-w-9 items-center justify-center rounded-xl px-3 py-2 text-sm font-bold transition-colors duration-150";
   const idle = `${item} text-gray-400 hover:bg-white/[0.04] hover:text-white`;
   return (
-    <nav aria-label="연구노트 쪽" className="mt-8 flex flex-wrap items-center justify-center gap-1">
+    <nav aria-label="퀀트 연구노트 쪽" className="mt-8 flex flex-wrap items-center justify-center gap-1">
       {page > 1 && (
         <Link href={notesListHref(page - 1, query)} rel="prev" className={idle}>
           이전
