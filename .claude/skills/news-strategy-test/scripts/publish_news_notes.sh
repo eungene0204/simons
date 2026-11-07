@@ -70,8 +70,10 @@ done
 gh run watch "$RUN" --exit-status --interval 60 >/dev/null \
   || fail "CI/배포 실패(run $RUN) — 시드하지 않았다. 커밋은 main에 남아 있다"
 
+# create-only라 다시 돌려도 안전하다 — 2026-11-08 첫 게시에서 CI 대기 뒤 한 번 실패하고 다시 돌리자 통과했다.
 APPLIED=$(npx ts-node --project tsconfig.scripts.json scripts/seed-research-notes.ts --slug-prefix=news- --apply 2>&1) \
-  || fail "배포는 됐지만 시드 --apply 오류(사진만 있고 글이 없다 — 같은 명령으로 다시 돌린다): $(echo "$APPLIED" | tail -3)"
+  || { sleep 30; APPLIED=$(npx ts-node --project tsconfig.scripts.json scripts/seed-research-notes.ts --slug-prefix=news- --apply 2>&1); } \
+  || fail "배포는 됐지만 시드 --apply 오류(사진만 있고 글이 없다 — 같은 명령으로 다시 돌린다): $(echo "$APPLIED" | grep -v "^ *at " | tail -8)"
 echo "$APPLIED" | head -1
 for slug in ${NEW_SLUGS//,/ }; do
   [ "$slug" = "-" ] && continue

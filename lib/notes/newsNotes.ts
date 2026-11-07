@@ -163,7 +163,7 @@ function buildNote(n: NewsStrategy, related: string[]): GuideArticle {
     slug: n.slug,
     title: `뉴스 전략 백테스트 — ${n.name} (${dayLabel(n.date)} 기사)`,
     description: `${dayLabel(n.date)} 기사에서 출발해 “${n.name}” 규칙을 ${period} 과거 데이터에 적용한 기록입니다. 입력 문장, 해석된 조건, 결과 수치와 결과 화면 사진을 담았습니다.`,
-    summary: `${period} 구간에 “${n.name}” 규칙을 적용했더니 투자 수익률은 ${m.ret}, CAGR은 ${m.cagr}, 최대 낙폭은 ${m.mdd}, 승률은 ${m.win}(${m.trades})였고 같은 기간 벤치마크(${m.benchName})는 ${m.bench}였습니다. 한 규칙·한 기간의 과거 값입니다.`,
+    summary: `${period} 구간에 “${n.name}” 규칙을 적용했더니 투자 수익률은 ${m.ret}, CAGR은 ${m.cagr}, 최대 낙폭은 ${m.mdd}, 승률은 ${m.win}(${m.trades})였고 같은 기간 벤치마크(${m.benchName})는 ${m.bench}였습니다.`,
     published: n.date,
     updated: n.date,
     sections,
