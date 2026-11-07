@@ -1717,6 +1717,12 @@ def _drop_fabricated_conditions(
                     " 않았어요."
                 )
                 continue
+            # 같은 인용·같은 파라미터의 확인된 사본이 있는 연산자 중복(2026-11-07 "200일선 위"를
+            # `>`와 `crosses_above` 둘로 적음) — 사용자의 말은 사본에 반영돼 있어 안내 없이 뺀다.
+            if quote_check.quote_duplicates_confirmed(quote_verdicts, cond, getattr(strategy, role)):
+                shape_copies.append({"role": role, "factor": cond.factor,
+                                     "quote": cond.source_text, "duplicate_of_confirmed": True})
+                continue
             # 다른 설정의 문구로 만든 이동평균 신호(2026-08-18 예시 73 "최대 보유 기간은
             # 25거래일", 2026-09-16 "-8% 손절 시 매도") — 인용이 입력에 실재해 출처 대조를
             # 통과하는 틈이다. 판정은 조건 인용 대조(LLM)가 "인용이 이 조건을 말하지 않는다"고

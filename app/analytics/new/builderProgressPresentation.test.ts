@@ -321,6 +321,22 @@ describe("손절 표시 — 항상 마이너스 부호 (2026-07-30)", () => {
   });
 });
 
+describe("리스크 관리 — 시장 국면 필터도 진행 카드에 보인다 (2026-11-07)", () => {
+  it("코스피 200일선 국면 필터를 손절과 같은 행에 적는다", () => {
+    // [회귀] 진행 카드가 손절·익절·트레일링만 적어, 해석된 "코스피가 200일선 아래면 전량
+    // 현금화"가 확정 전 칩에서만 사라져 보였다(결과 요약에는 있었다).
+    const presentation = buildBuilderTurnPresentation({
+      state: { stop_loss_pct: 15 },
+      reply: "",
+      parsed: {
+        market_regime: { index: "KOSPI", triggers: ["below_ma"], ma_period: 200, exposure_pct: 0 },
+      } as ParsedSummary,
+    });
+    const risk = presentation.summaryItems.find((item) => item.label === "리스크 관리");
+    expect(risk?.value).toBe("손절 -15% · 코스피 200일 이동평균 아래면 투자 비중 0%");
+  });
+});
+
 describe("attachFieldStates — 백엔드 두 상태 축 부착", () => {
   const items = [
     { label: "유니버스", complete: true },

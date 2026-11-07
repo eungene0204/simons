@@ -4,6 +4,8 @@ from .decisions import current_log, digest, record
 
 QUESTIONS = {
     "quote": "보류한 조건의 지표와 매수·청산 기준을 다시 알려주시겠어요?",
+    # 보류한 조건을 옮겨 적은 질문 — 무엇을 보류했는지 모르면 답할 수 없다(2026-11-07).
+    "quote_named": "보류한 {side} 조건 — {phrase}. 요청 문장과 맞는지 확인되지 않아 빼 두었어요. 이 조건도 넣을까요?",
     "trading": "거래대금은 금액 기준인가요, 자신의 평균 대비 배수인가요?",
     "return": "수익률은 시장과 비교할까요, 종목 간 순위로 정할까요?",
     "market": "변경할 시장 범위를 다시 알려주시겠어요?",
@@ -82,11 +84,13 @@ class RequiredChecks:
         return targets
 
     def settle(self, targets, verdicts):
-        from .quote_check import quote_does_not_express
+        from .quote_check import quote_does_not_express, quote_duplicates_confirmed
         quotes, trading = targets
         for condition, role in quotes:
             verdict = verdicts.get(condition) if verdicts is not None else None
-            status = ("REJECT" if quote_does_not_express(verdicts, condition) else
+            siblings = [c for c, r in quotes if r == role]
+            status = ("REJECT" if quote_does_not_express(verdicts, condition)
+                      or quote_duplicates_confirmed(verdicts, condition, siblings) else
                       "ACCEPT" if verdict and verdict.expresses == "yes" else "UNRESOLVED")
             self.note("quote", condition, status, role, verdict)
         log = current_log()
@@ -125,13 +129,26 @@ class RequiredChecks:
 
     def question(self, items=None):
         failures = [i for i in (items if items is not None else self.items) if i["status"] == "UNRESOLVED"]
-        questions = list(dict.fromkeys(QUESTIONS[i["kind"]] for i in failures))
+        questions = list(dict.fromkeys(_question_for(i) for i in failures))
         if not questions:
             return None
         ask = {"question": questions[0], "topic": "보류한 변경", "chips": []}
         if len(questions) > 1:
             ask["queue"] = [{"question": q, "topic": "보류한 변경", "chips": []} for q in questions[1:]]
         return questions[0], None, ask
+
+
+def _question_for(item):
+    """보류 항목의 질문. 인용 대조로 보류한 조건은 그 조건을 평이한 문장으로 옮겨 적는다."""
+    subject = item["subject"]
+    if (item["kind"] == "quote" and item["field"] in ("entry_conditions", "exit_conditions")
+            and hasattr(subject, "factor")):
+        from .quote_check import render_condition
+
+        side, _, phrase = render_condition(subject, item["field"]).partition(" — ")
+        if phrase:
+            return QUESTIONS["quote_named"].format(side=side, phrase=phrase)
+    return QUESTIONS[item["kind"]]
 
 
 def policy():

@@ -539,6 +539,29 @@ def quote_does_not_express(verdicts: Optional[QuoteVerdicts], cond: Any) -> bool
                  or is_generic_signal(cond.factor)))
 
 
+def quote_duplicates_confirmed(verdicts: Optional[QuoteVerdicts], cond: Any, siblings: List[Any]) -> bool:
+    """LLM이 인용이 이 이동평균 조건을 말하지 않는다(no·moving_average)고 답했고, 같은 칸에 같은
+    인용·같은 지표·같은 파라미터로 만든 사본이 yes로 확인돼 있는가 — 연산자만 다른 중복 사본이다.
+
+    no만으로는 빼지 않는다는 규칙(quote_does_not_express)의 좁은 예외다(2026-11-07 사용자 승인):
+    "주가가 200일선 위"를 120B가 `>`와 `crosses_above` 두 조건으로 적었고, 판정이 후자에 no를 답해
+    보류 질문만 남았다. 같은 인용의 확인된 사본이 사용자의 뜻을 이미 담고 있어 빼도 잃는 것이 없다.
+    판정은 LLM, 결정론은 출력 필드(factor·parameters·source_text) 대조뿐이다."""
+    verdict = _verdict(verdicts, cond)
+    if (verdict is None or verdict.expresses != "no" or verdict.describes != "moving_average"
+            or _canonical_factor(cond.factor) not in MA_FACTORS):
+        return False
+    quote = (cond.source_text or "").strip()
+    return bool(quote) and any(
+        other is not cond
+        and _canonical_factor(other.factor) == _canonical_factor(cond.factor)
+        and (other.parameters or {}) == (cond.parameters or {})
+        and (other.source_text or "").strip() == quote
+        and (_verdict(verdicts, other) is not None and _verdict(verdicts, other).expresses == "yes")
+        for other in siblings
+    )
+
+
 def quote_describes_ranking(verdicts: Optional[QuoteVerdicts], cond: Any) -> bool:
     """LLM이 인용을 수익률·상대강도 **순위 선정**을 말한다고 답했는가(2026-10-07 예시 57·70:
     형태 견본의 이동평균 조건을 베끼며 랭킹 구절을 인용으로 붙였다). 그 구절이 랭킹으로

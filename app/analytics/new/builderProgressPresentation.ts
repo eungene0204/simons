@@ -23,7 +23,13 @@ import {
   type MissingBacktestCondition,
 } from "./backtestReadiness";
 import { t } from "@/lib/i18n";
-import { formatExecutionTuningLabels } from "@/lib/strategy-summary";
+import {
+  formatExecutionTuningLabels,
+  formatMacroFilterLabels,
+  formatMarketRegimeLabel,
+  formatSeasonalLabel,
+  formatVolTargetLabel,
+} from "@/lib/strategy-summary";
 
 export type BuilderSummaryItem = {
   label: string;
@@ -330,6 +336,15 @@ function buildRiskLabel(
   if (hasValue(takeProfit)) labels.push(t("익절 {0}%", takeProfit));
   else if (declined("take_profit")) labels.push(t("익절 안 함"));
   if (hasValue(trailingStop)) labels.push(t("트레일링 스탑 {0}%", formatDownsidePercent(trailingStop)));
+  // 시장 국면·계절·목표 변동성·거시 필터 — 결과 요약(lib/strategy-summary.ts riskText)과 같은 행.
+  // 없으면 해석된 "코스피 200일선 아래면 현금화"가 진행 카드에서만 사라져 보인다(2026-11-07).
+  const regimeLabel = formatMarketRegimeLabel(parsed?.market_regime);
+  if (regimeLabel) labels.push(regimeLabel);
+  const seasonalLabel = formatSeasonalLabel(parsed?.seasonal_months);
+  if (seasonalLabel) labels.push(seasonalLabel);
+  const volTargetLabel = formatVolTargetLabel(parsed?.volatility_target);
+  if (volTargetLabel) labels.push(volTargetLabel);
+  labels.push(...formatMacroFilterLabels(parsed?.macro_filters));
   return labels.length > 0 ? labels.join(" · ") : null;
 }
 
