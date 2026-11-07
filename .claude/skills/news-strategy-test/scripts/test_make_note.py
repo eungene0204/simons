@@ -1,4 +1,4 @@
-"""make_note.card_pairs 회귀 — 해석 카드의 펼침 버튼 글자가 라벨·값 짝을 밀던 결함(2026-11-03 ESS 노트).
+"""뉴스 전략 테스트 스크립트 회귀 — make_note(해석 카드 짝·해석 절 숫자·열기 링크)와 fetch_yonhap(피드 파싱).
 
 실행: cd backend && uv run --frozen pytest ../.claude/skills/news-strategy-test/scripts/test_make_note.py -q
 """
@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from make_note import campaign_of, card_pairs, open_link  # noqa: E402
+from make_note import campaign_of, card_pairs, interpretation, open_link  # noqa: E402
 
 # 2026-11-03 01-ess-ma/result.json의 summary 그대로
 ESS_SUMMARY = (
@@ -53,3 +53,18 @@ def test_open_link_carries_full_utm(tmp_path):
         "https://www.nullstock.im/?prompt=ESS+골든크로스"
         "&utm_source=tweet&utm_medium=referral&utm_campaign=2026-11-06-01-ess-ma"
     )
+
+
+def test_trades_per_year_uses_calendar_years_not_trading_days():
+    # 2026-11-07 01-infosec-rsi: 괄호 속 1180은 거래일 수 — 365로 나누면 연 횟수가 약 1.5배로 나왔다
+    metrics = {"trades": "120", "win_rate": "50%", "profit_factor": "1.2", "roi": "+10%", "benchmark": "+5%",
+               "benchmark_name": "KODEX 200", "mdd": "-10%", "total_profit": "1,000,000원"}
+    log = ["기간: 2022-01-03 ~ 2026-11-02 (1180일)", "평균보유일: 12일"]
+    line = next(l for l in interpretation(metrics, log) if l.startswith("- 회전"))
+    assert "연 평균 약 24.8회" in line  # 120회 / (1764일 / 365.25)
+
+
+def test_feed_with_bare_ampersand_still_parses():
+    from fetch_yonhap import parse_xml
+    raw = "<rss><channel><item><title>S&P 500 &amp; 나스닥 &#38; R&D</title></item></channel></rss>".encode()
+    assert parse_xml(raw).findtext("channel/item/title") == "S&P 500 & 나스닥 & R&D"

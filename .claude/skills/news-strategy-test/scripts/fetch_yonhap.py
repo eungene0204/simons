@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -16,12 +17,21 @@ from pathlib import Path
 
 FEEDS = {"경제": "economy", "마켓+": "market", "산업": "industry", "국제": "international"}
 KST = timezone(timedelta(hours=9))
+# 엔티티가 아닌 맨 `&` — 피드가 가끔 이스케이프 없이 내보내 XML 파싱이 멈춘다(2026-11-07 국제 피드).
+BARE_AMP = re.compile(rb"&(?!(?:[A-Za-z]+|#\d+|#x[0-9A-Fa-f]+);)")
+
+
+def parse_xml(raw: bytes) -> ET.Element:
+    try:
+        return ET.fromstring(raw)
+    except ET.ParseError:
+        return ET.fromstring(BARE_AMP.sub(b"&amp;", raw))
 
 
 def fetch(feed: str) -> list[dict]:
     req = urllib.request.Request(f"https://www.yna.co.kr/rss/{feed}.xml", headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=20) as r:
-        root = ET.fromstring(r.read())
+        root = parse_xml(r.read())
     return [
         {
             "title": (it.findtext("title") or "").strip(),
@@ -39,7 +49,12 @@ def main() -> None:
     since = datetime.now(KST) - timedelta(hours=hours)
     seen: dict[str, dict] = {}
     for label, feed in FEEDS.items():
-        for item in fetch(feed):
+        try:
+            fetched = fetch(feed)
+        except (OSError, ET.ParseError) as e:  # 피드 하나가 깨져도 나머지로 진행한다
+            print(f"[경고] {label} 피드를 읽지 못했다: {e}", file=sys.stderr)
+            continue
+        for item in fetched:
             if item["published"] >= since and item["link"] not in seen:
                 seen[item["link"]] = {**item, "section": label}
     items = sorted(seen.values(), key=lambda x: x["published"], reverse=True)

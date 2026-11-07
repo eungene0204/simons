@@ -13,11 +13,20 @@ echo "=== $(date) 시작 ($DAY)"
 srv_msg="$(bash "$REPO/.claude/skills/news-strategy-test/scripts/check_servers.sh" 2>&1)" || { echo "$srv_msg"; notify "앱 서버가 응답하지 않아 건너뛰었어요"; exit 0; }
 acquire_auto_lock news || { notify "다른 자동 작업이 끝나지 않아 건너뛰었어요"; exit 0; }
 cd "$REPO"
+# 연구노트에 싣는 엔진 버전 — 로컬 앱이 이 checkout으로 돌므로 실행 시각의 값을 남긴다(build_news_notes.py가 읽는다)
+mkdir -p "$HOME/nullstock-news/$DAY"
+sed -n 's/^ENGINE_VERSION = "\(.*\)"/\1/p' backend/engine/version.py > "$HOME/nullstock-news/$DAY/engine.txt"
 claude -p "/news-strategy-test 무인 실행: 오늘($DAY) 뉴스로 진행하고 보고는 report.md로 남겨" \
   --permission-mode bypassPermissions --output-format text
 code=$?
-if [ -f "$HOME/nullstock-news/$DAY/report.md" ]; then
-  notify "오늘 결과가 준비됐어요 — report.md"; open "$HOME/nullstock-news/$DAY/report.md"
+REPORT="$HOME/nullstock-news/$DAY/report.md"
+if [ -f "$REPORT" ]; then
+  # 연구노트 게시(2026-11-08 사용자 지시 — 뉴스 전략을 만들면 노트까지 자동으로). 13시 속설 작업도 노트를 시드하므로 잠금을 쥔 채 한다.
+  pub_log="$(bash "$REPO/.claude/skills/news-strategy-test/scripts/publish_news_notes.sh" 2>&1)"; pub=$?
+  echo "$pub_log"
+  { echo; echo "## 연구노트 게시"; echo; echo '```'; echo "$pub_log" | tail -15; echo '```'; } >> "$REPORT"
+  [ $pub = 0 ] && notify "오늘 결과가 준비됐어요 — 연구노트 게시까지 끝" || notify "결과는 준비됐지만 연구노트 게시가 실패했어요 — report.md"
+  open "$REPORT"
 else
   notify "실행이 끝났지만 report.md가 없어요(코드 $code) — 로그 확인"
 fi

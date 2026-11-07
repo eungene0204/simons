@@ -9,7 +9,8 @@
 - 숫자는 다시 계산하지 않는다 — `result.json`의 지표·로그를 `make_note.py`와 같은 함수로 옮긴다.
 - 연구노트는 종목명을 싣지 않는다(속설 노트와 같은 원칙): 종목별 손익 줄과 종목이 보이는 사진(기여도·종목·매매 기록)은 뺀다.
   AI 요약 사진도 평가 문구가 있어 뺀다. 입력 문장·기사 제목은 원문 그대로 둔다.
-- 결과가 없는 폴더(해석 단계에서 멈춤)와 EXCLUDED는 건너뛴다.
+- 결과가 없는 폴더(해석 단계에서 멈춤), EXCLUDED, `exclude.txt`(무인 실행이 보고서에서 뺀 폴더 — 내용=이유)가 있는 폴더는 건너뛴다.
+- 엔진 버전은 ENGINE_BY_DATE, 없으면 날짜 폴더의 `engine.txt`(무인 실행 `daily.sh`가 실행 시각에 남긴다). 둘 다 없으면 멈춘다.
 """
 from __future__ import annotations
 
@@ -29,7 +30,7 @@ DATA_OUT = REPO / "lib/notes/newsNotes.data.json"
 IMAGE_OUT = REPO / "public/notes/news"
 IMAGE_MAX_WIDTH = 1400
 
-# 결과는 있지만 노트로 올리지 않는 폴더와 이유.
+# 결과는 있지만 노트로 올리지 않는 폴더와 이유(2026-11-07 이후는 폴더의 exclude.txt로 남긴다).
 EXCLUDED = {
     "2026-10-29/90-tourism": "기사 없이 사용자 요청으로 돌린 전략",
     "2026-10-29/02-shipbuilding-earnings": "문장의 '60거래일 보유'가 '최대 63일 보유'로 해석됐다",
@@ -38,6 +39,7 @@ EXCLUDED = {
 }
 
 # 계산일에 저장소에 올라 있던 backend/engine/version.py의 ENGINE_VERSION(속설 노트와 같은 기준).
+# 2026-11-07부터는 날짜 폴더의 engine.txt가 같은 값을 갖는다.
 ENGINE_BY_DATE = {
     "2026-10-29": "16.43.0",
     "2026-10-30": "16.45.1", "2026-10-31": "16.45.1", "2026-11-02": "16.45.1",
@@ -76,6 +78,15 @@ def photos(folder: Path, slug: str, write: bool) -> list[dict]:
     return out
 
 
+def engine_of(date: str) -> str:
+    if date in ENGINE_BY_DATE:
+        return ENGINE_BY_DATE[date]
+    recorded = NEWS_ROOT / date / "engine.txt"
+    if not recorded.exists():
+        sys.exit(f"[중단] {date}의 엔진 버전을 모른다 — ENGINE_BY_DATE에 더하거나 {recorded}를 남긴다")
+    return recorded.read_text().strip()
+
+
 def entry(folder: Path, write: bool) -> dict:
     date = folder.parent.name
     r = json.loads((folder / "result.json").read_text())
@@ -93,7 +104,7 @@ def entry(folder: Path, write: bool) -> dict:
     return {
         "slug": slug,
         "date": date,
-        "engine": ENGINE_BY_DATE[date],
+        "engine": engine_of(date),
         "news": spec["news"],
         "why": spec.get("why", ""),
         "name": spec.get("post_name") or r["prompt"],
@@ -130,6 +141,8 @@ def main() -> None:
         key = f"{folder.parent.name}/{folder.name}"
         if key in EXCLUDED:
             skipped.append(f"{key}: {EXCLUDED[key]}")
+        elif (folder / "exclude.txt").exists():
+            skipped.append(f"{key}: {(folder / 'exclude.txt').read_text().strip()}")
         elif not (folder / "result.json").exists():
             skipped.append(f"{key}: 결과 없음(해석 단계에서 멈춤)")
         else:

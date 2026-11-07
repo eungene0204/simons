@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from datetime import date
 from pathlib import Path
 
 SITE_URL = "https://www.nullstock.im"
@@ -93,10 +94,12 @@ def interpretation(m: dict, log: list[str]) -> list[str]:
     diff = num(m["roi"]) - num(m["benchmark"])
     lines.append(f"- 벤치마크 비교: 같은 기간 {m['benchmark_name']}의 수익률은 {m['benchmark']}였고, "
                  f"이 전략은 {m['roi']}로 {diff:+.2f}%p 차이였다. 벤치마크는 이 전략의 종목 구성과 다른 지수 상품이다.")
-    period = log_find(log, r"기간:\s*\d{4}-\d{2}-\d{2} ~ \d{4}-\d{2}-\d{2}\s*\((\d+)일\)")
+    # 괄호 속 일수는 거래일 수라 달력 기준 연수로 쓰면 연 횟수가 약 1.5배 커진다(2026-11-07 발견) — 시작·끝 날짜로 계산한다.
+    period = log_find(log, r"기간:\s*(\d{4}-\d{2}-\d{2}) ~ (\d{4}-\d{2}-\d{2})")
     hold = log_find(log, r"평균보유일:\s*(\d+)일")
     if period and hold:
-        per_year = trades / (int(period.group(1)) / 365)
+        years = (date.fromisoformat(period.group(2)) - date.fromisoformat(period.group(1))).days / 365.25
+        per_year = trades / years
         lines.append(f"- 회전·보유: 거래 {trades}회는 연 평균 약 {per_year:.1f}회이고, 한 번 잡은 종목을 평균 {hold.group(1)}일 보유했다.")
     lines.append(f"- 낙폭: 최대 낙폭 {m['mdd']}는 기간 중 자산이 직전 고점에서 가장 크게 내려간 폭이다(최종 수익률 {m['roi']}와는 따로 측정).")
     pnl = lambda p: [(t.group(1), num(t.group(2))) for l in log if l.startswith(p)  # noqa: E731

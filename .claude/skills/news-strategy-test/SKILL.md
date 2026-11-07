@@ -25,7 +25,8 @@ description: 연합뉴스 RSS(무료, X API 크레딧 미사용)에서 최근 �
 - 사전 고지·질문(`AskUserQuestion`)을 하지 않는다. 사용자에게 물어야 할 일은 그 전략을 건너뛰고 `report.md`에 이유를 적는다.
 - 다른 세션이 데모 계정·9222를 쓰고 있으면(`run_test.sh`가 "[중단] 9222" 출력) 10분 간격으로 최대 3번 다시 시도하고, 그래도 막히면 남은 전략을 건너뛴다. 남의 브라우저를 끄지 않는다.
 - 끝나면 ⑥ 보고 내용을 `~/nullstock-news/<날짜>/report.md`로 쓴다: 사진은 `![](NN-slug/shot_b_overview.png)`처럼 상대 경로로, 해설은 `note.txt` 전문을 코드블록으로, 전략마다 `link.txt` 링크를 `[널스탁에서 같은 전략으로 열기](…)`로. 맨 위에 요약 표, 맨 아래에 건너뛴·뺀 전략과 이유. 알림·파일 열기는 `daily.sh`가 한다.
-- 코드·스킬·데이터를 고치지 않는다(해석 결함은 보고만). 커밋·게시하지 않는다.
+- **결과(`result.json`)는 있지만 보고서에서 뺀 전략은 그 폴더에 `exclude.txt`(이유 한 줄)를 쓴다** — 연구노트 변환이 이 파일로 건너뛴다. 빠뜨리면 뺀 결과가 노트로 공개된다.
+- 코드·스킬·데이터를 고치지 않는다(해석 결함은 보고만). 커밋·게시하지 않는다 — 연구노트 게시는 이 세션이 끝난 뒤 `daily.sh`가 `publish_news_notes.sh`로 한다(아래 "연구노트 게시").
 
 ## ① 기사 모으기
 
@@ -80,7 +81,7 @@ for d in ~/nullstock-news/<날짜>/*/; do bash .claude/skills/news-strategy-test
 
 **해석 절(2026-11-02 고정)**: `note.txt`에는 항상 "해석 (과거 데이터 기준, 사실과 계산만)" 절이 들어간다 — `make_note.py`의 `interpretation()`이 로그·지표 숫자로 만든다(손익 구조=승·패 횟수와 평균 크기, 벤치마크 차이, 연 회전·평균 보유, 최대 낙폭, 종목별 상·하위와 쏠림, 표본 30건 미만 안내, 한계). 사실과 산술만 쓰고 평가·전망·권유·"기사 때문에 그런 결과" 같은 인과 단정은 쓰지 않는다. 해석이 없는 `note.txt`·보고는 완성이 아니다. 새 문항을 더할 때도 이 규칙을 지킨다. 무인 실행의 `report.md`도 `note.txt` 전문을 싣기 때문에 해석이 같이 들어간다.
 
-**연구노트 게시(2026-11-07)**: 결과는 저장소 루트에서 `uv run --frozen python .claude/skills/news-strategy-test/scripts/build_news_notes.py`(Pillow가 필요해 `uv run`)로 연구노트 데이터(`lib/notes/newsNotes.data.json`)와 사진(`public/notes/news/<slug>/`)으로 옮긴다 — 결과 폴더 전체를 다시 훑어 만들고, 해석이 문장과 다른 폴더는 스크립트의 `EXCLUDED`에 이유와 함께 넣는다. 그 뒤 `npx vitest run lib/notes components/notes`(편 수 `toHaveLength`도 올린다) → 배포(사진·열기 링크는 코드와 함께 나간다) → `npx ts-node --project tsconfig.scripts.json scripts/seed-research-notes.ts --slug-prefix=news-`(dry-run 신규 수 확인) → `--apply`. 노트에는 종목별 손익과 종목이 보이는 사진을 싣지 않는다. 무인 실행(12시)은 아직 이 단계를 하지 않는다(사용자 결정 대기).
+**연구노트 게시(2026-11-07)**: 결과는 저장소 루트에서 `uv run --frozen python .claude/skills/news-strategy-test/scripts/build_news_notes.py`(Pillow가 필요해 `uv run`)로 연구노트 데이터(`lib/notes/newsNotes.data.json`)와 사진(`public/notes/news/<slug>/`)으로 옮긴다 — 결과 폴더 전체를 다시 훑어 만들고, 해석이 문장과 다른 폴더는 스크립트의 `EXCLUDED`에 이유와 함께 넣는다. 그 뒤 `npx vitest run lib/notes components/notes`(편 수 `toHaveLength`도 올린다) → 배포(사진·열기 링크는 코드와 함께 나간다) → `npx ts-node --project tsconfig.scripts.json scripts/seed-research-notes.ts --slug-prefix=news-`(dry-run 신규 수 확인) → `--apply`. 노트에는 종목별 손익과 종목이 보이는 사진을 싣지 않는다. **자동 게시(2026-11-08 사용자 지시 — 뉴스 전략을 만들면 노트까지 자동으로)**: 무인 실행은 `report.md`가 생기면 `daily.sh`가 `scripts/publish_news_notes.sh`를 부른다 — origin/main 임시 워크트리(`~/nullstock-news/.publish-wt`)에서 위 변환 → 편 수 테스트 갱신·vitest → 시드 dry-run(신규 = 새 편 수) → 노트 세 경로만 커밋·main 푸시 → CI·배포 성공을 기다린 뒤에만 `--apply` → 운영 글·사진 주소 200 확인. 결과는 `report.md` 끝 "연구노트 게시" 절에 붙는다. 이미 올라간 편의 내용이 바뀌면(스크립트 수정 등) 멈춘다 — 사람이 확인하고 `--allow-changed`로 다시 돌리며, DB 본문은 `--overwrite`를 따로 해야 바뀐다. 손으로 돌린 실행도 같은 명령으로 올린다. 엔진 버전은 `ENGINE_BY_DATE`, 없으면 날짜 폴더의 `engine.txt`(`daily.sh`가 실행 시각에 남긴다)를 쓴다.
 
 **같은 전략으로 열기 링크(2026-10-30 도입)**: `make_note.py`가 입력 문장을 널스탁 입력창에 채워 여는 링크를 `link.txt`와 `note.txt`의 "널스탁에서 같은 전략으로 열기:" 줄에 남긴다 — `https://www.nullstock.im/?prompt=<문장>&utm_source=news&utm_medium=referral&utm_campaign=<날짜>-<NN-slug>`(캠페인은 폴더 이름에서 자동)(한글은 인코딩하지 않고 공백은 `+`, 주소를 깨는 글자만 `%XX` — 짧게 유지. 줄은 `note.txt`의 "널스탁 해석" 절 바로 뒤에 둔다). 규칙은 `x-backtest-post`의 "이 전략 그대로 열기"와 같다: 경로는 홈(`/`)이어야 하고(다른 경로는 비로그인 방문자를 홈으로 돌려보내며 쿼리를 잃는다), 앱은 문장을 채우기만 하고 보내기는 방문자가 누르며, 문장은 1,000자 이하다. 결과를 다시 만들지 않고 링크만 다시 뽑을 때는 `python3 scripts/make_note.py <폴더>`. X에 올릴 때는 `x-backtest-post`가 `utm_source=x` 링크를 따로 만든다.
 
