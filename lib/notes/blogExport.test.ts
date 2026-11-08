@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GuideArticle } from "@/lib/guide/articles";
 import { SITE_SUMMARY_KO } from "@/lib/seo/site";
-import { BLOG_SOURCE_LINE, buildBlogExport } from "./blogExport";
+import { BLOG_SOURCE_LINE, blogTags, buildBlogExport } from "./blogExport";
 import { NOTES_DISCLAIMER, SEED_NOTES } from "./notes";
 
 const NOTE: GuideArticle = {
@@ -13,32 +13,71 @@ const NOTE: GuideArticle = {
   updated: "2026-11-01",
   related: [],
   sections: [
-    { heading: "검증한 속설과 규칙", paragraphs: ["규칙 설명"] },
+    {
+      heading: "출발한 기사",
+      paragraphs: ["규칙 설명"],
+      source: { label: "기사 제목", href: "https://news.example/a" },
+    },
     {
       heading: "결과",
       paragraphs: ["결과 설명"],
       table: { caption: "결과 표", headers: ["지표", "값"], rows: [["CAGR", "12.4%"]], footnote: "각주" },
+      images: [{ src: "/notes/news/sample-note/overview.webp", alt: "결과 화면", caption: "수익 곡선", width: 1400, height: 800 }],
     },
     { heading: "결과 해석", paragraphs: ["해석 문단"] },
     { heading: "읽을 때 주의할 점", paragraphs: ["주의 문단"] },
   ],
+  faq: [{ question: "자주 묻는 질문?", answer: "답" }],
 };
 
 describe("buildBlogExport", () => {
-  it("keeps only the summary, table sections and interpretation sections, in page order", () => {
+  // 2026-11-08 — 요약·표·해석만 옮긴 복사본이 빈약하다는 지적으로 본문 절을 모두 싣는다.
+  it("carries every section in page order", () => {
     const { text } = buildBlogExport(NOTE, "https://example.test");
     expect(text).toContain("결과 표\n\n지표 | 값\nCAGR | 12.4%\n\n각주");
-    expect(text.indexOf("■ 결과\n")).toBeLessThan(text.indexOf("■ 결과 해석"));
-    expect(text).not.toContain("규칙 설명");
-    expect(text).not.toContain("주의 문단");
+    const order = ["■ 출발한 기사", "■ 결과\n", "■ 결과 해석", "■ 읽을 때 주의할 점"].map((h) => text.indexOf(h));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(text).toContain("규칙 설명");
+    expect(text).toContain("주의 문단");
   });
 
-  it("links the original note first and last, and closes with the shared summary, without the full disclaimer", () => {
+  // 2026-11-08 — 답변 엔진이 발췌하는 앞부분을 직답으로 시작하고, 글마다 수치가 다른 FAQ를 본문 뒤에 싣는다.
+  it("opens with the title and direct answer, then links the original", () => {
+    const { text } = buildBlogExport(NOTE, "https://example.test");
+    expect(text.startsWith(NOTE.title)).toBe(true);
+    expect(text.indexOf(NOTE.summary)).toBeLessThan(text.indexOf("원문: https://example.test"));
+    expect(text.indexOf("원문: https://example.test")).toBeLessThan(text.indexOf("■ 출발한 기사"));
+  });
+
+  it("carries the FAQ after the sections in both formats", () => {
+    const { html, text } = buildBlogExport(NOTE, "https://example.test");
+    expect(text).toContain("■ 자주 묻는 질문\n\nQ. 자주 묻는 질문?\nA. 답");
+    expect(text.indexOf("■ 읽을 때 주의할 점")).toBeLessThan(text.indexOf("■ 자주 묻는 질문"));
+    expect(html).toContain("Q. 자주 묻는 질문?</p>");
+    expect(html).toContain("A. 답</p>");
+    expect(buildBlogExport({ ...NOTE, faq: undefined }, "https://example.test").text).not.toContain("■ 자주 묻는 질문");
+  });
+
+  it("keeps the source link and puts photos at absolute addresses", () => {
+    const { html, text } = buildBlogExport(NOTE, "https://example.test");
+    expect(html).toContain('출처: <a href="https://news.example/a">기사 제목</a>');
+    expect(html).toContain('<img src="https://example.test/notes/news/sample-note/overview.webp" alt="결과 화면"');
+    expect(text).toContain("[사진] 수익 곡선: https://example.test/notes/news/sample-note/overview.webp");
+  });
+
+  it("ends with blog tags for the note's series", () => {
+    expect(blogTags("myth-40-ma200-hold")).toContain("속설검증");
+    expect(blogTags("news-20261107-food-surprise")).toContain("뉴스전략");
+    expect(buildBlogExport(NOTE, "https://example.test").text.endsWith("#널스탁 #백테스트 #퀀트투자 #주식백테스트 #퀀트연구")).toBe(true);
+  });
+
+  it("links the original note twice, and closes with the shared summary and tags, without the full disclaimer", () => {
     const { html, text } = buildBlogExport(NOTE, "https://example.test");
     const url = "https://example.test/notes/sample-note?utm_source=naver_blog&amp;utm_medium=referral&amp;utm_campaign=sample-note";
     const plainUrl = "https://example.test/notes/sample-note?utm_source=naver_blog&utm_medium=referral&utm_campaign=sample-note";
-    expect(text.startsWith(`원문: ${plainUrl}`)).toBe(true);
-    expect(text.endsWith(SITE_SUMMARY_KO)).toBe(true);
+    expect(text).toContain(`원문: ${plainUrl}`);
+    expect(text).toContain(`${SITE_SUMMARY_KO}\n\n#널스탁`);
     expect(text).not.toContain(NOTES_DISCLAIMER);
     expect(html).not.toContain("투자자문업자");
     expect(html.split(`<a href="${url}">`)).toHaveLength(3);
@@ -65,7 +104,7 @@ describe("buildBlogExport", () => {
   });
 
   it("links production, not the local dev host, by default", () => {
-    expect(buildBlogExport(NOTE).text.startsWith("원문: https://www.nullstock.im/notes/sample-note?utm_source=naver_blog")).toBe(true);
+    expect(buildBlogExport(NOTE).text).toContain("원문: https://www.nullstock.im/notes/sample-note?utm_source=naver_blog");
   });
 
   it("gives every seed note a result table in its export", () => {

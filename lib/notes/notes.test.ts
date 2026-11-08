@@ -14,7 +14,7 @@ import {
   searchNotes,
 } from "./notes";
 import { mythNoteDataset, mythNoteOpenPrompt, mythNoteSeoTitle } from "./mythNotes";
-import { NEWS_NOTES, newsNoteOpenPrompt } from "./newsNotes";
+import { NEWS_NOTES, newsNoteDataset, newsNoteOpenPrompt } from "./newsNotes";
 import { CLASSIC_NOTES, CLASSIC_SUMMARY_SLUG, classicNoteDataset, classicNoteSlug } from "./classicNotes";
 import { CLASSIC_RESULTS } from "./classicResults";
 
@@ -287,7 +287,7 @@ describe("news strategy notes", () => {
 
   it("links the source article and ships every photo it references", () => {
     for (const note of NEWS_NOTES) {
-      const source = note.sections[0].source;
+      const source = note.sections.find((s) => s.heading === "이 규칙을 떠올린 기사")?.source;
       expect(source?.href).toMatch(/^https:\/\/(www\.yna\.co\.kr\/view|n\.news\.naver\.com\/article)\//);
       const images = note.sections.flatMap((s) => s.images ?? []);
       expect(images.length).toBeGreaterThan(0);
@@ -315,7 +315,41 @@ describe("news strategy notes", () => {
 
   it("does not repeat forecast wording from a headline as the source link text", () => {
     const note = NEWS_NOTES.find((item) => item.slug === "news-20261030-semi-op-growth")!;
-    expect(note.sections[0].source).toMatchObject({ label: "기사 원문 보기" });
+    expect(note.sections.find((s) => s.source)?.source).toMatchObject({ label: "기사 원문 보기" });
+  });
+
+  // 2026-11-08 — AI 답변 엔진이 잘라 인용해도 뜻이 통하게 결론을 앞에 두고, 문답마다 규칙 이름·구간·수치를 자체로 갖는다.
+  it("leads with the result and keeps each answer self-contained", () => {
+    for (const note of NEWS_NOTES) {
+      expect(note.title, note.slug).toMatch(/ 백테스트 결과 \((\d{4}~\d{4}년|최근 5년)\)$/);
+      expect(note.summary.startsWith("널스탁 백테스트 기준,"), note.slug).toBe(true);
+      expect(note.sections[0].table?.rows.some((row) => row[0] === "투자 수익률"), note.slug).toBe(true);
+      const rows = note.sections[0].table!.rows;
+      const value = (label: string) => rows.find((row) => row[0] === label)![1];
+      const [returnFaq, riskFaq, ruleFaq] = note.faq!;
+      expect(returnFaq.answer).toContain(value("투자 수익률"));
+      expect(returnFaq.answer).toContain(value("기간"));
+      expect(riskFaq.answer).toContain(value("최대 낙폭"));
+      expect(ruleFaq.answer, note.slug).toMatch(/매수 조건 |리밸런싱 /);
+    }
+  });
+
+  it("states the gap to the benchmark in the same arithmetic as the interpretation", () => {
+    for (const note of NEWS_NOTES) {
+      const gap = /와 ([+−][\d.]+%p) 차이가 났습니다/.exec(note.sections[0].paragraphs[0])?.[1];
+      expect(gap, note.slug).toBeDefined();
+      const bullets = note.sections.find((s) => s.heading === "결과 해석")!.bullets!;
+      expect(bullets.find((line) => line.startsWith("벤치마크 비교")), note.slug).toContain(`${gap} 차이`);
+    }
+  });
+
+  it("describes the backtest result as a dataset for every news note", () => {
+    for (const note of NEWS_NOTES) {
+      const dataset = newsNoteDataset(note.slug);
+      expect(dataset?.temporalCoverage, note.slug).toMatch(/^\d{4}-\d{2}-\d{2}\/\d{4}-\d{2}-\d{2}$/);
+      expect(dataset?.variableMeasured).toContain("최대 낙폭(MDD)");
+    }
+    expect(newsNoteDataset("myth-09-ma-5-20-cross")).toBeUndefined();
   });
 
   it("opens the exact input sentence quoted in the note", () => {

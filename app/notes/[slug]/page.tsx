@@ -7,7 +7,7 @@ import { buildNotesCollection, notePath } from "@/lib/notes/notes";
 import { findNote, listNotes } from "@/lib/notes/notesStore";
 import { classicNoteDataset } from "@/lib/notes/classicNotes";
 import { mythNoteDataset, mythNoteOpenPrompt, mythNoteSeoTitle } from "@/lib/notes/mythNotes";
-import { newsNoteOpenPrompt } from "@/lib/notes/newsNotes";
+import { newsNoteDataset, newsNoteOpenPrompt } from "@/lib/notes/newsNotes";
 import { buildOpenGraph } from "@/lib/seo/site";
 import { strategyOpenHref } from "@/lib/strategy/strategyOpenLink";
 
@@ -44,7 +44,7 @@ export default async function NoteRoute({ params }: NoteRouteProps) {
     <GuideArticlePage
       article={note}
       collection={buildNotesCollection(notes)}
-      dataset={mythNoteDataset(note.slug) ?? classicNoteDataset(note.slug)}
+      dataset={mythNoteDataset(note.slug) ?? classicNoteDataset(note.slug) ?? newsNoteDataset(note.slug)}
       openHref={prompt ? strategyOpenHref(prompt, "notes", note.slug) : undefined}
       // 블로그 붙여 넣기용 복사는 로컬 개발 서버에서만 보인다(운영 화면에는 렌더하지 않는다).
       headerAction={
