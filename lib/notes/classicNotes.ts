@@ -148,7 +148,18 @@ function engineRows(market: Market, t: Technique): [string, string][] {
   ];
 }
 
-function buildReport(rep: Report): GuideArticle {
+// 2026-11-08 사용자 지시: 질문의 표현을 글마다 다르게. 모두 과거형이고 60자 안에 든다(notes.test).
+const REPORT_TITLE_PATTERNS: ((name: string, market: string) => string)[] = [
+  (name, market) => `${name}, ${market} 백테스트하면 수익이 났을까?`,
+  (name, market) => `${name}, ${market} 수익률은 얼마였을까?`,
+  (name, market) => `${name}의 최대 낙폭은 얼마나 컸을까? ${market} 백테스트`,
+  (name, market) => `${name}을 ${market} 데이터로 시험한 결과는 어땠을까?`,
+  (name, market) => `${name}의 승률은 몇 퍼센트였을까? ${market} 백테스트`,
+  (name, market) => `${market} 백테스트, ${name}은 벤치마크와 얼마나 달랐을까?`,
+  (name, market) => `${name}의 매매 횟수와 손익은 어땠을까? ${market} 백테스트`,
+];
+
+function buildReport(rep: Report, index: number): GuideArticle {
   const t = technique(rep.key);
   const r = RESULTS[rep.market][rep.key];
   const m = rep.market;
@@ -271,7 +282,7 @@ function buildReport(rep: Report): GuideArticle {
   const other = MARKETS.find((x) => x !== m)!;
   return {
     slug: slugOf(m, t),
-    title: `${t.name}, ${m} ${PERIOD_LABEL} 백테스트하면 수익이 났을까?`,
+    title: REPORT_TITLE_PATTERNS[index % REPORT_TITLE_PATTERNS.length](t.name, `${m} ${PERIOD_LABEL}`),
     description: `${t.short} 전략을 ${m} ${r.start}~${r.end}에 적용한 백테스트: 투자 수익률 ${r.ret}, CAGR ${r.cagr}, MDD ${r.mdd}, 거래 ${r.trades}. 같은 기간 ${bench} 보유 ${r.benchRet}.`,
     summary: summary(m, t, r),
     published: REPORT_PUBLISHED[`${m}:${rep.key}`] ?? "2026-11-05",

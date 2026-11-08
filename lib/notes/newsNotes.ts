@@ -82,6 +82,23 @@ function marketPeriodLabel(n: NewsStrategy): string {
   return `${/^KOS(PI|DAQ)( \d+)?$/.test(universe) ? universe : "한국 주식"} ${/^\d+년$/.test(period) ? period : yearsLabel(n)}`;
 }
 
+// 2026-11-08 사용자 지시: 질문형이되 표현은 글마다 다르게. 모두 과거형으로 쓴다 — 관측값만 답할 수 있다(규제 원칙).
+const TITLE_PATTERNS: ((rule: string, market: string) => string)[] = [
+  (rule, market) => `${rule}은 과거에 수익이 났을까? ${market} 백테스트 결과`,
+  (rule, market) => `${rule}의 ${market} 수익률은 얼마였을까? 백테스트 결과`,
+  (rule, market) => `${rule}의 최대 낙폭은 얼마나 컸을까? ${market} 백테스트 결과`,
+  (rule, market) => `${rule}을 ${market} 과거 데이터로 시험한 결과는 어땠을까?`,
+  (rule, market) => `${rule}의 승률은 몇 퍼센트였을까? ${market} 백테스트 결과`,
+  (rule, market) => `${market} 백테스트에서 ${rule}은 벤치마크와 얼마나 달랐을까?`,
+  (rule, market) => `${rule}의 매매는 몇 번 일어났고 손익은 어땠을까? ${market} 백테스트 결과`,
+];
+
+/** 문형은 글 순서대로 돌려 쓴다 — 같은 날 올라가는 글끼리 표현이 겹치지 않는다. */
+function noteTitle(n: NewsStrategy, index: number): string {
+  const rule = `${n.name}${n.name.endsWith("전략") ? "" : " 전략"}`;
+  return TITLE_PATTERNS[index % TITLE_PATTERNS.length](rule, marketPeriodLabel(n));
+}
+
 /** 전략 수익률과 벤치마크의 표시값 차이(%p) — 해석 절의 '벤치마크 비교'와 같은 산술이다. */
 function benchmarkGap(n: NewsStrategy): string {
   const percent = (value: string) => Number(value.replace("−", "-").replace(/[+%,]/g, ""));
@@ -124,7 +141,7 @@ function images(n: NewsStrategy, key: Photo["key"]): GuideImage[] {
     }));
 }
 
-function buildNote(n: NewsStrategy, related: string[]): GuideArticle {
+function buildNote(n: NewsStrategy, related: string[], index: number): GuideArticle {
   const m = n.metrics;
   const period = periodLabel(n);
   const costClause = n.cost ? `${n.cost}를 매 거래에 반영` : "거래 비용을 반영";
@@ -203,8 +220,7 @@ function buildNote(n: NewsStrategy, related: string[]): GuideArticle {
 
   return {
     slug: n.slug,
-    // 2026-11-08 사용자 지시 질문형. '효과가 있을까' 대신 과거형으로 쓴다 — 관측값만 답할 수 있다(규제 원칙).
-    title: `${n.name}${n.name.endsWith("전략") ? "" : " 전략"}은 과거에 수익이 났을까? ${marketPeriodLabel(n)} 백테스트 결과`,
+    title: noteTitle(n, index),
     description: `“${n.name}” 규칙을 ${period} 한국 주식 과거 데이터로 백테스트한 투자 수익률은 ${m.ret}, 최대 낙폭은 ${m.mdd}였습니다. 기사에서 출발한 뉴스 전략의 입력 문장, 조건, 비용 가정과 결과 표를 기록했습니다.`,
     summary: `널스탁 백테스트 기준, ${period} 구간에 “${n.name}” 규칙을 적용한 투자 수익률은 ${m.ret}, CAGR은 ${m.cagr}, 최대 낙폭은 ${m.mdd}, 승률은 ${m.win}(거래 ${m.trades})였습니다. 같은 기간 벤치마크 ${m.benchName}의 수익률은 ${m.bench}였습니다.`,
     published: n.date,
@@ -221,7 +237,7 @@ function relatedOf(n: NewsStrategy): string[] {
   return [...sameDay.map((other) => other.slug), GUIDE_READ];
 }
 
-export const NEWS_NOTES: GuideArticle[] = NEWS.map((n) => buildNote(n, relatedOf(n)));
+export const NEWS_NOTES: GuideArticle[] = NEWS.map((n, index) => buildNote(n, relatedOf(n), index));
 
 /** Article의 isBasedOn으로 잇는 결과 데이터 — DB 노트에는 이 필드가 없으므로 원본에서 slug로 찾는다. 뉴스 글이 아니면 undefined. */
 export function newsNoteDataset(slug: string): BacktestDataset | undefined {

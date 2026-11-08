@@ -186,8 +186,13 @@ describe("classic-technique notes (KOSPI·KOSDAQ 3y)", () => {
     expect(getNote(CLASSIC_SUMMARY_SLUG)).toBeDefined();
     for (const note of reports) {
       expect(getNote(note.slug)?.slug).toBe(note.slug);
-      expect(note.title).toMatch(/(KOSPI|KOSDAQ) 최근 3년 백테스트하면 수익이 났을까\?$/);
+      expect(note.title, note.slug).toMatch(/(KOSPI|KOSDAQ) 최근 3년/);
+      expect(note.title, note.slug).toMatch(/(났을까|였을까|컸을까|어땠을까|달랐을까)\?/);
     }
+    // 2026-11-08 — 이웃한 글의 질문 표현이 겹치지 않는다.
+    const endings = reports.map((note) => note.title.replace(/^.*전략(, |의 |을 |은 )/, "").replace(/(KOSPI|KOSDAQ) 최근 3년/, ""));
+    expect(new Set(endings).size).toBe(7);
+    endings.slice(1).forEach((ending, i) => expect(ending, reports[i + 1].slug).not.toBe(endings[i]));
   });
 
   it("keeps the slugs of the KOSPI notes published on 2026-11-04", () => {
@@ -318,10 +323,21 @@ describe("news strategy notes", () => {
     expect(note.sections.find((s) => s.source)?.source).toMatchObject({ label: "기사 원문 보기" });
   });
 
+  // 2026-11-08 — 모든 글이 같은 문장으로 시작·끝나지 않게 제목 표현을 돌려 쓴다.
+  it("varies the question wording so neighbouring titles differ", () => {
+    const wording = (title: string, name: string) => title.replace(name, "");
+    const NAMES = NEWS_NOTES.map((note) => note.title.replace(/( 전략).*$|^.*백테스트에서 /, ""));
+    const shapes = NEWS_NOTES.map((note, i) => wording(note.title, NAMES[i]).replace(/(KOS(PI|DAQ)( \d+)?|한국 주식) (\d+년|\d{4}~\d{4}년|최근 5년)/, ""));
+    expect(new Set(shapes).size).toBeGreaterThanOrEqual(7);
+    shapes.slice(1).forEach((shape, i) => expect(shape, NEWS_NOTES[i + 1].slug).not.toBe(shapes[i]));
+  });
+
   // 2026-11-08 — AI 답변 엔진이 잘라 인용해도 뜻이 통하게 결론을 앞에 두고, 문답마다 규칙 이름·구간·수치를 자체로 갖는다.
   it("leads with the result and keeps each answer self-contained", () => {
     for (const note of NEWS_NOTES) {
-      expect(note.title, note.slug).toMatch(/ 전략은 과거에 수익이 났을까\? (KOS(PI|DAQ)( \d+)?|한국 주식) (\d+년|\d{4}~\d{4}년|최근 5년) 백테스트 결과$/);
+      expect(note.title, note.slug).toMatch(/전략.*(KOS(PI|DAQ)( \d+)?|한국 주식) (\d+년|\d{4}~\d{4}년|최근 5년)|(KOS(PI|DAQ)( \d+)?|한국 주식) (\d+년|\d{4}~\d{4}년|최근 5년) 백테스트에서 .*전략/);
+      expect(note.title, note.slug).toMatch(/(났을까|였을까|컸을까|어땠을까|달랐을까)\?/);
+      expect(note.title, note.slug).not.toMatch(/효과가 있을까|유망할까|좋을까/);
       expect(note.summary.startsWith("널스탁 백테스트 기준,"), note.slug).toBe(true);
       expect(note.sections[0].table?.rows.some((row) => row[0] === "투자 수익률"), note.slug).toBe(true);
       const rows = note.sections[0].table!.rows;
