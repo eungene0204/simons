@@ -321,7 +321,7 @@ describe("news strategy notes", () => {
   // 2026-11-08 — AI 답변 엔진이 잘라 인용해도 뜻이 통하게 결론을 앞에 두고, 문답마다 규칙 이름·구간·수치를 자체로 갖는다.
   it("leads with the result and keeps each answer self-contained", () => {
     for (const note of NEWS_NOTES) {
-      expect(note.title, note.slug).toMatch(/ 백테스트 결과 \((\d{4}~\d{4}년|최근 5년)\)$/);
+      expect(note.title, note.slug).toMatch(/ 전략은 과거에 수익이 났을까\? (KOS(PI|DAQ)( \d+)?|한국 주식) (\d+년|\d{4}~\d{4}년|최근 5년) 백테스트 결과$/);
       expect(note.summary.startsWith("널스탁 백테스트 기준,"), note.slug).toBe(true);
       expect(note.sections[0].table?.rows.some((row) => row[0] === "투자 수익률"), note.slug).toBe(true);
       const rows = note.sections[0].table!.rows;

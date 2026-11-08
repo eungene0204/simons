@@ -5,7 +5,7 @@
 // 표현은 규제 안전 원칙을 따른다(CLAUDE.md) — 기사와 결과의 인과, 규칙의 우열, 전망을 말하지 않고 관측된 값만 기록한다.
 // 종목명은 결과 서술에 싣지 않는다(입력 문장·기사 제목은 원문 그대로). 순수 데이터 모듈이다(react·next 의존 없음).
 //
-// 글 구성은 AI 답변 엔진이 인용하기 좋은 순서다(2026-11-08): 제목은 사람이 묻는 말(규칙 이름 + 백테스트 결과 + 연도),
+// 글 구성은 AI 답변 엔진이 인용하기 좋은 순서다(2026-11-08): 제목은 사람이 묻는 질문형(규칙 이름 + 과거 수익 여부 + 시장·기간 + 백테스트 결과),
 // 요약·첫 절에 결과 수치, 그다음 규칙·해석·기사·계산 기준. 문장·FAQ는 앞뒤 없이 잘려도 뜻이 통하도록 규칙 이름·구간·수치를 자체로 갖는다.
 // 숫자 없는 공통 문구를 늘리지 않는다 — 같은 틀의 글이 대량으로 쌓이므로 글마다 다른 것은 계산 결과뿐이어야 한다.
 
@@ -72,6 +72,14 @@ function periodLabel(n: NewsStrategy): string {
 
 function yearsLabel(n: NewsStrategy): string {
   return n.period ? `${n.period[0].slice(0, 4)}~${n.period[1].slice(0, 4)}년` : "최근 5년";
+}
+
+/** 제목의 시장·기간 — 시장 전체 유니버스만 이름을 쓴다(업종·개별 종목 유니버스는 규칙 이름에 이미 있다). */
+function marketPeriodLabel(n: NewsStrategy): string {
+  const cell = (label: string) => n.card.find(([key]) => key === label)?.[1] ?? "";
+  const universe = cell("유니버스");
+  const period = cell("백테스트 기간");
+  return `${/^KOS(PI|DAQ)( \d+)?$/.test(universe) ? universe : "한국 주식"} ${/^\d+년$/.test(period) ? period : yearsLabel(n)}`;
 }
 
 /** 전략 수익률과 벤치마크의 표시값 차이(%p) — 해석 절의 '벤치마크 비교'와 같은 산술이다. */
@@ -195,7 +203,8 @@ function buildNote(n: NewsStrategy, related: string[]): GuideArticle {
 
   return {
     slug: n.slug,
-    title: `${n.name} 백테스트 결과 (${yearsLabel(n)})`,
+    // 2026-11-08 사용자 지시 질문형. '효과가 있을까' 대신 과거형으로 쓴다 — 관측값만 답할 수 있다(규제 원칙).
+    title: `${n.name}${n.name.endsWith("전략") ? "" : " 전략"}은 과거에 수익이 났을까? ${marketPeriodLabel(n)} 백테스트 결과`,
     description: `“${n.name}” 규칙을 ${period} 한국 주식 과거 데이터로 백테스트한 투자 수익률은 ${m.ret}, 최대 낙폭은 ${m.mdd}였습니다. 기사에서 출발한 뉴스 전략의 입력 문장, 조건, 비용 가정과 결과 표를 기록했습니다.`,
     summary: `널스탁 백테스트 기준, ${period} 구간에 “${n.name}” 규칙을 적용한 투자 수익률은 ${m.ret}, CAGR은 ${m.cagr}, 최대 낙폭은 ${m.mdd}, 승률은 ${m.win}(거래 ${m.trades})였습니다. 같은 기간 벤치마크 ${m.benchName}의 수익률은 ${m.bench}였습니다.`,
     published: n.date,
