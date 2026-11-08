@@ -211,7 +211,7 @@ describe("classic-technique notes (KOSPI·KOSDAQ 3y)", () => {
 
   // 2026-11-09 사용자 지시: 면책은 페이지 아래 안내가 맡는다. 본문·요약·FAQ에 반복하지 않는다.
   it("carries no future-return sentence in the body", () => {
-    for (const note of CLASSIC_NOTES) {
+    for (const note of NOTES) {
       expect(JSON.stringify([note.summary, note.sections, note.faq]), note.slug).not.toMatch(/미래 수익(을|은) 보장/);
     }
   });
