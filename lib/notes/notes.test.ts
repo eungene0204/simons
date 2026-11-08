@@ -273,7 +273,7 @@ describe("classic-technique notes (KOSPI·KOSDAQ 3y)", () => {
 // 2026-11-07 — 뉴스 전략 테스트(~/nullstock-news) 결과를 연구노트로 옮겼다(build_news_notes.py → newsNotes.data.json).
 describe("news strategy notes", () => {
   it("adds the news notes with summaries matching their result tables", () => {
-    expect(NEWS_NOTES).toHaveLength(50);
+    expect(NEWS_NOTES).toHaveLength(55);
     for (const note of NEWS_NOTES) {
       expect(note.slug).toMatch(/^news-\d{8}-/);
       const rows = note.sections.flatMap((s) => s.table?.rows ?? []);
