@@ -80,6 +80,14 @@ describe("research notes", () => {
     }
   });
 
+  // 2026-11-09 사용자 지시: 노트 본문은 '규칙'이 아니라 '전략'이라고 쓴다(엔진·지수 자체의 규칙만 예외). 뉴스 편은 기사 제목을 그대로 실어 틀(newsNotes.ts)에서 맞춘다.
+  it("calls a strategy 전략", () => {
+    for (const note of NOTES.filter((n) => !n.slug.startsWith("news-"))) {
+      const text = JSON.stringify([note.title, note.description, note.summary, note.sections, note.faq]).replace(/엔진 기본 규칙|편입·편출 규칙|문장에 없던 규칙/g, "");
+      expect(text, note.slug).not.toContain("규칙");
+    }
+  });
+
   it("keeps every myth-series summary consistent with its result table", () => {
     const myths = NOTES.filter((note) => note.slug.startsWith("myth-"));
     expect(myths).toHaveLength(41);
@@ -201,6 +209,13 @@ describe("classic-technique notes (KOSPI·KOSDAQ 3y)", () => {
     }
   });
 
+  // 2026-11-09 사용자 지시: 면책은 페이지 아래 안내가 맡는다. 본문·요약·FAQ에 반복하지 않는다.
+  it("carries no future-return sentence in the body", () => {
+    for (const note of CLASSIC_NOTES) {
+      expect(JSON.stringify([note.summary, note.sections, note.faq]), note.slug).not.toMatch(/미래 수익(을|은) 보장/);
+    }
+  });
+
   it("fits titles and descriptions within search snippet lengths", () => {
     for (const note of CLASSIC_NOTES) {
       expect(note.title.length, note.slug).toBeLessThanOrEqual(60);
@@ -292,7 +307,7 @@ describe("news strategy notes", () => {
 
   it("links the source article and ships every photo it references", () => {
     for (const note of NEWS_NOTES) {
-      const source = note.sections.find((s) => s.heading === "이 규칙을 떠올린 기사")?.source;
+      const source = note.sections.find((s) => s.heading === "이 전략을 떠올린 기사")?.source;
       expect(source?.href).toMatch(/^https:\/\/(www\.yna\.co\.kr\/view|n\.news\.naver\.com\/article)\//);
       const images = note.sections.flatMap((s) => s.images ?? []);
       expect(images.length).toBeGreaterThan(0);
