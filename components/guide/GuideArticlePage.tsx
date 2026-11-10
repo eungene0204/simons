@@ -223,7 +223,7 @@ export function GuideArticlePage({
           <div className="mt-10 flex flex-col gap-4 border border-white/[0.08] p-5 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm font-bold leading-6 text-gray-300">
               {openHref
-                ? "이 글에 적은 입력 문장을 전략 입력창에 채워 같은 규칙으로 다시 계산해 볼 수 있습니다."
+                ? "이 글에 적은 입력 문장을 전략 입력창에 채워 같은 전략으로 다시 계산해 볼 수 있습니다."
                 : "떠오른 전략 아이디어를 문장으로 입력하면 과거 데이터로 백테스트해 볼 수 있습니다."}
             </p>
             <Link

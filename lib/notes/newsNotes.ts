@@ -151,7 +151,7 @@ function buildNote(n: NewsStrategy, related: string[], index: number): GuideArti
     {
       heading: `${n.name} 백테스트 결과`,
       paragraphs: [
-        `“${n.name}” 규칙의 ${period} 투자 수익률은 ${m.ret}(총 수익 ${m.profit})이고, 같은 기간 ${m.benchName}의 수익률 ${m.bench}와 ${benchmarkGap(n)} 차이가 났습니다. 전략과 벤치마크는 구성과 규칙이 다르므로 이 차이는 우열을 뜻하지 않습니다.`,
+        `“${n.name}” 전략의 ${period} 투자 수익률은 ${m.ret}(총 수익 ${m.profit})이고, 같은 기간 ${m.benchName}의 수익률 ${m.bench}와 ${benchmarkGap(n)} 차이가 났습니다. 전략과 벤치마크는 구성과 매매 방식이 다르므로 이 차이는 우열을 뜻하지 않습니다.`,
       ],
       table: {
         caption: `${n.name} — 백테스트 결과`,
@@ -162,7 +162,7 @@ function buildNote(n: NewsStrategy, related: string[], index: number): GuideArti
       images: images(n, "overview"),
     },
     {
-      heading: "전략 규칙과 설정값",
+      heading: "전략과 설정값",
       paragraphs: [
         "널스탁에 아래 문장을 그대로 입력했습니다.",
         `“${n.prompt}”`,
@@ -172,15 +172,15 @@ function buildNote(n: NewsStrategy, related: string[], index: number): GuideArti
     },
     {
       heading: "결과 해석",
-      paragraphs: [`“${n.name}” 규칙의 ${period} 결과를 백테스트 로그와 지표의 값으로 풀었습니다. 평가가 아니라 산술입니다.`],
+      paragraphs: [`“${n.name}” 전략의 ${period} 결과를 백테스트 로그와 지표의 값으로 풀었습니다. 평가가 아니라 산술입니다.`],
       bullets: n.interpretation,
       images: images(n, "dist"),
     },
     {
-      heading: "이 규칙을 떠올린 기사",
+      heading: "이 전략을 떠올린 기사",
       paragraphs: [
-        `${dayLabel(n.date)} 기사를 보고 떠올린 규칙 하나를 과거 데이터에 적용한 기록입니다. 기사에서 옮긴 생각은 이렇습니다: ${n.why}.`,
-        "이 노트는 기사 내용과 결과 사이의 관계를 말하지 않습니다. 기사는 규칙을 떠올린 계기일 뿐이고, 위 숫자는 같은 규칙이 과거 구간에서 낸 값입니다.",
+        `${dayLabel(n.date)} 기사를 보고 떠올린 전략 하나를 과거 데이터에 적용한 기록입니다. 기사에서 옮긴 생각은 이렇습니다: ${n.why.replace(/규칙/g, "전략")}.`,
+        "이 노트는 기사 내용과 결과 사이의 관계를 말하지 않습니다. 기사는 전략을 떠올린 계기일 뿐이고, 위 숫자는 같은 전략이 과거 구간에서 낸 값입니다.",
       ],
       source: { label: REGULATED_WORDING.test(n.news.title) ? "기사 원문 보기" : n.news.title, href: n.news.link },
     },
@@ -204,25 +204,25 @@ function buildNote(n: NewsStrategy, related: string[], index: number): GuideArti
       answer: `${period} 과거 데이터 백테스트에서 최대 낙폭은 ${m.mdd}, 승률은 ${m.win}, 거래 수는 ${m.trades}, 손익비는 ${m.pf}였습니다.`,
     },
     {
-      question: `${n.name} 규칙의 매수·매도 조건은 무엇인가요?`,
+      question: `${n.name} 전략의 매수·매도 조건은 무엇인가요?`,
       answer: `널스탁이 입력 문장을 해석한 조건은 ${rules.join(", ")}입니다.`,
     },
     {
       question: "이 결과가 기사 내용 때문에 나온 것인가요?",
       answer:
-        "아닙니다. 기사는 규칙을 떠올린 계기일 뿐이고, 결과는 기사보다 앞선 과거 데이터에 규칙을 적용해 계산한 값입니다. 기사와 결과 사이의 인과는 확인하지 않았습니다.",
+        "아닙니다. 기사는 전략을 떠올린 계기일 뿐이고, 결과는 기사보다 앞선 과거 데이터에 전략을 적용해 계산한 값입니다. 기사와 결과 사이의 인과는 확인하지 않았습니다.",
     },
     {
       question: "표의 벤치마크와의 차이는 무엇을 뜻하나요?",
-      answer: `같은 기간 지수 ETF의 수익률(${m.bench})과 전략 수익률(${m.ret})을 표시값 그대로 비교하는 용도입니다. 전략은 조건에 맞는 종목만 보유하고 ETF는 지수 전체를 보유하므로 구성과 규칙이 달라 우열을 가리는 값은 아닙니다.`,
+      answer: `같은 기간 지수 ETF의 수익률(${m.bench})과 전략 수익률(${m.ret})을 표시값 그대로 비교하는 용도입니다. 전략은 조건에 맞는 종목만 보유하고 ETF는 지수 전체를 보유하므로 구성과 매매 방식이 달라 우열을 가리는 값은 아닙니다.`,
     },
   ];
 
   return {
     slug: n.slug,
     title: noteTitle(n, index),
-    description: `“${n.name}” 규칙을 ${period} 한국 주식 과거 데이터로 백테스트한 투자 수익률은 ${m.ret}, 최대 낙폭은 ${m.mdd}였습니다. 기사에서 출발한 뉴스 전략의 입력 문장, 조건, 비용 가정과 결과 표를 기록했습니다.`,
-    summary: `널스탁 백테스트 기준, ${period} 구간에 “${n.name}” 규칙을 적용한 투자 수익률은 ${m.ret}, CAGR은 ${m.cagr}, 최대 낙폭은 ${m.mdd}, 승률은 ${m.win}(거래 ${m.trades})였습니다. 같은 기간 벤치마크 ${m.benchName}의 수익률은 ${m.bench}였습니다.`,
+    description: `“${n.name}” 전략을 ${period} 한국 주식 과거 데이터로 백테스트한 투자 수익률은 ${m.ret}, 최대 낙폭은 ${m.mdd}였습니다. 기사에서 출발한 뉴스 전략의 입력 문장, 조건, 비용 가정과 결과 표를 기록했습니다.`,
+    summary: `널스탁 백테스트 기준, ${period} 구간에 “${n.name}” 전략을 적용한 투자 수익률은 ${m.ret}, CAGR은 ${m.cagr}, 최대 낙폭은 ${m.mdd}, 승률은 ${m.win}(거래 ${m.trades})였습니다. 같은 기간 벤치마크 ${m.benchName}의 수익률은 ${m.bench}였습니다.`,
     published: n.date,
     updated: n.date,
     sections,
