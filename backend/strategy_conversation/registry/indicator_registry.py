@@ -22,6 +22,8 @@ from typing import Dict, Iterable, List, Literal, Optional, Tuple
 SupportStatus = Literal["SUPPORTED", "PARTIALLY_SUPPORTED", "UNSUPPORTED"]
 
 _COMPARISON_OPS = ("<", "<=", ">", ">=")
+# 지표 기간 상한 — 1년(12개월) = 252거래일까지 받는다. 종전 250은 "12개월 수익률"을 거부했다.
+_MAX_LOOKBACK_DAYS = 252
 
 
 @dataclass(frozen=True)
@@ -275,7 +277,7 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
     # ── 기술적 지표 (엔진 TechnicalSignal.indicator와 1:1) ───────────────────
     _technical("ma_crossover", "이동평균 크로스오버", "event",
                ("crosses_above", "crosses_below", ">", "<"),
-               {"short_period": ParamSpec(default=20, minimum=1, maximum=250, required=True),
+               {"short_period": ParamSpec(default=20, minimum=1, maximum=_MAX_LOOKBACK_DAYS, required=True),
                 "long_period": ParamSpec(default=60, minimum=3, maximum=500, required=True)},
                notes="crosses_above=골든크로스, crosses_below=데드크로스. "
                      "short_period=1은 '가격(종가) 대비 N일선' 정본 표기 — "
@@ -286,7 +288,7 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                      "교차로 옮기면 조건이 교차 당일 하루로 좁아진다(2026-09-10)"),
     _technical("ema", "지수이동평균(EMA)", "event",
                ("crosses_above", "crosses_below", ">", "<"),
-               {"short_period": ParamSpec(default=20, minimum=1, maximum=250),
+               {"short_period": ParamSpec(default=20, minimum=1, maximum=_MAX_LOOKBACK_DAYS),
                 "long_period": ParamSpec(default=60, minimum=3, maximum=500)},
                notes="'20일선이 60일선 위로 올라서면'처럼 **교차 시점**이면 "
                      "crosses_above/crosses_below. >/< 는 **머무는 상태** 필터"
@@ -295,7 +297,7 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                      "'가격(종가) 대비 N일 EMA' 정본 표기 — 최소값 2는 종가 표기를 "
                      "검증 오류로 만들어 조용한 부분 컴파일을 냈다(2026-08-18)"),
     _technical("rsi", "RSI", "point", _COMPARISON_OPS + ("crosses_above", "crosses_below"),
-               {"period": ParamSpec(default=14, minimum=2, maximum=250)},
+               {"period": ParamSpec(default=14, minimum=2, maximum=_MAX_LOOKBACK_DAYS)},
                value_range=(0, 100), recommended=30,
                notes="부등호=그날 RSI 수준('RSI 30 이하'). crosses_above=임계선(value) 아래에 "
                      "있다가 다시 위로 올라서는 날(과매도 반등 매수), crosses_below=위에 "
@@ -310,7 +312,7 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
     replace(
         _technical("bollinger_bands", "볼린저 밴드", "event",
                    ("crosses_above", "crosses_below"),
-                   {"period": ParamSpec(default=20, minimum=5, maximum=250)}),
+                   {"period": ParamSpec(default=20, minimum=5, maximum=_MAX_LOOKBACK_DAYS)}),
         prompt_hidden=True,
     ),
     # 밴드 지정 볼린저(엔진 v16.39) — 밴드와 교차 방향을 **개념 ID 이름**이 담는다(연산자 없음).
@@ -319,7 +321,7 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
     *(
         replace(
             _technical(leaf, name, "event", (),
-                       {"period": ParamSpec(default=20, minimum=5, maximum=250)}, notes=notes),
+                       {"period": ParamSpec(default=20, minimum=5, maximum=_MAX_LOOKBACK_DAYS)}, notes=notes),
             engine_binding=("technical_signal", "bollinger_bands"),
         )
         for leaf, name, notes in (
@@ -340,7 +342,7 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
     ),
     replace(
         _technical("bollinger_middle_recovery", "볼린저 밴드 하단 터치 후 중심선 회복", "event", (),
-                   {"period": ParamSpec(default=20, minimum=5, maximum=250),
+                   {"period": ParamSpec(default=20, minimum=5, maximum=_MAX_LOOKBACK_DAYS),
                     "touch_lookback": ParamSpec(minimum=1, maximum=250, required=True)},
                    notes="'하단 터치 후 중심선 회복' — 하단을 터치한 뒤 중심선을 상향 돌파. operator/value 없음. "
                          "parameters.touch_lookback=하단 터치를 인정할 거래일 수(말한 경우만, 없으면 비움)"),
@@ -366,11 +368,11 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                notes="백테스트 시작일에 조건 없이 한 번 사서 청산 없이 계속 보유('매수 후 보유'·바이앤홀드). "
                      "operator/value/parameters 없음. 매수 조건 칸 전용 — 청산 칸에는 쓸 수 없음"),
     _technical("consecutive_up", "종가 연속 상승", "event", (),
-               {"period": ParamSpec(minimum=1, maximum=250, required=True)},
+               {"period": ParamSpec(minimum=1, maximum=_MAX_LOOKBACK_DAYS, required=True)},
                notes="최근 N거래일 각각의 종가가 직전 거래일 종가보다 높음. "
                      "parameters.period=N, operator/value 없음. 동일 종가·결측은 연속 상승이 아님"),
     _technical("consecutive_down", "종가 연속 하락", "event", (),
-               {"period": ParamSpec(minimum=1, maximum=250, required=True)},
+               {"period": ParamSpec(minimum=1, maximum=_MAX_LOOKBACK_DAYS, required=True)},
                notes="최근 N거래일 각각의 종가가 직전 거래일 종가보다 낮음. "
                      "parameters.period=N, operator/value 없음. 동일 종가·결측은 연속 하락이 아님"),
     # 캔들 패턴(엔진 v16.29) — 잎마다 패턴 하나. 엔진 조건 id는 candle_pattern+pattern 파라미터(컨버터가 옮긴다).
@@ -400,50 +402,84 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                notes="캔들 패턴 — 완성 봉에 신호(연산자·값 없음). 주봉·월봉은 parameters.timeframe"),
     _technical("candle_three_black_crows", "흑삼병 캔들 패턴", "event", (), {},
                notes="캔들 패턴 — 완성 봉에 신호(연산자·값 없음). 주봉·월봉은 parameters.timeframe"),
-    _technical("volume_spike", "OBV 평균 상향 돌파", "event", ("crosses_above",),
-               {"period": ParamSpec(default=20, minimum=2, maximum=250)},
-               notes="OBV 크로스오버 기반 — 사용자가 OBV를 직접 말했을 때만. "
+    _technical("volume_spike", "OBV 평균 돌파", "event", ("crosses_above", "crosses_below"),
+               {"period": ParamSpec(default=20, minimum=2, maximum=_MAX_LOOKBACK_DAYS)},
+               notes="OBV 크로스오버 기반(매수=상향, 매도=하향) — 사용자가 OBV를 직접 말했을 때만. "
                      "'거래량 급증/늘어난/터진'은 technical.volume_ratio(배수를 말했으면 value=배수, 아니면 value=null)"),
     _technical("volume_ratio", "거래량 배수(평균 대비)", "ratio", _COMPARISON_OPS,
-               {"period": ParamSpec(default=20, minimum=2, maximum=250)},
+               {"period": ParamSpec(default=20, minimum=2, maximum=_MAX_LOOKBACK_DAYS)},
                value_range=(0.1, 100), recommended=2,
                notes="당일 거래량 ÷ 직전 N일 평균 거래량(배). '평소보다 3배'·'20일 평균의 1.5배 이상' "
                      "→ operator \">=\", value=3/1.5, 평균 기간을 말했으면 parameters.period=20. "
                      "배수를 unsupported_features로 보내지 마세요"),
     _technical("trading_value_ratio", "거래대금 배수(평균 대비)", "ratio", _COMPARISON_OPS,
-               {"period": ParamSpec(default=20, minimum=2, maximum=250)},
+               {"period": ParamSpec(default=20, minimum=2, maximum=_MAX_LOOKBACK_DAYS)},
                value_range=(0.1, 100), recommended=1,
                notes="당일 거래대금 ÷ 직전 N일 평균 거래대금(배). '거래대금이 30일 평균보다 높은' → "
                      "operator \">\", value=1, parameters.period=30. '20일 평균의 2배 이상' → \">=\", value=2. "
                      "억원 금액 임계('거래대금 100억 이상')는 이것이 아니라 trading_value"),
     _technical("stochastic", "스토캐스틱", "point", _COMPARISON_OPS,
-               {"period": ParamSpec(default=14, minimum=2, maximum=250)},
+               {"period": ParamSpec(default=14, minimum=2, maximum=_MAX_LOOKBACK_DAYS)},
                value_range=(0, 100), recommended=20),
     _technical("cci", "CCI", "point", _COMPARISON_OPS,
-               {"period": ParamSpec(default=20, minimum=2, maximum=250)},
+               {"period": ParamSpec(default=20, minimum=2, maximum=_MAX_LOOKBACK_DAYS)},
                value_range=(-500, 500), recommended=-100),
     _technical("adx", "ADX", "point", _COMPARISON_OPS,
-               {"period": ParamSpec(default=14, minimum=2, maximum=250)},
+               {"period": ParamSpec(default=14, minimum=2, maximum=_MAX_LOOKBACK_DAYS)},
                value_range=(0, 100), recommended=25),
     _technical("williams_r", "Williams %R", "point", _COMPARISON_OPS,
-               {"period": ParamSpec(default=14, minimum=2, maximum=250)},
+               {"period": ParamSpec(default=14, minimum=2, maximum=_MAX_LOOKBACK_DAYS)},
                value_range=(-100, 0), recommended=-80),
     _technical("mfi", "MFI(자금흐름지표)", "point", _COMPARISON_OPS,
-               {"period": ParamSpec(default=14, minimum=2, maximum=250)},
+               {"period": ParamSpec(default=14, minimum=2, maximum=_MAX_LOOKBACK_DAYS)},
                value_range=(0, 100), recommended=20),
     _technical("roc", "ROC(변화율/모멘텀)", "percent", _COMPARISON_OPS,
-               {"period": ParamSpec(default=20, minimum=2, maximum=250)},
+               {"period": ParamSpec(default=20, minimum=2, maximum=_MAX_LOOKBACK_DAYS)},
                value_range=(-100, 1000), recommended=0,
                notes="종목 자체의 N거래일 수익률(%) = 종가 ÷ N거래일 전 종가 − 1(시장 지수와 비교하지 않음). "
                      "'최근 N일 동안 X% 이상 하락한'·'N일 수익률 -X% 이하'는 period=N, <=, -X"),
     _technical("disparity", "이격도(종가÷이동평균×100)", "point", _COMPARISON_OPS,
-               {"period": ParamSpec(default=20, minimum=2, maximum=250)},
+               {"period": ParamSpec(default=20, minimum=2, maximum=_MAX_LOOKBACK_DAYS)},
                value_range=(10, 500), recommended=110,
                notes="종가 ÷ period일 단순이동평균 × 100. 100=이동평균선 위치, 120='이동평균보다 20% 위로 벌어짐', "
                      "90='10% 아래'. parameters.period=이동평균 기간(20일선=20), value=이격도 값(말한 %를 100 기준으로 옮김). "
                      "'과열(많이 벌어짐)'은 >=, '침체(많이 눌림)'는 <="),
+    _technical("bollinger_bandwidth", "볼린저 밴드폭", "percent", _COMPARISON_OPS,
+               {"period": ParamSpec(default=20, minimum=5, maximum=_MAX_LOOKBACK_DAYS)},
+               value_range=(0, 200), recommended=10,
+               notes="(상단−하단)÷중심선×100(%). '밴드폭이 10% 이하'는 <=, 10. 최근 N일 중 가장 좁다는 말은 technical.bollinger_squeeze"),
+    _technical("bollinger_squeeze", "볼린저 밴드폭 최저(스퀴즈)", "event", (),
+               {"period": ParamSpec(default=20, minimum=5, maximum=_MAX_LOOKBACK_DAYS),
+                "lookback_period": ParamSpec(minimum=20, maximum=_MAX_LOOKBACK_DAYS, required=True),
+                "within_days": ParamSpec(minimum=1, maximum=60, required=True)},
+               notes="밴드폭이 최근 lookback_period일 중 최저인 날이 최근 within_days거래일 안에 있음. "
+                     "'최근 120일 중 가장 좁아진'→lookback_period=120. 오늘이라고 말했으면 within_days=1, 말하지 않았으면 비움"),
+    _technical("ma_rising", "이동평균선 연속 상승", "event", (),
+               {"period": ParamSpec(minimum=2, maximum=_MAX_LOOKBACK_DAYS, required=True),
+                "days": ParamSpec(minimum=1, maximum=60, required=True)},
+               notes="period일 이동평균선이 전일보다 높은 날이 days거래일 연속. '20일선이 5거래일 연속 상승'→period=20, days=5. "
+                     "주가 자체의 연속 상승은 technical.consecutive_up"),
+    _technical("ma_falling", "이동평균선 연속 하락", "event", (),
+               {"period": ParamSpec(minimum=2, maximum=_MAX_LOOKBACK_DAYS, required=True),
+                "days": ParamSpec(minimum=1, maximum=60, required=True)},
+               notes="period일 이동평균선이 전일보다 낮은 날이 days거래일 연속. '20일선이 5일째 하락'→period=20, days=5"),
+    _technical("high_52w_ratio", "52주 고가 대비 종가 비율", "percent", _COMPARISON_OPS,
+               {"period": ParamSpec(default=252, minimum=20, maximum=_MAX_LOOKBACK_DAYS)},
+               value_range=(1, 100), recommended=95,
+               notes="종가÷최근 period거래일 최고가×100. '52주 최고가의 95% 이상'→>=, 95. 신고가 돌파 사건은 technical.breakout"),
+    _technical("gap", "시가 갭(전일 종가 대비)", "percent", _COMPARISON_OPS, {},
+               value_range=(-50, 50), recommended=3,
+               notes="(당일 시가÷전일 종가−1)×100. '시가가 전일 종가보다 3% 이상 높게 시작'→>=, 3. "
+                     "'갭 하락 2% 이상'→<=, -2. 그날 시가에 확정되는 값이라 체결은 다음 거래일 시가"),
+    # VWAP(엔진 v16.48) — 분봉이 없어 일봉 N거래일 누적(전형가격 기준). 기간은 되묻기(2026-11-06 사용자 결정).
+    _technical("vwap", "VWAP(거래량가중 평균가)", "event",
+               ("crosses_above", "crosses_below", ">", "<"),
+               {"period": ParamSpec(minimum=2, maximum=_MAX_LOOKBACK_DAYS, required=True)},
+               notes="종가 vs 최근 period거래일 VWAP. crosses_above=위로 돌파한 날, crosses_below=아래로 "
+                     "이탈한 날, >/<=위·아래에 머무는 상태. value 없음. parameters.period=말한 기간만(없으면 비움). "
+                     "'장중·당일 VWAP'도 이 개념으로 옮기고 approximated=true"),
     _technical("relative_return", "시장 대비 초과수익률", "percent", _COMPARISON_OPS,
-               {"period": ParamSpec(default=60, minimum=2, maximum=250)},
+               {"period": ParamSpec(default=60, minimum=2, maximum=_MAX_LOOKBACK_DAYS)},
                value_range=(-100, 1000), recommended=0,
                notes="종목 N거래일 수익률 − 상장 시장 지수(코스피·코스닥) N거래일 수익률(%p). "
                      "시장(지수)과 비교한다고 말했을 때만 쓴다 — 비교 없는 종목 자체 수익률 기준은 technical.roc. "
@@ -452,7 +488,7 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                      "'상대강도 상위 N%'는 이 지표가 아니라 ranking.return(수익률 랭킹)이다 — "
                      "그 표현으로 이 조건을 함께 만들지 않는다"),
     _technical("volatility", "변동성(연환산)", "percent", _COMPARISON_OPS,
-               {"period": ParamSpec(default=60, minimum=5, maximum=250)},
+               {"period": ParamSpec(default=60, minimum=5, maximum=_MAX_LOOKBACK_DAYS)},
                value_range=(0, 500), recommended=30,
                notes="일수익률 롤링 표준편차×√246(연환산 %, KRX 실측 계수). '변동성 30% 이하 종목'처럼 임계값 "
                      "필터일 때만. '변동성 낮은 종목 N개' 순위 선정은 ranking.volatility"),
@@ -634,6 +670,13 @@ _ALIASES: Dict[str, str] = {
     "trading_value_ratio": "technical.trading_value_ratio",
     "거래대금배수": "technical.trading_value_ratio",
     "스토캐스틱": "technical.stochastic", "stochastic": "technical.stochastic",
+    "obv": "technical.volume_spike",
+    "밴드폭": "technical.bollinger_bandwidth", "bollinger_bandwidth": "technical.bollinger_bandwidth",
+    "스퀴즈": "technical.bollinger_squeeze", "bollinger_squeeze": "technical.bollinger_squeeze",
+    "ma_rising": "technical.ma_rising", "ma_falling": "technical.ma_falling",
+    "이평선기울기": "technical.ma_rising",
+    "high_52w_ratio": "technical.high_52w_ratio", "52주고가비율": "technical.high_52w_ratio",
+    "gap": "technical.gap", "갭상승": "technical.gap", "갭하락": "technical.gap",
     "cci": "technical.cci",
     "adx": "technical.adx",
     "망치형": "technical.candle_hammer", "망치형": "technical.candle_hammer", "hammer": "technical.candle_hammer", "candle_hammer": "technical.candle_hammer",
@@ -654,6 +697,7 @@ _ALIASES: Dict[str, str] = {
     "mfi": "technical.mfi", "자금흐름지표": "technical.mfi",
     "roc": "technical.roc", "모멘텀": "technical.roc",
     "disparity": "technical.disparity", "이격도": "technical.disparity",
+    "vwap": "technical.vwap", "거래량가중평균가": "technical.vwap",
     "relative_return": "technical.relative_return", "초과수익률": "technical.relative_return",
     "시장대비초과수익률": "technical.relative_return", "시장대비수익률": "technical.relative_return",
     "ai_model": "technical.ai_model", "ai상승예측": "technical.ai_model",
@@ -798,7 +842,12 @@ _SAME_NAME_VARIANTS: Dict[str, frozenset] = {
         "technical.bollinger_upper_breakout", "technical.bollinger_upper_fall",
         "technical.bollinger_middle_up", "technical.bollinger_middle_down",
         "technical.bollinger_lower_touch", "technical.bollinger_lower_rebound",
-        "technical.bollinger_middle_recovery"}),
+        "technical.bollinger_middle_recovery",
+        "technical.bollinger_bandwidth", "technical.bollinger_squeeze"}),
+    # '밴드폭'·'이동평균'·'이평선 기울기'도 이름 하나를 v16.50의 형태별 지표들이 나눠 쓴다.
+    "technical.bollinger_bandwidth": frozenset({"technical.bollinger_squeeze"}),
+    "technical.ma_crossover": frozenset({"technical.ma_rising", "technical.ma_falling"}),
+    "technical.ma_rising": frozenset({"technical.ma_falling"}),
 }
 
 

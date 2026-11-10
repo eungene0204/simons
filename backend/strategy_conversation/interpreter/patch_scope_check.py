@@ -13,6 +13,24 @@ from .output_repair import extract_json_object
 
 _MARKET_SYSTEM = """전략 수정 패치의 출처를 독립적으로 확인합니다. patch.path=/universe/markets는 대상 시장 변경입니다. 값 KOSPI는 코스피, KOSDAQ은 코스닥를 뜻합니다. utterance가 그 시장으로 변경하라고 명시하는지 판단하세요. 다른 조건 요청이나 기존 초안의 시장 값은 근거가 아닙니다. verdict는 yes/no/unclear 중 하나, quote는 그 변경을 말한 사용자 발화의 짧은 원문 조각입니다. 명시가 없으면 no와 quote=null, 모호하면 unclear와 quote=null을 쓰세요. JSON만 출력하세요: {"verdict":"no","quote":null}"""
 
+_RISK_CLEAR_SYSTEM = """전략 수정 패치의 출처를 독립적으로 확인합니다. patch는 기존 전략의 위험 관리 설정 하나({label})를 없애는 변경입니다. utterance가 그 설정을 없애거나 쓰지 말라고 명시하는지 판단하세요. 다른 매수·매도 조건을 추가하거나 바꾸라는 요청은 그 설정을 없애라는 근거가 아닙니다. verdict는 yes/no/unclear 중 하나, quote는 그 설정을 없애라고 말한 사용자 발화의 짧은 원문 조각입니다. 명시가 없으면 no와 quote=null, 모호하면 unclear와 quote=null을 쓰세요. JSON만 출력하세요: {{"verdict":"no","quote":null}}"""
+
+# 판정 질문에 보여 줄 설정 이름 — 경로(LLM 출력)를 키로 고르는 표시 문구다.
+_RISK_LABELS = {
+    "stop_loss": "손절", "take_profit": "익절", "trailing_stop": "트레일링 스탑",
+    "trailing_stop_activation": "트레일링 스탑 발동 수익률", "max_mdd_limit": "MDD 한도",
+    "max_position_weight": "종목당 최대 비중", "stop_cooldown_days": "손절 후 재진입 대기",
+    "partial_take_profits": "분할 익절", "scale_in_buys": "분할 매수", "position_sizing": "포지션 사이징",
+}
+
+
+def is_risk_clear_patch(patch: PatchOp) -> bool:
+    """위험 관리 설정을 비우는 패치인지(경로·값 형태만 본다)."""
+    if not patch.path.startswith("/risk_management/"):
+        return False
+    return patch.op == "remove" or (patch.op == "replace" and patch.value in (None, [], {}))
+
+
 _CONDITION_SYSTEM = """사용자 발화와 전략 수정 조건을 독립적으로 대조합니다. 각 candidate의 factor와 비교 기준을 사용자 발화가 실제로 요청했는지 yes/no/unclear로 답하세요. 기존 전략이나 질문의 예시값에서 근거를 가져오지 마세요. yes일 때만 그 조건을 말한 짧은 원문 quote를 적고, no/unclear이면 null로 두세요. id를 그대로 유지하세요. JSON만 출력하세요: {"items":[{"id":"1","verdict":"no","quote":null}]}"""
 
 
@@ -40,6 +58,41 @@ def market_patch_scope_verdict(
             return False
         if (verdict == "yes" and isinstance(quote, str) and quote.strip()
                 and quote in user_input and quote in (patch.source_text or "")):
+            return True
+    except Exception:
+        pass
+    return None
+
+
+@observed_verdict("market_scope")
+def risk_clear_scope_verdict(
+    patch: PatchOp, user_input: str, chat: Callable,
+) -> bool | None:
+    """Return an LLM yes/no for removing a risk setting; invalid evidence makes no decision.
+
+    인용 대조는 인용한 글자가 입력에 있다는 것만 증명한다 — "RSI 70 이상이면 매도" 전체를 인용으로 단
+    익절 비우기 패치가 그대로 통과해 기존 익절 30%가 사라졌다(2026-11-06 되묻기 하니스).
+    """
+    if not is_risk_clear_patch(patch) or not callable(chat):
+        return None
+    field = patch.path.removeprefix("/risk_management/").split("/")[0]
+    request = {
+        "utterance": user_input,
+        "patch": {"path": patch.path, "value": patch.value,
+                  "source_text": patch.source_text},
+    }
+    try:
+        raw = chat(_RISK_CLEAR_SYSTEM.format(label=_RISK_LABELS.get(field, field)),
+                   json.dumps(request, ensure_ascii=False), max_tokens=120)
+        answer = json.loads(extract_json_object(raw))
+        if not isinstance(answer, dict):
+            return None
+        verdict = answer.get("verdict")
+        quote = answer.get("quote")
+        if verdict == "no" and quote is None:
+            return False
+        if (verdict == "yes" and isinstance(quote, str) and quote.strip()
+                and quote in user_input):
             return True
     except Exception:
         pass

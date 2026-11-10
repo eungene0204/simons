@@ -37,6 +37,8 @@ export interface ParsedSummary {
     band?: string | null;
     cross?: string | null;
     touch_lookback?: number | null;
+    within_days?: number | null;
+    days?: number | null;
     side?: string | null;
     price_basis?: string | null;
   }>;
@@ -53,6 +55,8 @@ export interface ParsedSummary {
     band?: string | null;
     cross?: string | null;
     touch_lookback?: number | null;
+    within_days?: number | null;
+    days?: number | null;
     side?: string | null;
     price_basis?: string | null;
   }>;
@@ -98,6 +102,7 @@ export interface ParsedSummary {
   stop_cooldown_days?: number | null;
   trailing_stop_activation_pct?: number | null;
   entry_limit_pct?: number | null;
+  volatility_breakout_k?: number | null;
   exit_limit_pct?: number | null;
   entry_tranches?: {
     count?: number | null; step_pct?: number | null;
@@ -210,6 +215,7 @@ export const UNIVERSE_LABELS: Record<string, string> = {
 };
 
 export const METRIC_LABELS: Record<string, string> = {
+  relative_return: "시장 대비 초과수익률",
   per: "PER",
   pbr: "PBR",
   psr: "PSR",
@@ -510,7 +516,7 @@ export const INDICATOR_LABELS: Record<string, string> = {
   buy_at_start: "시작일 매수",
   consecutive_up: "종가 연속 상승",
   consecutive_down: "종가 연속 하락",
-  volume_spike: "OBV 평균 상향 돌파",
+  volume_spike: "OBV 평균 돌파",
   volume_ratio: "거래량 배수",
   trading_value_ratio: "거래대금 배수",
   stochastic: "스토캐스틱",
@@ -521,6 +527,13 @@ export const INDICATOR_LABELS: Record<string, string> = {
   mfi: "MFI",
   roc: "ROC",
   disparity: "이격도",
+  bollinger_bandwidth: "볼린저 밴드폭",
+  bollinger_squeeze: "볼린저 밴드폭 최저",
+  ma_rising: "이동평균선 연속 상승",
+  ma_falling: "이동평균선 연속 하락",
+  high_52w_ratio: "52주 고가 대비 종가 비율",
+  gap: "시가 갭",
+  vwap: "VWAP",
   relative_return: "시장 대비 초과수익률",
   // 엔진 TechnicalSignal.indicator(backend/engine/nl_parser.py)에 있는 지표는 **빠짐없이**
   // 여기 라벨이 있어야 한다 — 없으면 배지가 내부 변수명을 그대로 노출한다
@@ -610,6 +623,8 @@ export function getSignalLabel(
     band?: string | null;
     cross?: string | null;
     touch_lookback?: number | null;
+    within_days?: number | null;
+    days?: number | null;
     side?: string | null;
     price_basis?: string | null;
   },
@@ -702,6 +717,38 @@ function getSignalLabelBase(
   if (signal.indicator === "disparity" && signal.value != null) {
     const opKr = t(OPERATOR_KO_LABELS[signal.operator ?? ">="] ?? signal.operator ?? "");
     return t("{0}일선 이격도 {1} {2}", signal.period ?? 20, signal.value, opKr);
+  }
+
+  // 신규 지표(엔진 v16.50) — 매매사유와 같은 문구로 적는다.
+  if (signal.indicator === "bollinger_bandwidth" && signal.value != null) {
+    const opKr = t(OPERATOR_KO_LABELS[signal.operator ?? ">="] ?? signal.operator ?? "");
+    return t("볼린저 밴드폭({0}일) {1}% {2}", signal.period ?? 20, signal.value, opKr);
+  }
+  if (signal.indicator === "bollinger_squeeze" && signal.lookback_period != null && signal.within_days != null) {
+    return t("볼린저 밴드폭 최근 {0}일 최저(최근 {1}거래일 내)", signal.lookback_period, signal.within_days);
+  }
+  if ((signal.indicator === "ma_rising" || signal.indicator === "ma_falling") && signal.period != null && signal.days != null) {
+    return signal.indicator === "ma_rising"
+      ? t("{0}일 이동평균 {1}거래일 연속 상승", signal.period, signal.days)
+      : t("{0}일 이동평균 {1}거래일 연속 하락", signal.period, signal.days);
+  }
+  if (signal.indicator === "high_52w_ratio" && signal.value != null) {
+    const opKr = t(OPERATOR_KO_LABELS[signal.operator ?? ">="] ?? signal.operator ?? "");
+    return t("최근 {0}거래일 최고가 대비 {1}% {2}", signal.period ?? 252, signal.value, opKr);
+  }
+  if (signal.indicator === "gap" && signal.value != null) {
+    const opKr = t(OPERATOR_KO_LABELS[signal.operator ?? ">="] ?? signal.operator ?? "");
+    return t("시가 갭 {0}% {1}", signal.value, opKr);
+  }
+  // VWAP(엔진 v16.48, 종가 vs N일 거래량가중 평균가) — 매매사유와 같은 문구. mode=머무는 상태,
+  // 아니면 cross 방향 교차(없으면 매수=상향·매도=하향).
+  if (signal.indicator === "vwap") {
+    const period = signal.period ?? 20;
+    if (signal.mode === "above" || signal.mode === "below") {
+      return signal.mode === "below" ? t("종가가 {0}일 VWAP 아래 유지", period) : t("종가가 {0}일 VWAP 위 유지", period);
+    }
+    const down = signal.cross ? signal.cross === "below" : signal.signal_type === "sell" || (!signal.signal_type && context === "exit");
+    return down ? t("종가 {0}일 VWAP 하향 이탈", period) : t("종가 {0}일 VWAP 상향 돌파", period);
   }
 
   // 거래대금 신호의 임계는 억원 단위다(registry technical.trading_value) — 금액이 빠지면
@@ -1048,6 +1095,7 @@ export function formatExecutionTuningLabels(parsed: {
   min_holding_days?: number | null;
   stop_cooldown_days?: number | null;
   trailing_stop_activation_pct?: number | null;
+  volatility_breakout_k?: number | null;
   entry_limit_pct?: number | null;
   exit_limit_pct?: number | null;
   entry_tranches?: {
@@ -1070,6 +1118,7 @@ export function formatExecutionTuningLabels(parsed: {
   if (parsed.stop_cooldown_days != null) labels.push(t("청산 후 {0}일 재진입 금지", parsed.stop_cooldown_days));
   if (parsed.trailing_stop_activation_pct != null) labels.push(t("트레일링 +{0}%부터 작동", parsed.trailing_stop_activation_pct));
   if (parsed.entry_limit_pct != null) labels.push(t("매수 지정가 전일 종가 -{0}%", parsed.entry_limit_pct));
+  if (parsed.volatility_breakout_k != null) labels.push(t("변동성 돌파 K={0} 매수, 다음 거래일 시가 매도", parsed.volatility_breakout_k));
   if (parsed.exit_limit_pct != null) labels.push(t("매도 지정가 전일 종가 +{0}%", parsed.exit_limit_pct));
   if (parsed.entry_tranches?.levels?.length) {
     // 단계별 사다리(v16.36) — 첫 회차는 사용자가 말한 비중만 적는다(추가 회차 합에서 역산해 지어내지
@@ -1811,6 +1860,8 @@ function conditionToSignal(condition: CompiledCondition & { id: string }) {
     band: typeof params?.band === "string" ? params.band : null,
     cross: typeof params?.cross === "string" ? params.cross : null,
     touch_lookback: paramNumber(params, "touchLookback"),
+    within_days: paramNumber(params, "withinDays"),
+    days: paramNumber(params, "days"),
     side: typeof params?.side === "string" ? params.side : null,
     price_basis: typeof params?.priceBasis === "string" ? params.priceBasis : null,
   };

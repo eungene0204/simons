@@ -77,6 +77,8 @@ def build_fixture() -> dict:
     chips["bollinger_touch"] = list(strategy_slots.BOLLINGER_TOUCH_CHIP_VALUES)
     # ⑧ 배수 없는 거래량 급증의 배수 칩(2026-10-22) — 정본 표 그대로.
     chips["volume_ratio"] = list(strategy_slots.VOLUME_RATIO_CHIP_VALUES)
+    # ⑨ 기간 없는 VWAP의 기간 칩(엔진 v16.48) — 정본 표 그대로.
+    chips["vwap_period"] = list(strategy_slots.VWAP_PERIOD_CHIP_VALUES)
     return chips
 
 

@@ -166,7 +166,8 @@ export function isSlotFilled(
       hasValue =
         nonEmpty(parsed.entry_signals) ||
         nonEmpty(parsed.fundamental_filters) ||
-        Boolean(parsed.ranking_metric);
+        Boolean(parsed.ranking_metric) ||
+        (parsed.volatility_breakout_k ?? 0) > 0;
       break;
     case "exit":
       // 익절류(익절·분할 익절·트레일링)도 매도 규칙이다 — 2026-09-28 사용자 결정(07-22 규칙 개정).

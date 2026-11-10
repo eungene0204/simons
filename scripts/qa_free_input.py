@@ -209,7 +209,7 @@ CASES_EN = [
     # ── 매수 조건 ──
     ("entry", "buy when RSI drops below 30", sig_entry("rsi", operator="<=", value=30)),
     ("entry", "when the 5-day line crosses above the 20-day line", sig_entry("ma_crossover", short_period=5, long_period=20)),
-    ("entry", "when volume explodes to 3x the average", sig_entry("volume_spike")),
+    ("entry", "when volume explodes to 3x the average", sig_entry("volume_ratio", operator=">=", value=3.0)),
     ("entry", "undervalued stocks with per 10 or below", filt("per", "<=", 10)),
     ("entry", "MACD golden cross", sig_entry("macd")),
     ("entry", "when it breaks the 60-day high", sig_entry("breakout", lookback_period=60)),

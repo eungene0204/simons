@@ -474,6 +474,12 @@ class StrategyInterpreter:
                             f"수리본이 지운 unsupported_features {len(dropped)}개를 원출력에서 되살림"
                         ))
                 if format_fallback_raw is not None and not fallback_used:
+                    # 재생성본이 '안 함' 신고(declined)만 비운 출력(2026-11-09 실측: RSI 30 매수·70 매도) —
+                    # 위 목록 소실과 같은 유형이라 원출력 값을 되살린다. 무관 칸 변경으로 세면 고쳐진 조건까지 버려진다.
+                    if (format_original_other_slots is not None and intent.strategy is not None
+                            and not intent.strategy.declined and format_original_other_slots.get("declined")):
+                        intent.strategy.declined = list(format_original_other_slots["declined"])
+                        _log_llm("△ 조건 복원", "재생성본이 지운 declined를 원출력에서 되살림")
                     if (format_original_other_slots is not None
                             and _other_strategy_slots(intent) != format_original_other_slots):
                         _log_llm("△ 형식 재생성 손실", "무관 전략 필드 변경 감지 — 원출력으로 진행")

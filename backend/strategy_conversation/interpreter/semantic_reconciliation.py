@@ -5,7 +5,7 @@ import re
 
 from .decisions import record
 from .holding_period_check import _COUNT_ALIASES
-from .output_repair import extract_json_object
+from .output_repair import extract_json_object, salvage_complete_objects
 from .models import _SINO_DIGITS
 from .quote_check import MA_FACTORS
 
@@ -16,8 +16,12 @@ condition: requested_role은 실제 요청된 entry/exit 역할, factor는 이�
 technical.ema/technical.ma_crossover 선택만 수정할 수 있습니다. 매수하는 하향교차를
 매도 조건으로 추론하지 마세요. parameters에는 명시된 short_period/long_period 또는
 lookback_period만 넣으세요. 선 하나와 종가를 비교할 때 short_period는 null입니다.
+인용이 말한 기간이 condition.parameters에 없거나 다르면 옮겨 적기 오류이므로 항목마다 따로 correction합니다.
 기간 항목은 {number_text:원문 수량 표기,count:수량,unit:day/week/month/year}입니다.
-미지원 신고가 최대 보유 기간이라면 kind=max_hold, 최소라면 min_hold, 그 외 unchanged입니다.
+미지원 신고가 최대 보유 기간이라면 kind=max_hold, 최소라면 min_hold입니다.
+미지원 신고가 기준 없는 수식어이고 그 기준이 reflected_conditions에 구체 조건으로 적혀 있으면
+('우량한 기업 중 ROE 10% 이상'의 '우량한 기업') status=corrected, kind=restated입니다.
+reflected_conditions가 다루지 않는 별개 특성이면 unchanged입니다.
 holding: number_text/count/unit(day/month/year)을 출력하며 단위 환산은 하지 마세요.
 미지원 신고가 손절 또는 익절 설정이면 kind=stop_loss/take_profit, number_text/count/unit=percent로
 그 명시 비율을 옮기세요. 지표 청산 신호를 고정 손실률로 바꾸지 마세요.
@@ -26,7 +30,8 @@ JSON만: {"items":[{"id":"c:0","quote":"인용","status":"unchanged"},
 {"id":"c:1","quote":"인용","status":"corrected","requested_role":"exit","factor":"technical.ma_crossover",
 "parameters":{"short_period":null,"long_period":{"number_text":"60","count":60,"unit":"day"}}},
 {"id":"f:0","quote":"인용","status":"corrected","kind":"max_hold",
-"number_text":"한","count":1,"unit":"month"}]}"""
+"number_text":"한","count":1,"unit":"month"},
+{"id":"f:1","quote":"인용","status":"corrected","kind":"restated"}]}"""
 
 
 def _quantity(value, quote, *, holding=False):
@@ -73,8 +78,14 @@ def reconcile_semantic_fields(intent, utterance, chat, *, only=None):
                     i["kind"] == "quote" and getattr(i["evidence"], "describes", None) == "new_high_breakout"
                     for i in failures))
 
+    def role_suspect(condition, role):
+        # 2026-11-10 실측: 재생성본이 두 칸의 사본 중 매도 칸 쪽을 지워 'RSI 70 이상 매도'가 매수 칸에 남았다.
+        # 출력 구조만 보는 후보 선별이고, 칸은 아래 판정(requested_role)이 정한다.
+        return role == "entry" and not strategy.exit_conditions and sum(
+            c.factor == condition.factor for c in strategy.entry_conditions) > 1
+
     targets = [(c, role) for role in ("entry", "exit") for c in getattr(strategy, role + "_conditions")
-        if (c.factor in MA_FACTORS or c.factor == "technical.breakout") and c.source_text
+        if (c.factor in MA_FACTORS or c.factor == "technical.breakout" or role_suspect(c, role)) and c.source_text
         and c.source_text in utterance and eligible(c) and (only is None or any(c is item for item in only))]
     features = [(i, f) for i, f in enumerate(intent.unsupported_features)
                 if isinstance(f, str) and f and f in utterance] if only is None else []
@@ -85,18 +96,26 @@ def reconcile_semantic_fields(intent, utterance, chat, *, only=None):
     request = {"utterance": utterance, "items": [{"id": key, "source_text": quote,
         **({"role": role, "condition": c.model_dump(mode="json")} if c is not None else
            {"unsupported_feature": quote})} for key, (c, role, quote) in subjects.items()]}
+    if features:
+        request["reflected_conditions"] = [c.source_text for c in strategy.entry_conditions + strategy.exit_conditions
+                                           if c.source_text]
     try:
         from observability import span
         with span("Semantic field reconciliation", "chain", inputs=request) as trace:
             raw = chat(_SYSTEM, json.dumps(request, ensure_ascii=False), max_tokens=128 + 128 * len(subjects))
-            payload = json.loads(extract_json_object(raw))
-            items = payload.get("items") if isinstance(payload, dict) else None
-            if not isinstance(items, list) or len(items) != len(subjects):
+            try:
+                payload = json.loads(extract_json_object(raw))
+                items = payload.get("items") if isinstance(payload, dict) else None
+            except ValueError:
+                # 2026-11-10 실측: 맞는 교정 뒤에 없는 id(f:0…)를 지어내다 토큰 한도에 잘려 교정 전체가 버려졌다.
+                items = salvage_complete_objects(raw, "items")
+            if not isinstance(items, list):
                 return
-            by_id = {item.get("id"): item for item in items if isinstance(item, dict)}
-            if set(by_id) != set(subjects) or len(by_id) != len(items):
+            answered = [item for item in items if isinstance(item, dict) and item.get("id") in subjects]
+            by_id = {item["id"]: item for item in answered}
+            if set(by_id) != set(subjects) or len(by_id) != len(answered):
                 return
-            trace.local_evidence(verdicts=items)
+            trace.local_evidence(verdicts=answered)
         removed_features = set()
         for key, (condition, role, quote) in subjects.items():
             item = by_id[key]
@@ -107,6 +126,10 @@ def reconcile_semantic_fields(intent, utterance, chat, *, only=None):
                 continue
             if condition is None:
                 kind = item.get("kind")
+                if kind == "restated":
+                    removed_features.add(role)
+                    record("semantic_reconciliation", quote, "ACCEPT", "RESTATES_REFLECTED_CONDITIONS", value=item)
+                    continue
                 if kind in ("stop_loss", "take_profit"):
                     text, count = item.get("number_text"), item.get("count")
                     if (item.get("unit") != "percent" or not isinstance(text, str) or not text
@@ -146,7 +169,8 @@ def reconcile_semantic_fields(intent, utterance, chat, *, only=None):
                 continue
             if factor != condition.factor and condition.factor not in MA_FACTORS:
                 continue
-            parameters = item.get("parameters", {})
+            parameters = item.get("parameters", {}) if (
+                condition.factor in MA_FACTORS or condition.factor == "technical.breakout") else {}
             allowed = {"lookback_period"} if factor == "technical.breakout" else {"short_period", "long_period"}
             if not isinstance(parameters, dict) or not set(parameters) <= allowed:
                 continue

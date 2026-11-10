@@ -240,6 +240,17 @@ def _canonicalize_technical_signal(sig: TechnicalSignal) -> dict:
         "mode": sig.mode,
         "lookback_period": sig.lookback_period,
         "threshold": sig.threshold,
+        "days": sig.days,
+        "within_days": sig.within_days,
+        # 신호 모양을 바꾸는 칸 — 저장 기록(BacktestHistory·BacktestResult)이 이 해시로 업서트되므로 빠지면
+        # 이 칸만 다른 전략(밴드 지정 볼린저·신저가·종가 기준 돌파·주봉·VWAP 교차 방향)이 서로의 기록을 덮어쓴다.
+        # 값이 없으면 _drop_none이 지우므로 이 칸을 쓰지 않는 전략의 해시는 그대로다.
+        "side": sig.side,
+        "price_basis": sig.price_basis,
+        "band": sig.band,
+        "cross": sig.cross,
+        "touch_lookback": sig.touch_lookback,
+        "timeframe": sig.timeframe,
     })
 
 
@@ -451,6 +462,13 @@ def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
         if sig.mode:  # 'above'/'below'=추세 필터(지속 상태). 없으면 크로스오버(기존).
             params["mode"] = sig.mode
 
+    elif sig.indicator == "vwap":
+        params["period"] = sig.period or 20
+        if sig.mode in ("above", "below"):  # 머무는 상태
+            params["mode"] = sig.mode
+        else:  # 교차 — 방향은 역할과 독립(없으면 매수=상향·매도=하향)
+            params["cross"] = sig.cross or ("above" if sig.signal_type == "buy" else "below")
+
     elif sig.indicator == "macd":
         params["mode"] = sig.mode or "crossover"
 
@@ -486,13 +504,26 @@ def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
             params["value"] = sig.value
 
     elif sig.indicator == "stochastic":
-        params["mode"] = sig.mode or "crossover"
+        # 임계값이 있으면 %K 수준 비교다 — 엔진(signals.py)은 mode='level'일 때만 값을 읽는다.
+        # 종전엔 항상 crossover로 보내 "%K 20 아래"가 K/D 교차로 백테스트됐다(2026-11-09 실측).
+        params["mode"] = sig.mode or ("level" if sig.operator and sig.value is not None else "crossover")
+        if sig.period:
+            params["period"] = sig.period
         if sig.operator:
             params["operator"] = sig.operator
         if sig.value is not None:
             params["value"] = sig.value
 
-    elif sig.indicator in ("cci", "adx", "williams_r", "mfi", "roc", "disparity", "volatility", "relative_return"):
+    elif sig.indicator == "bollinger_squeeze":
+        params.update(lookbackPeriod=sig.lookback_period, withinDays=sig.within_days)
+        if sig.period:
+            params["period"] = sig.period
+
+    elif sig.indicator in ("ma_rising", "ma_falling"):
+        params.update(period=sig.period, days=sig.days)
+
+    elif sig.indicator in ("cci", "adx", "williams_r", "mfi", "roc", "disparity", "volatility", "relative_return",
+                           "bollinger_bandwidth", "high_52w_ratio", "gap"):
         if sig.period:
             params["period"] = sig.period
         if sig.operator:

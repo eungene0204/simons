@@ -22,6 +22,13 @@ export type IndicatorType =
   | "mfi"
   | "roc"
   | "disparity"
+  | "bollinger_bandwidth"
+  | "bollinger_squeeze"
+  | "ma_rising"
+  | "ma_falling"
+  | "high_52w_ratio"
+  | "gap"
+  | "vwap"
   | "relative_return"
   | "volatility";
 
@@ -99,6 +106,7 @@ export interface RiskManagement {
   trailing_stop_activation_pct?: number | null;
   /** 지정가(%, 엔진 v16.28) — 매수는 전일 종가 대비 -x%, 매도(조건 청산)는 +y%. */
   entry_limit_pct?: number | null;
+  volatility_breakout_k?: number | null;
   exit_limit_pct?: number | null;
   /** 분할 매수(엔진 v16.28) — count회차, 회차마다 step_pct% 낮은 가격.
    *  v16.36 사다리: first_pct(첫 회차 비중 %) + levels(첫 매수가 대비 drop_pct% 하락에 목표 비중의 size_pct%). */

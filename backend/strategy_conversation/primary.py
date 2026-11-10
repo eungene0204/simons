@@ -20,6 +20,7 @@ modify 경로(결정적 병합)가 조건을 채운다 — condition_builder와 
 from __future__ import annotations
 
 import concurrent.futures
+import difflib
 import contextvars
 import logging
 import math
@@ -37,6 +38,7 @@ from strategy_conversation import config
 from strategy_conversation.conversation.change_log import changed_field_names
 from strategy_conversation.interpreter.llm_strategy_interpreter import _log_llm
 from strategy_conversation.interpreter import quote_check
+from strategy_conversation.interpreter.patch_scope_check import is_risk_clear_patch
 from strategy_conversation.interpreter.decisions import (
     approve_legacy_patches, bind_conditions, current_log, decision_session, digest, record,
 )
@@ -109,6 +111,10 @@ _CROSS_PERIOD_OPTIONS = ((5, 20), (20, 60), (60, 120))
 # 볼린저 하단 터치 인정 기간 되묻기(v16.39) — 칩은 engine.strategy_slots 정본 표.
 _BOLLINGER_TOUCH_FIELD_RE = re.compile(
     r"^strategy\.(entry|exit)_conditions\[(\d+)\]\.parameters\.touch_lookback$"
+)
+# VWAP 기간 되묻기(v16.48) — 칩은 engine.strategy_slots 정본 표.
+_PERIOD_FIELD_RE = re.compile(
+    r"^strategy\.(entry|exit)_conditions\[(\d+)\]\.parameters\.period$"
 )
 
 
@@ -331,6 +337,16 @@ def _clarification_items(
             if period in (None, 20, 20.0):
                 chips.extend(strategy_slots.bollinger_touch_chip(role, n)
                              for n in strategy_slots.BOLLINGER_TOUCH_LOOKBACK_OPTIONS)
+        elif _PERIOD_FIELD_RE.fullmatch(q.field or ""):
+            # VWAP 기간(v16.48, 2026-11-06 사용자 결정: 되묻기 + 5·20·60거래일 칩). 칩은 조건의 역할과
+            # 모양(교차 방향·머무는 상태)을 그대로 담는다 — 연산자가 없으면 모양을 지어내지 않고 무칩.
+            period_match = _PERIOD_FIELD_RE.fullmatch(q.field)
+            role = period_match.group(1)
+            period_cond = conditions_by_field.get(f"strategy.{role}_conditions[{period_match.group(2)}]")
+            if period_cond is not None and period_cond.factor == "technical.vwap" \
+                    and period_cond.operator in ("crosses_above", "crosses_below", ">", "<"):
+                chips.extend(strategy_slots.vwap_period_chip(role, period_cond.operator, n)
+                             for n in strategy_slots.VWAP_PERIOD_OPTIONS)
         elif q.field == "strategy.market_filter.exposure_pct":
             # 시장 국면 약세일 투자 비중(v16.14) — 정본 표의 칩(값 결속은 발행 시 확정).
             chips.extend(strategy_slots.MARKET_REGIME_EXPOSURE_CHIP_VALUES)
@@ -605,7 +621,8 @@ def _substituted_factor(cond: Any, spec: Any, registry: Any) -> bool:
     named = registry.factor_ids_named_in(cond.source_text or "")
     # The bare amount alias is a component of the exact comparison factor. A
     # percentage-growth factor is not equivalent when the prior amount is <= 0.
-    if spec.id == "fundamental.operating_income_yoy_direction":
+    if spec.id == "fundamental.operating_income_yoy_direction" or (
+            spec.id == "fundamental.operating_income_growth_yoy" and (cond.value or 0) > 0):
         named.discard("fundamental.ebit")
     return bool(named) and spec.id not in registry.with_same_name_variants(named)
 
@@ -682,8 +699,11 @@ def pending_value_notices(
     return out
 
 
-def _approximation_notices(strategy: Any) -> List[str]:
+def _approximation_notices(strategy: Any, *, pending: bool = False) -> List[str]:
     """근사·대체 반영 조건의 사용자 안내 문구 목록.
+
+    pending=True는 값 대기로 아직 전략에 들어가지 않은 근사 조건용이다 — 값을 정하는 턴(칩 결속)은
+    근사 신고를 싣지 않으므로 되묻는 턴에 "반영할 예정"으로 알린다(VWAP 기간 되묻기, 2026-11-06).
 
     두 근거를 함께 쓴다: ① LLM이 자기 출력에 적은 approximated 신고(정성 표현까지 닿지만
     정직에 의존한다) ② 인용↔factor 대조로 잡은 지표 대체(_substituted_factor — 신고가
@@ -727,7 +747,15 @@ def _approximation_notices(strategy: Any) -> List[str]:
         if not label or key in seen:
             continue
         seen.add(key)
-        if quote and len(quote) <= _QUOTED_FEATURE_MAX_LEN:
+        if pending:
+            notices.append(ui_language.msg(
+                "'{quote}'은(는) 정확히 표현할 수 없어 {label}(으)로 가깝게 반영할 예정이에요. "
+                "전략 요약을 확인해 주세요.",
+                "'{quote}' cannot be expressed exactly, so it will be approximated with "
+                "{label}. Please check the strategy summary.",
+                quote=quote if quote and len(quote) <= _QUOTED_FEATURE_MAX_LEN else label, label=label,
+            ))
+        elif quote and len(quote) <= _QUOTED_FEATURE_MAX_LEN:
             notices.append(ui_language.msg(
                 "'{quote}'은(는) 정확히 표현할 수 없어 {label}(으)로 가깝게 반영했어요. "
                 "전략 요약을 확인해 주세요.",
@@ -1370,6 +1398,81 @@ def _dedupe_relative_return_against_ranking(intent: StrategyIntent, user_input: 
     return notices
 
 
+_UNSUPPORTED_QUOTE_OVERLAP_CHARS = 6
+
+
+def _quotes_own_unsupported_report(cond: Any, quote: str, features: List[str]) -> bool:
+    """값 없는 조건의 인용이 LLM 스스로 미지원이라 신고한 표현과 겹치는가(덧붙은 조건 판정의 **후보** 선별).
+
+    다른 지표로 갈아 끼운 자리일 수 있다(2026-11-09 실측: '이자보상배율이 3배'→부채비율 값 되묻기,
+    '영업이익 컨센서스'→영업이익 값 되묻기, '첫 30분 고가'→30일 돌파). 둘 다 LLM 출력이다.
+    값이 필요한 비교 조건은 겹침만 보고, 값이 없어도 되는 신호는 인용의 앞머리(주어)가 겹칠 때만
+    뺀다 — '5일선 돌파하고 외국인 순매수'처럼 뒤쪽만 미지원인 복합 인용의 조건은 남긴다."""
+    if cond.value is not None or not quote:
+        return False
+    # 근사 신고는 근사 안내 채널이 알린다. 시작일 매수는 근사여도 말한 조건을 담지 못하는 빈 자리다.
+    if cond.approximated and cond.factor != "technical.buy_at_start":
+        return False
+    from strategy_conversation.registry import indicator_registry
+
+    spec = indicator_registry.resolve(cond.factor)
+    needs_value = cond.operator in ("<", "<=", ">", ">=")
+    head = quote[:_UNSUPPORTED_QUOTE_OVERLAP_CHARS]
+    for feature in features:
+        # 같은 구절의 이중 기입이거나 지표 이름 자체를 신고한 것이면 조건이 맞다 — 안내만 걷힌다.
+        if not feature or quote in feature:
+            continue
+        named = indicator_registry.resolve(feature)
+        if named is not None and spec is not None and named.id == spec.id:
+            continue
+        if quote.startswith(feature) or (len(head) == _UNSUPPORTED_QUOTE_OVERLAP_CHARS and head in feature):
+            return True
+        if needs_value:
+            overlap = difflib.SequenceMatcher(None, quote, feature, autojunk=False).find_longest_match(
+                0, len(quote), 0, len(feature))
+            if overlap.size >= _UNSUPPORTED_QUOTE_OVERLAP_CHARS:
+                return True
+    return False
+
+
+def _resolve_filler_conditions(
+    intent: StrategyIntent, user_input: str, chat: Any, only: Optional[List[Any]] = None,
+) -> None:
+    """적립 문구·대피 자산·미지원 표현 자리에 덧붙은 조건을 LLM 두 번 일치 판정으로만 뺀다.
+
+    LLM 출력 칸끼리의 표기는 물어볼 후보만 고른다. 판정 실패·불일치·unclear는 조건을 남긴다 —
+    덧붙은 말을 하나 더 남기는 쪽이 사용자가 말한 조건을 지우는 쪽보다 낫다(2026-11-09 사용자 결정).
+    """
+    strategy = intent.strategy
+    if strategy is None or not callable(chat):
+        return
+    from engine.nl_parser import _compact
+
+    unsupported = [str(f) for f in intent.unsupported_features if f]
+    compact_unsupported = [_compact(f) for f in unsupported]
+    backtest = strategy.backtest
+    has_plan = backtest.contribution_amount is not None or backtest.contribution_period is not None
+    cash_name = _compact(strategy.portfolio.cash_asset or "")
+    candidates = []
+    for role in ("entry_conditions", "exit_conditions"):
+        for cond in getattr(strategy, role):
+            quote = _compact(cond.source_text or "")
+            if not quote or (only is not None and not any(cond is added for added in only)):
+                continue
+            beside_plan = has_plan and cond.buy_amount is None and (
+                cond.approximated or (cond.operator in ("<", "<=", ">", ">=") and cond.value is None))
+            # 대피 구절은 '그렇지 않으면'처럼 자산 이름 없이도 인용된다(2026-11-09 실측) — 대피가 있으면 매수 칸을 다 묻는다.
+            if (role == "entry_conditions" and (beside_plan or cash_name)) \
+                    or _quotes_own_unsupported_report(cond, quote, compact_unsupported):
+                candidates.append((cond, role))
+    if not candidates:
+        return
+    for cond in quote_check.check_filler_quotes(user_input, candidates, unsupported, chat):
+        role = next(r for c, r in candidates if c is cond)
+        setattr(strategy, role, [c for c in getattr(strategy, role) if c is not cond])
+        _log_llm("✂ 덧붙은 조건 제거", f"'{cond.source_text}' ({cond.factor})")
+
+
 def _fill_deterministic_condition_params(
     intent: StrategyIntent, quote_verdicts: Optional[Any] = None, *, semantic_authority: bool = False,
 ) -> List[str]:
@@ -1389,6 +1492,14 @@ def _fill_deterministic_condition_params(
     # became a five-day MA state).  Those outputs conflict; retain the explicit
     # unsupported report and discard only the approximation.
     unsupported_quotes = [_compact(str(f)) for f in intent.unsupported_features if f]
+    # '장중 VWAP'을 일봉 VWAP 조건으로 옮기고도 같은 표현을 미지원으로 신고한 출력(2026-11-09 실측 2/2) —
+    # 일봉 누적으로 근사 반영하고 알리기로 한 개념이다(11-06 사용자 결정). LLM 출력끼리의 표기 대조.
+    for role in ("entry_conditions", "exit_conditions"):
+        for cond in getattr(strategy, role):
+            if (cond.factor == quote_check.VWAP_FACTOR
+                    and any(len(feature) >= 4 and feature in _compact(cond.source_text or "")
+                            for feature in unsupported_quotes)):
+                cond.approximated = True
     for role in ("entry_conditions", "exit_conditions"):
         setattr(strategy, role, [
             cond for cond in getattr(strategy, role)
@@ -1728,6 +1839,15 @@ def _drop_fabricated_conditions(
             # 통과하는 틈이다. 판정은 조건 인용 대조(LLM)가 "인용이 이 조건을 말하지 않는다"고
             # **분명히** 답했을 때뿐이다(2026-09-17 어휘 정규식에서 이관, 같은 날 칸 분류 →
             # 조건 중심 질문으로 교정). unclear·판정 없음은 남긴다.
+            # "첫 30분 고가"가 30일 돌파로 남던 사고(2026-11-09) — 분·장중 기준은 일봉 신호로 옮길 수 없다.
+            if quote_check.quote_describes_intraday(quote_verdicts, cond):
+                source = (cond.source_text or "").strip()
+                notices.append(
+                    f"'{source}'은(는) 장중·분봉 기준이라 일봉 백테스트로 표현할 수 없어 반영하지 않았어요."
+                    if len(source) <= _QUOTED_FEATURE_MAX_LEN else
+                    "요청 문장의 장중·분봉 기준은 일봉 백테스트로 표현할 수 없어 반영하지 않았어요."
+                )
+                continue
             if quote_check.quote_does_not_express(quote_verdicts, cond):
                 source = (cond.source_text or "").strip()
                 # A rejected quote absent from the request is model-authored
@@ -1760,6 +1880,14 @@ def _drop_fabricated_conditions(
                 # 인용이 순위 선정 구절이고 전략에 랭킹이 있으면 그 구절은 랭킹으로 반영됐다 —
                 # "매수 신호의 근거로 확인되지 않아"는 반영된 구절에 붙는 거짓 딱지다(2026-10-07
                 # 예시 57·70, 120B 3/6). 판정은 LLM(describes=ranking), 반영 확인은 랭킹 칸 구조.
+                # 지정가 구절에 붙은 가짜 신호(2026-11-09 #36) — 지정가는 체결 칸에 반영됐고 다른 매수 기준도 남아 있다.
+                if (role == "entry_conditions" and strategy.backtest.entry_limit_percent is not None
+                        and any(other is not cond
+                                and not quote_check.quote_does_not_express(quote_verdicts, other)
+                                for other in strategy.entry_conditions)):
+                    shape_copies.append({"role": role, "factor": cond.factor,
+                                         "quote": cond.source_text, "limit_order_phrase": True})
+                    continue
                 if strategy.ranking and quote_check.quote_describes_ranking(quote_verdicts, cond):
                     shape_copies.append({"role": role, "factor": cond.factor,
                                          "quote": cond.source_text, "ranking_phrase": True})
@@ -2269,6 +2397,7 @@ def run_primary_parse(
     # 적립식 판정(통합) — 파라미터 보정보다 먼저: 계획을 채우고 조건에 금액·상태 연산자를 달아야
     # 아래 보정(매도 선언 재배치 등)이 이 턴을 적립식으로 알아본다(2026-09-22).
     _resolve_contribution_plan(result.intent, user_input, check_chat)
+    _resolve_filler_conditions(result.intent, user_input, recall_chat)
     if planner_future is not None:
         planner_first = planner_future.result()
     if scheduled_plan is not None:
@@ -3232,7 +3361,8 @@ def _bind_chips(
             bindings[text] = {"rebalance_method": method_value}
             continue
         touch_patch = (strategy_slots.bollinger_touch_chip_patch(text, base)
-                       or strategy_slots.volume_ratio_chip_patch(text, base))
+                       or strategy_slots.volume_ratio_chip_patch(text, base)
+                       or strategy_slots.vwap_period_chip_patch(text, base))
         if touch_patch is not None:
             # 볼린저 하단 터치 인정 기간 칩(v16.39) — 값 대기 조건은 parsed에 없으므로 정본 표가
             # 신호 전체를 추가하는 패치로 결속한다(원문 보정 파서에 어휘를 넣지 않는다).
@@ -5440,6 +5570,24 @@ def run_primary_modification(
                     "시장 범위 변경은 요청에서 확인되지 않아 기존 범위를 유지했어요."
                     )
                 _log_llm("✗ 시장 패치 출처 대조", patch.path)
+    # 위험 관리 설정(익절·손절 등)을 비우는 패치도 같다 — 매도 조건 답 전체를 인용으로 단 익절 비우기가
+    # 인용 대조를 통과해 기존 익절이 사라졌다(2026-11-06). 사용자가 없애라고 명시했다는 LLM 판정이
+    # 있을 때만 남기고, 판정 실패·unclear는 기존 값을 지키며 되묻는다.
+    risk_clear_candidates = [
+        (i, p) for i, p in enumerate(intent.patches)
+        if verdicts[i] and is_risk_clear_patch(p)
+    ]
+    checks.plan("risk_clear", [p for _, p in risk_clear_candidates])
+    if risk_clear_candidates:
+        from strategy_conversation.interpreter.patch_scope_check import risk_clear_scope_verdict
+
+        chat = getattr(_get_interpreter(StrategyInterpreter), "_chat", None)
+        for index, patch in risk_clear_candidates:
+            scope = risk_clear_scope_verdict(patch, user_input, chat)
+            required_note("risk_clear", patch, "ACCEPT" if scope is True else "REJECT" if scope is False else "UNRESOLVED", patch.path)
+            if scope is not True:
+                verdicts[index] = False
+                _log_llm("✗ 위험 관리 해제 출처 대조", patch.path)
     # An add and an ungrounded remove in the same condition list are one proposed
     # replacement. Applying only the add silently keeps the old condition too.
     pair_ambiguous = False
@@ -5822,6 +5970,7 @@ def run_primary_modification(
     _resolve_contribution_plan(
         modify_intent, user_input, check_chat, only=added_conditions,
     )
+    _resolve_filler_conditions(modify_intent, user_input, modify_chat, only=added_conditions)
     param_notices = _fill_deterministic_condition_params(modify_intent, quote_verdicts,
                                                         semantic_authority=not _us_market_context(prev))
     if not _us_market_context(prev):

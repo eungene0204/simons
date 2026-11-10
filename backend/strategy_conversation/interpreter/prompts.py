@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "8.18"  # 8.18: 어휘의 technical.roc에 "종목 자체 N거래일 수익률" 설명 추가(설명이 있는 시장 대비 초과수익률·랭킹으로 가던 오배정). 8.17: 오실레이터 임계 비교 목록에 technical.disparity(이격도) 추가. 8.16: 배수 없는 거래량 급증=volume_ratio(value=null, 되묻기), volume_spike(OBV)는 OBV 명시 때만. 8.15: "N거래일 지나면 매도"=hold_period_days(최소 보유로 읽던 오배정). 8.14: EMA 한 선 이탈 청산 예시(진입 EMA 쌍 복사 방지). 8.13: 코치의 직전 질문을 수정 턴 문맥으로 전달
+PROMPT_VERSION = "8.21"  # 8.21: VWAP을 미지원 목록에서 빼고 어휘에 technical.vwap(엔진 v16.48) 노출. # 8.20: 밴드폭·스퀴즈·이평선 기울기·52주 고가 비율·갭 지표 어휘(v16.50). # 8.19: backtest.volatility_breakout_k 칸 추가(변동성 돌파 거짓 미지원 수리). # 8.18: 어휘의 technical.roc에 "종목 자체 N거래일 수익률" 설명 추가(설명이 있는 시장 대비 초과수익률·랭킹으로 가던 오배정). 8.17: 오실레이터 임계 비교 목록에 technical.disparity(이격도) 추가. 8.16: 배수 없는 거래량 급증=volume_ratio(value=null, 되묻기), volume_spike(OBV)는 OBV 명시 때만. 8.15: "N거래일 지나면 매도"=hold_period_days(최소 보유로 읽던 오배정). 8.14: EMA 한 선 이탈 청산 예시(진입 EMA 쌍 복사 방지). 8.13: 코치의 직전 질문을 수정 턴 문맥으로 전달
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -98,6 +98,7 @@ _OUTPUT_SHAPE = {
             # 정기 인출·비교 지수(엔진 v16.33) — 위와 같은 이유로 형태에 자리를 둔다.
             "withdrawal_amount": None, "withdrawal_period": None, "benchmark": None,
             "entry_limit_percent": None, "exit_limit_percent": None, "entry_tranches": None,
+            "volatility_breakout_k": None,
             "slippage_model": None, "slippage_impact_coeff": None,
         },
         # 시장 국면 필터·'안 함' 설정(v6.2) — 형태에 키가 없으면 9B/120B가 자리를 채우지 않는다
@@ -248,7 +249,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
    랭킹(금지), 현금흐름 흑자→증가율(금지), 우선주→보통주(금지) — 전부 unsupported_features에 원문 조각으로.
    (일부·절반 익절은 미지원이 아니라 risk_management.partial_take_profits, 하락 단계별 추가 매수는 risk_management.scale_in_buys입니다 — 규칙 7-1-2.)
    **자주 놓치는 미지원 개념**(보이면 반드시 unsupported_features에):
-   흑자전환·연속 흑자, 주가의 N거래일 연속 하락, 장중·분봉 매매, 우선주, VWAP, 고정 현금 비중,
+   흑자전환·연속 흑자, 주가의 N거래일 연속 하락, 장중·분봉 매매, 우선주, 고정 현금 비중,
    베타, 뉴스·수급, 실적 추정치·컨센서스(상향·하향 — 수익률·시장 대비 수익률로 바꾸지 말 것), **공매도·숏(short/short-selling)**(엔진은 매수 후 매도만 지원합니다 —
    "Short overvalued stocks"의 'Short'를 버리고 매수 전략으로 바꾸지 마세요).
    미국 **시장·지수**(S&P500·나스닥·다우·미국 ETF)는 지원합니다 — 규칙 6의 매핑을 쓰세요.
@@ -325,6 +326,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
    "ADX 20 하향 이탈 시 청산"의 20은 **ADX 지표값 임계치**입니다:
    factor=technical.adx, operator=crosses_below, value=20, parameters에
    lookback_period=20을 넣지 마세요. 지표 기간을 별도로 말한 경우에만 period를 넣습니다.
+   "20일 이동평균선이 5거래일 연속 상승"은 technical.ma_rising, parameters={{"period":20,"days":5}}(하락은 ma_falling)입니다.
    "주가가 5거래일 연속 상승"은 technical.consecutive_up,
    parameters={{"period":5}}, operator=null, value=null입니다. 현재 거래일까지
    5번 연속으로 종가가 전일 종가보다 높아야 합니다(동일 종가·결측은 연속 상승 아님).
@@ -439,7 +441,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
    - 배타(>, <): '초과'·'미만'·'넘는'(초과 의미)·'못 미치는'
      ("PBR 0.8 미만" → "<", 0.8 / "PER 10 초과" → ">", 10)
    기본은 포함(>=, <=)입니다 — '초과'·'미만'이라고 명시했을 때만 배타를 쓰세요.
-5-5. 오실레이터(technical.stochastic/cci/adx/williams_r/mfi/roc/disparity)는 임계값 비교만 지원합니다
+5-5. 오실레이터(technical.stochastic/cci/adx/williams_r/mfi/roc/disparity/bollinger_bandwidth/high_52w_ratio/gap)는 임계값 비교만 지원합니다
    — operator는 <, <=, >, >= 중 하나이고 value에 임계값을 넣으세요. crosses_above/crosses_below를
    쓰지 마세요(엔진이 표현할 수 없어 조건이 무의미해집니다). '과매도에서 반등하면 매수' 류는
    그 과매도 임계값 이하(<=)로, '과매수면 매도'는 임계값 이상(>=)으로 표현하세요:
@@ -546,6 +548,7 @@ NON_STRATEGY_REQUEST(전략과 무관)
    "timeframe":"weekly"|"monthly"를 넣습니다(일봉은 생략). 캔들 패턴(망치형·장악형·도지·샛별형 등)은 지표 목록의
    technical.candle_* 잎으로 출력합니다(연산자·값 없음).
 7-1-3. backtest: '전일 종가보다 N% 낮은 지정가 매수'→entry_limit_percent=N, '매도는 N% 높은 지정가'→exit_limit_percent=N.
+   '시가 + 전일 고저폭×K를 넘으면 매수'(변동성 돌파)→volatility_breakout_k=K(매수 조건 칸은 비움).
    'N번 분할 매수, M%씩 떨어질 때마다'→entry_tranches={{"count":N,"step_percent":M,"source_text":"…"}}. '다음 날 평균가 체결'→execution_timing="next_avg".
    '거래량(거래대금)에 비례하는 슬리피지'·'시장 충격 반영'→slippage_model="volume_impact". 이 규칙(7-1~7-1-3)의 설정은 미지원이 아니므로
    unsupported_features에 넣지 마세요.

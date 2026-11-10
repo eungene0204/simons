@@ -178,3 +178,113 @@ def test_risk_report_is_reconciled_only_with_a_quoted_percent_verdict():
         "number_text": "-7", "count": 7, "unit": "percent"}]}))
     assert intent.strategy.risk_management.stop_loss == 7
     assert intent.unsupported_features == []
+
+
+def _crossover_intent(quote):
+    return StrategyIntent.model_validate({"intent": "CREATE_STRATEGY", "strategy": {
+        "entry_conditions": [{"factor": "technical.ma_crossover", "operator": ">",
+                              "parameters": {"short_period": 1, "long_period": 20},
+                              "source_text": quote}]}})
+
+
+def _period_correction(quote):
+    return {"id": "c:0", "quote": quote, "status": "corrected", "requested_role": "entry",
+            "factor": "technical.ma_crossover",
+            "parameters": {"short_period": {"number_text": "5일", "count": 5, "unit": "day"},
+                           "long_period": {"number_text": "20일", "count": 20, "unit": "day"}}}
+
+
+def test_correction_survives_truncation_after_invented_ids():
+    """2026-11-10: 맞는 교정 뒤에 없는 id를 지어내다 토큰 한도에 잘려 교정 전체가 버려졌다(예시 13)."""
+    quote = "5일선이 20일선 위에 있는"
+    intent = _crossover_intent(quote)
+    head = json.dumps({"items": [_period_correction(quote)]}, ensure_ascii=False)[:-2]
+    truncated = head + ', {"id": "f:0", "quote": "최대 보유 종목은 8개", "status": "corr'
+    reconcile_semantic_fields(intent, quote, lambda *a, **k: truncated)
+    assert intent.strategy.entry_conditions[0].parameters["short_period"] == 5
+
+
+def test_invented_ids_in_a_complete_reply_are_ignored():
+    quote = "5일선이 20일선 위에 있는"
+    intent = _crossover_intent(quote)
+    reply = json.dumps({"items": [_period_correction(quote),
+                                  {"id": "f:9", "quote": "없는 항목", "status": "corrected", "kind": "restated"}]},
+                       ensure_ascii=False)
+    reconcile_semantic_fields(intent, quote, lambda *a, **k: reply)
+    assert intent.strategy.entry_conditions[0].parameters["short_period"] == 5
+
+
+def test_truncated_reply_missing_a_subject_changes_nothing():
+    quote = "5일선이 20일선 위에 있는"
+    intent = _crossover_intent(quote)
+    reconcile_semantic_fields(intent, quote, lambda *a, **k: '{"items": [{"id": "c:0", "quo')
+    assert intent.strategy.entry_conditions[0].parameters["short_period"] == 1
+
+
+def _feature_intent(feature, quote):
+    intent = _crossover_intent(quote)
+    intent.unsupported_features = [feature]
+    return intent
+
+
+def test_restated_summary_is_removed_from_unsupported_report():
+    """2026-11-10: 뒤에서 구체 조건으로 풀어 쓴 '재무가 튼튼한 종목'에 거짓 미지원 안내가 나갔다(예시 19)."""
+    quote, feature = "5일선이 20일선 위에 있는", "재무가 튼튼한 종목"
+    intent = _feature_intent(feature, quote)
+    seen = []
+
+    def chat(system, user, **_):
+        seen.append(json.loads(user))
+        return json.dumps({"items": [{"id": "c:0", "quote": quote, "status": "unchanged"},
+                                     {"id": "f:0", "quote": feature, "status": "corrected", "kind": "restated"}]},
+                          ensure_ascii=False)
+
+    reconcile_semantic_fields(intent, f"{feature} 중 {quote} 종목", chat)
+    assert intent.unsupported_features == []
+    assert seen[0]["reflected_conditions"] == [quote]
+
+
+def test_unsupported_feature_stays_unless_judged_restated():
+    quote, feature = "5일선이 20일선 위에 있는", "뉴스가 좋은 종목"
+    intent = _feature_intent(feature, quote)
+    reply = json.dumps({"items": [{"id": "c:0", "quote": quote, "status": "unchanged"},
+                                  {"id": "f:0", "quote": feature, "status": "unchanged"}]}, ensure_ascii=False)
+    reconcile_semantic_fields(intent, f"{feature} 중 {quote} 종목", lambda *a, **k: reply)
+    assert intent.unsupported_features == [feature]
+
+
+def _rsi_both_in_entry():
+    return StrategyIntent.model_validate({"intent": "CREATE_STRATEGY", "strategy": {"entry_conditions": [
+        {"factor": "technical.rsi", "operator": "crosses_above", "value": 30, "source_text": "RSI가 30 이하로 떨어졌다가 반등"},
+        {"factor": "technical.rsi", "operator": ">=", "value": 70, "source_text": "RSI가 70 이상이면 매도"},
+    ]}})
+
+
+def test_sell_condition_left_in_entry_is_moved_by_role_verdict():
+    """2026-11-10: 재생성본이 매도 칸 사본을 지워 매도 조건이 사라졌다(예시 46)."""
+    intent = _rsi_both_in_entry()
+    utterance = "RSI가 30 이하로 떨어졌다가 반등하면 매수, RSI가 70 이상이면 매도"
+    reply = json.dumps({"items": [
+        {"id": "c:0", "quote": "RSI가 30 이하로 떨어졌다가 반등", "status": "unchanged"},
+        {"id": "c:1", "quote": "RSI가 70 이상이면 매도", "status": "corrected", "requested_role": "exit",
+         "parameters": {"short_period": {"number_text": "70", "count": 70, "unit": "day"}}},
+    ]}, ensure_ascii=False)
+    reconcile_semantic_fields(intent, utterance, lambda *a, **k: reply)
+    assert [(c.operator, c.value) for c in intent.strategy.entry_conditions] == [("crosses_above", 30)]
+    moved = intent.strategy.exit_conditions[0]
+    assert (moved.operator, moved.value) == (">=", 70)
+    assert "short_period" not in moved.parameters
+
+
+def test_same_factor_entries_stay_without_role_verdict():
+    intent = _rsi_both_in_entry()
+    utterance = "RSI가 30 이하로 떨어졌다가 반등하고 RSI가 70 이상이면 매도"
+    calls = []
+
+    def chat(*a, **k):
+        calls.append(1)
+        raise RuntimeError("lane down")
+
+    reconcile_semantic_fields(intent, utterance, chat)
+    assert len(intent.strategy.entry_conditions) == 2 and intent.strategy.exit_conditions == []
+    assert calls == [1]

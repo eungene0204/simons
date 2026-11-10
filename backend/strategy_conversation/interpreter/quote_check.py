@@ -58,6 +58,8 @@ BOLLINGER_FACTORS = (BOLLINGER_FACTOR, *BOLLINGER_BAND_NAMES, BOLLINGER_MIDDLE_R
 # 시작일 매수(엔진 v16.45) — 2026-10-29 실측(nemotron-3.5-super): 신호 없이 필터만 말한 문장("조선 업종 중
 # 영업이익 성장률이 20% 이상인 종목을 매수하고")에 인용 "매수"를 달아 이 조건을 지어냈다(거래 110→3회).
 BUY_AT_START_FACTOR = "technical.buy_at_start"
+# VWAP(엔진 v16.48) — 사건형 신호라 아래 일반 판정에 타되, 대조 문장은 종가와 선의 관계로 적는다.
+VWAP_FACTOR = "technical.vwap"
 CHECKED_FACTORS = MA_FACTORS + BOLLINGER_FACTORS + (BUY_AT_START_FACTOR,)
 # 그 밖의 기술 신호·합성 개념(2026-10-30 뉴스 전략 '한미반도체'): 재무 필터만 말한 문장("영업이익 성장률이
 # 30% 이상인 종목을 매수하고, 분기마다 리밸런싱")에 형태 견본의 '필터 + 신호' 두 줄을 흉내 내 MACD 골든크로스
@@ -87,7 +89,7 @@ MARKET_CAP_FACTOR = "fundamental.market_cap"
 
 EXPRESSES = frozenset({"yes", "no", "unclear"})
 DESCRIBES = frozenset({"moving_average", "bollinger", "new_high_breakout", "ranking",
-                       "market_size", "other"})
+                       "market_size", "intraday", "other"})
 
 _SYSTEM = """당신은 **대조기**입니다. 전략 문장에서 뽑은 조건마다, 함께 적힌 인용 조각이 그 조건을 말하는지 답하세요.
 
@@ -95,7 +97,7 @@ _SYSTEM = """당신은 **대조기**입니다. 전략 문장에서 뽑은 조건
 expresses — [전략 문장]이 실제로 그 조건을 요청하고 인용 조각도 같은 조건을 말하면 "yes".
 인용이 다른 설정(종목 수·손절·기간 등)이거나 [전략 문장]에 없는 조건을 지어낸 것이면 "no",
 판단이 어려우면 "unclear". 인용만 따로 읽어 원문에 없는 매도 규칙을 추론하지 마세요.
-describes — 실제 요청과 인용이 함께 가리키는 신호: 이동평균선·골든크로스·데드크로스면 "moving_average", 볼린저 밴드면 "bollinger", 신고가·N일 고점 돌파·N일 저가 이탈·박스권 돌파면 "new_high_breakout", 수익률·상대강도 순위로 상위 종목을 고르는 말이면 "ranking", 소형주·중형주·시가총액처럼 회사 규모로 대상을 좁히는 말이면 "market_size", 그 밖이거나 원문에 없는 조작 인용이면 "other".
+describes — 실제 요청과 인용이 함께 가리키는 신호: 이동평균선·골든크로스·데드크로스면 "moving_average", 볼린저 밴드면 "bollinger", 신고가·N일 고점 돌파·N일 저가 이탈·박스권 돌파면 "new_high_breakout", 수익률·상대강도 순위로 상위 종목을 고르는 말이면 "ranking", 소형주·중형주·시가총액처럼 회사 규모로 대상을 좁히는 말이면 "market_size", 'N분'·'분봉'·'장 시작 후 첫 N분'처럼 하루 안의 시간을 기준으로 삼는 말이면 "intraday", 그 밖이거나 원문에 없는 조작 인용이면 "other".
 'KOSPI 종목'·'코스닥 종목'처럼 시장 이름만 말한 인용은 회사 규모가 아니므로 시가총액 조건에 대해 no/other입니다.
 인용 자체가 '최근 60거래일 수익률 상위'처럼 수익률 순위로 종목을 고르는 말이면 조건과 맞지 않아도 describes는 "ranking"입니다(expresses는 "no").
 
@@ -158,6 +160,24 @@ _KIND_SYSTEM = """당신은 전략 문장 속 인용 조각이 무엇을 정하�
 SETTING_KINDS = frozenset({"hold_period", "stop_loss", "take_profit", "selection_count",
                            "rebalance", "backtest_period", "initial_capital"})
 KINDS = SETTING_KINDS | {"signal", "unclear"}
+
+# 덧붙은 조건 판정(2026-11-09 사용자 결정): 적립 문구·대피 자산·미지원 표현을 인용으로 단 조건을 표기 대조로
+# 지우면 'RSI가 낮을 때만' 같은 진짜 조건도 함께 사라졌다. 표기는 물어볼 후보만 고르고, 빼는 판정은 여기서 한다.
+_FILLER_SYSTEM = """당신은 전략 문장에서 뽑은 조건이 사용자가 말한 조건인지, 다른 말을 조건 칸에 덧붙인 것인지 가리는 대조기입니다.
+[전략 문장]을 읽고 항목마다 인용 조각이 무엇인지 kind 하나로 답하세요.
+"condition" — 특정 상황·지표·수급·가격일 때만 사거나 파는 제한을 말함. 표시된 지표와 다르거나 기준값이 없어도 이것입니다. 예: 'RSI가 낮을 때만', '외국인이 순매수일 때만', 'RSI 70 이하이면 A, 아니면 B'
+"plan" — 정기 납입의 금액·주기·대상 상품 이름만 말하거나 조건 없이 사 모은다는 말. 예: '매달 100만 원씩', 'TIGER 미국S&P500'
+"cash_switch" — 조건이 맞지 않을 때 옮겨 갈 자산만 말함. 예: '그렇지 않으면 전액 KODEX 단기채권으로 옮기는'
+"unsupported" — [지원하지 않는 표현]에 적힌 개념을 말하는데 표시된 지표는 그 개념이 아님. 예: 표현 '이자보상배율', 인용 '이자보상배율이 3배 이상', 지표 부채비율
+"unclear" — 판단이 어려움
+제한을 말하는 부분과 다른 말이 섞였으면 "condition"입니다.
+출력 형식(JSON만, 항목 순서대로): {"items": [{"kind": "plan"}]}"""
+
+_FILLER_CONFIRM_SYSTEM = _FILLER_SYSTEM + """
+조건을 빼기 전의 독립 재확인입니다. 사용자가 말한 제한을 조금이라도 담고 있으면 "condition"으로 답하세요."""
+
+FILLER_KINDS = frozenset({"plan", "cash_switch", "unsupported"})
+FILLER_ANSWERS = FILLER_KINDS | {"condition", "unclear"}
 
 
 def build_system_prompt() -> str:
@@ -236,6 +256,10 @@ def render_condition(cond: Any, role: str) -> str:
         return f"{side} — {name}(단기 이동평균선이 장기 이동평균선을 교차)가 나오면"
     if factor == BUY_AT_START_FACTOR:
         return f"{side} — 백테스트 시작일에 한 번 매수하고 계속 보유"
+    if factor == VWAP_FACTOR:
+        period = _period(params.get("period"))
+        line = f"{period}일 VWAP(거래량가중 평균가)" if period else "VWAP(거래량가중 평균가)"
+        return f"{side} — 종가가 {line}을 {motion}"
     if factor == MARKET_CAP_FACTOR:
         bound = "이하" if op in ("<", "<=") else "이상"
         return f"{side} 대상 — 시가총액(회사 규모)이 기준값 {bound}인 종목만"
@@ -500,6 +524,50 @@ def _request_kinds(user_input, targets, chat):
         return kinds
 
 
+def _request_filler_kinds(user_input, targets, unsupported, chat, system):
+    """인용 조각마다 덧붙은 조건 종류 판정. 실패는 None(fail-open — 조건을 남긴다)."""
+    from observability import span
+    from strategy_conversation.interpreter.output_repair import extract_json_object
+    from strategy_conversation.registry.indicator_registry import REGISTRY
+
+    def _name(cond):
+        spec = REGISTRY.get(cond.factor)
+        return spec.display_name if spec is not None else cond.factor
+
+    rows = "\n".join(f'{i}. 지표: {_name(cond)}\n   인용: "{cond.source_text}"'
+                     for i, (cond, _r) in enumerate(targets, 1))
+    reported = f"[지원하지 않는 표현]\n{', '.join(unsupported)}\n\n" if unsupported else ""
+    name = "Quote Check · 덧붙은 조건 재확인" if system == _FILLER_CONFIRM_SYSTEM else "Quote Check · 덧붙은 조건 대조"
+    with span(name, "chain", inputs={"quotes": [c.source_text for c, _ in targets]}) as trace:
+        try:
+            raw = chat(system, f"[전략 문장]\n{user_input}\n\n{reported}[조건]\n{rows}",
+                       max_tokens=48 + 16 * len(targets))
+            payload = json.loads(extract_json_object(raw))
+            items = payload.get("items") if isinstance(payload, dict) else None
+            if not isinstance(items, list) or len(items) != len(targets):
+                raise ValueError(f"항목 수 불일치: {len(targets)}개 요청")
+        except Exception as exc:  # noqa: BLE001 — 보조 판정이 턴을 깨지 않는다(fail-open)
+            logger.warning("filler quote pass failed — conditions kept | err=%s", str(exc)[:200])
+            trace.output(failed=True, error=str(exc)[:300])
+            return None
+        kinds = {}
+        for (cond, _r), item in zip(targets, items):
+            kind = item.get("kind") if isinstance(item, dict) else None
+            kinds[id(cond)] = kind if kind in FILLER_ANSWERS else None
+        trace.output(kinds=[kinds[id(c)] for c, _ in targets])
+        return kinds
+
+
+def check_filler_quotes(user_input, targets, unsupported, chat) -> List[Any]:
+    """두 판정이 같은 '덧붙은 말' 종류로 일치한 조건만 돌려준다 — 불일치·unclear·실패는 남긴다."""
+    first = _request_filler_kinds(user_input, targets, unsupported, chat, _FILLER_SYSTEM)
+    fillers = [(c, r) for c, r in targets if first and first.get(id(c)) in FILLER_KINDS]
+    if not fillers:
+        return []
+    second = _request_filler_kinds(user_input, fillers, unsupported, chat, _FILLER_CONFIRM_SYSTEM)
+    return [c for c, _ in fillers if second and second.get(id(c)) == first.get(id(c))]
+
+
 def quote_setting_kind(verdicts: Optional[QuoteVerdicts], cond: Any) -> Optional[str]:
     """제거 확정 조건의 인용이 가리키는 설정 종류(SETTING_KINDS), 판정이 없으면 None."""
     verdict = _verdict(verdicts, cond)
@@ -560,6 +628,14 @@ def quote_duplicates_confirmed(verdicts: Optional[QuoteVerdicts], cond: Any, sib
         and (_verdict(verdicts, other) is not None and _verdict(verdicts, other).expresses == "yes")
         for other in siblings
     )
+
+
+def quote_describes_intraday(verdicts: Optional[QuoteVerdicts], cond: Any) -> bool:
+    """인용이 장중·분봉 기준인가 — 일봉 엔진이 표현할 수 없어 N일 신호로 남기면 다른 전략이 된다.
+    VWAP은 예외다: '장중 VWAP'은 일봉 N일 누적으로 근사 반영하고 알린다(2026-11-06 사용자 결정)."""
+    verdict = _verdict(verdicts, cond)
+    return (verdict is not None and verdict.describes == "intraday"
+            and _canonical_factor(cond.factor) != VWAP_FACTOR)
 
 
 def quote_describes_ranking(verdicts: Optional[QuoteVerdicts], cond: Any) -> bool:

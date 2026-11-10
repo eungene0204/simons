@@ -1073,6 +1073,8 @@ class BacktestSpec(BaseModel):
     exit_limit_percent: Optional[float] = Field(
         default=None, description="매도 지정가 — 전일 종가 대비 +y%")
     entry_tranches: Optional[EntryTranchesSpec] = Field(default=None, description="분할 매수 설정")
+    volatility_breakout_k: Optional[float] = Field(
+        default=None, description="변동성 돌파 체결(v16.46) — 시가 + 전일 고저폭 × k 돌파 시 매수, 다음 거래일 시가 매도")
 
     @field_validator("entry_tranches", mode="before")
     @classmethod
@@ -1111,7 +1113,7 @@ class BacktestSpec(BaseModel):
     cash_pool: Optional["CashPoolSpec"] = Field(default=None, description="보유 현금에서 꺼내 사는 적립 설정")
 
     _coerce = field_validator("fee_rate", "slippage_rate", "sell_tax_rate", "entry_limit_percent",
-                              "exit_limit_percent", "slippage_impact_coeff", mode="before")(_coerce_number)
+                              "volatility_breakout_k", "exit_limit_percent", "slippage_impact_coeff", mode="before")(_coerce_number)
     # 금액은 앞자리 숫자만 떼는 _coerce_number로 읽을 수 없다("2억5000만원"→2) — 자리마다
     # 더하는 금액 환산기를 쓴다(위 _normalize_amount, 옮겨 적기 계약).
     _coerce_capital = field_validator(

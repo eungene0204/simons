@@ -6,7 +6,8 @@ import polars as pl
 import numpy as np
 
 from engine.indicator_columns import (
-    bollinger_band_column, bollinger_columns, macd_columns, stochastic_columns,
+    GAP_COLUMN, bollinger_band_column, bollinger_bandwidth_column, bollinger_columns,
+    bollinger_squeeze_column, high_ratio_column, ma_slope_column, macd_columns, stochastic_columns,
     trading_value_sma_col,
 )
 from engine import trade_reason as tr
@@ -397,6 +398,37 @@ class SignalEngine:
             default_val = 90.0 if sig_type != 'sell' else 110.0
             default_op = '<=' if sig_type != 'sell' else '>='
             return compare_vec(disp, p.get('operator', default_op), float(p.get('value', default_val)))
+
+        elif cid in ('bollinger_bandwidth', 'high_52w_ratio', 'gap'):
+            # 값 비교 지표(v16.50). 임계값은 요청이 항상 싣는다 — 없으면 컴파일러가 먼저 거른다.
+            column = (bollinger_bandwidth_column(p) if cid == 'bollinger_bandwidth'
+                      else high_ratio_column(p) if cid == 'high_52w_ratio' else GAP_COLUMN)
+            return compare_vec(get_col(column), p.get('operator', '>='), float(p.get('value', 0.0)))
+
+        elif cid in ('bollinger_squeeze', 'ma_rising', 'ma_falling'):
+            # 0/1 사건 지표(v16.50) — 지표 열이 없으면 fail-closed.
+            arr = get_col(bollinger_squeeze_column(p) if cid == 'bollinger_squeeze' else ma_slope_column(cid, p))
+            return np.zeros(data_len, dtype=bool) if arr is None else (arr > 0.5)
+
+        elif cid == 'vwap':
+            # 종가 vs N일 VWAP. mode='above'/'below'=머무는 상태, 아니면 cross 방향의 교차
+            # (cross 없으면 매수=상향·매도=하향 — EMA와 같은 기본). 방향은 역할과 독립이다.
+            period = p.get('period', 20)
+            vwap_arr = get_col(f'vwap_{period}')
+            close = get_col('close')
+            if vwap_arr is None or close is None:
+                return result
+            mode = p.get('mode')
+            with np.errstate(invalid='ignore'):
+                if mode in ('above', 'below'):
+                    return close >= vwap_arr if mode == 'above' else close <= vwap_arr
+                cross = p.get('cross') or ('below' if p.get('signalType') == 'sell' else 'above')
+                res = np.zeros(data_len, dtype=bool)
+                if cross == 'below':
+                    res[1:] = (close[:-1] >= vwap_arr[:-1]) & (close[1:] < vwap_arr[1:])
+                else:
+                    res[1:] = (close[:-1] <= vwap_arr[:-1]) & (close[1:] > vwap_arr[1:])
+                return res
 
         elif cid == 'relative_return':
             # 시장 대비 초과수익률(%p). 시장보다 나은(0 초과) 매수 / 못한(0 미만) 매도 기본.
@@ -841,6 +873,36 @@ class SignalEngine:
             default_op = '<=' if sig_type != 'sell' else '>='
             return compare(disp_val, p.get('operator', default_op), float(p.get('value', default_val)))
 
+        elif cid in ('bollinger_bandwidth', 'high_52w_ratio', 'gap'):
+            column = (bollinger_bandwidth_column(p) if cid == 'bollinger_bandwidth'
+                      else high_ratio_column(p) if cid == 'high_52w_ratio' else GAP_COLUMN)
+            return compare(safe_get(column, idx), p.get('operator', '>='), float(p.get('value', 0.0)))
+
+        elif cid in ('bollinger_squeeze', 'ma_rising', 'ma_falling'):
+            val = safe_get(bollinger_squeeze_column(p) if cid == 'bollinger_squeeze' else ma_slope_column(cid, p), idx)
+            return val is not None and val > 0.5
+
+        elif cid == 'vwap':
+            # 벡터화 경로(_eval_vec)와 동일 의미.
+            period = p.get('period', 20)
+            vwap_val = safe_get(f'vwap_{period}', idx)
+            c = safe_get('close', idx)
+            if vwap_val is None or c is None:
+                return False
+            mode = p.get('mode')
+            if mode in ('above', 'below'):
+                return c >= vwap_val if mode == 'above' else c <= vwap_val
+            if idx == 0:
+                return False
+            p_vwap = safe_get(f'vwap_{period}', idx - 1)
+            p_close = safe_get('close', idx - 1)
+            if p_vwap is None or p_close is None:
+                return False
+            cross = p.get('cross') or ('below' if p.get('signalType') == 'sell' else 'above')
+            if cross == 'below':
+                return p_close >= p_vwap and c < vwap_val
+            return p_close <= p_vwap and c > vwap_val
+
         elif cid == 'relative_return':
             period = p.get('period', 60)
             rr_val = safe_get(f'relative_return_{period}', idx)
@@ -1126,6 +1188,25 @@ class SignalEngine:
             sig_type = p.get('signalType', 'buy')
             val = p.get('value', 90 if sig_type != 'sell' else 110)
             return [tr.part(tr.DISPARITY_LEVEL, period, val, op_seg)]
+        elif cid == 'bollinger_bandwidth':
+            return [tr.part(tr.BOLLINGER_BANDWIDTH_LEVEL, p.get('period', 20), p.get('value', 0), op_seg)]
+        elif cid == 'bollinger_squeeze':
+            return [tr.part(tr.BOLLINGER_SQUEEZE, p.get('lookbackPeriod'), p.get('withinDays'))]
+        elif cid == 'ma_rising':
+            return [tr.part(tr.MA_RISING, p.get('period'), p.get('days'))]
+        elif cid == 'ma_falling':
+            return [tr.part(tr.MA_FALLING, p.get('period'), p.get('days'))]
+        elif cid == 'high_52w_ratio':
+            return [tr.part(tr.HIGH_RATIO_LEVEL, p.get('period', 252), p.get('value', 0), op_seg)]
+        elif cid == 'gap':
+            return [tr.part(tr.GAP_LEVEL, p.get('value', 0), op_seg)]
+        elif cid == 'vwap':
+            period = p.get('period', 20)
+            mode = p.get('mode')
+            if mode in ('above', 'below'):
+                return [tr.part(tr.VWAP_STAY_ABOVE if mode == 'above' else tr.VWAP_STAY_BELOW, period)]
+            cross = p.get('cross') or ('below' if p.get('signalType') == 'sell' else 'above')
+            return [tr.part(tr.VWAP_CROSS_DOWN if cross == 'below' else tr.VWAP_CROSS_UP, period)]
         elif cid == 'relative_return':
             period = p.get('period', 60)
             sig_type = p.get('signalType', 'buy')

@@ -28,6 +28,11 @@ const base: ParsedSummary = {
   initial_capital: 10_000_000,
 };
 
+it("변동성 돌파는 매수 조건 칸이 비어 있어도 매수 규칙이 있다", () => {
+  expect(isSlotFilled("entry", { ...base, volatility_breakout_k: 0.5 })).toBe(true);
+  expect(isSlotFilled("entry", base)).toBe(false);
+});
+
 describe("isBacktestReady", () => {
   it("유니버스 전략은 리밸런싱까지 있어야 실행 가능", () => {
     const withoutRebal = {

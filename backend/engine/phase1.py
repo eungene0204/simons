@@ -69,11 +69,13 @@ def build_context(
     exec_price_basis: str = "open",
     # 배당 원천징수세율(0~1, v16.33) — 기본 0은 종전 동작(세전 배당 재투자)이다.
     dividend_tax_rate: float = 0.0,
+    seasonal_months: Optional[List[int]] = None,
 ) -> Dict[str, Any]:
     """종목별 파이프라인이 읽는 요청-수준 상수 묶음(피클 가능)."""
     return {
         # 익일 체결가 열(v16.28): 'open'=시가(종전), 'avg'=시가·고가·저가·종가 평균.
         "exec_price_basis": exec_price_basis,
+        "seasonal_months": seasonal_months,
         "entry": entry,
         "exit": exit_,
         "warmup_start_str": warmup_start_str,
@@ -181,7 +183,10 @@ def symbol_signals(df_pl: pl.DataFrame, pdf: pd.DataFrame, bprep: Optional[Dict[
     n_pre = 0 if pre_df_pl is None else len(pre_df_pl)
     sig_frame = pl.concat([pre_df_pl, df_pl], how="vertical") if n_pre else df_pl
     if _has_buy_at_start(ctx["entry"]):
-        sig_frame = sig_frame.with_columns(pl.Series("__window_start", _window_start_flags(len(sig_frame), n_pre)))
+        sig_frame = sig_frame.with_columns(pl.Series("__window_start", _window_start_flags(
+            len(sig_frame), n_pre, dates=sig_frame["date"].cast(pl.Utf8).to_list(),
+            seasonal_months=ctx.get("seasonal_months"),
+            delay=1 if ctx["exec_type"] == "next_open" else 0)))
 
     entries, entry_reasons = signal_engine.generate_signals(sig_frame, ctx["entry"])
     exits, exit_reasons = signal_engine.generate_signals(sig_frame, ctx["exit"])
@@ -257,16 +262,27 @@ def _has_buy_at_start(group: Optional[Dict[str, Any]]) -> bool:
     return any(c.get("id") == "buy_at_start" for c in (group or {}).get("conditions") or [])
 
 
-def _window_start_flags(n_rows: int, n_pre: int) -> np.ndarray:
+def _window_start_flags(n_rows: int, n_pre: int, dates: Optional[List[str]] = None,
+                        seasonal_months: Optional[List[int]] = None, delay: int = 0) -> np.ndarray:
     """시작일 매수(v16.45)의 신호 봉 — 창 첫 봉에 1을 하나 세운다.
 
     유동성 게이트는 전일 거래대금을 보므로(loader.check_liquidity) 이력이 없는 봉(창 직전 봉이 없는
     종목의 첫 봉)은 항상 막힌다. 그 봉에 세우면 '시작일 매수'가 영영 체결되지 않으므로, 직전 봉이 없으면
-    둘째 봉에 세운다(상장이 창 중간인 종목은 상장 둘째 거래일)."""
+    둘째 봉에 세운다(상장이 창 중간인 종목은 상장 둘째 거래일).
+
+    계절 필터가 있으면 투자하는 달의 첫 거래일에도 세운다(v16.49) — 계절 청산 뒤 다시 살 시점이 없어
+    첫 시즌 뒤로 현금만 들고 있었다. 체결 지연(delay)만큼 앞 봉에 세워 체결일이 그 달 첫 거래일이 된다."""
     flags = np.zeros(n_rows, dtype=np.int8)
     idx = n_pre if n_pre > 0 else 1
     if idx < n_rows:
         flags[idx] = 1
+    if seasonal_months and dates is not None:
+        allowed = {int(m) for m in seasonal_months}
+        months = pd.DatetimeIndex(pd.to_datetime([d[:10] for d in dates])).month.to_numpy()
+        for bar in range(1, n_rows):
+            signal_bar = bar - delay
+            if months[bar] in allowed and months[bar] != months[bar - 1] and signal_bar >= n_pre:
+                flags[signal_bar] = 1
     return flags
 
 

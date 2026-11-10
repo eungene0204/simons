@@ -36,6 +36,8 @@ _PARAM_LABELS = {
     "period": "기간",
     "lookback_period": "기준 기간",
     "touch_lookback": "하단 터치 인정 기간(거래일)",
+    "within_days": "밴드폭이 최저였던 날의 인정 기간(거래일)",
+    "days": "연속 거래일 수",
     "lookback_days": "조회 기간",
     "threshold": "기준값",
 }
@@ -159,8 +161,9 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
             recommended_value=None,
         ))
 
-    # ② 진입 메커니즘 존재 여부 (조건 또는 랭킹) — 적립식은 납입 일정이 곧 매수 규칙이다.
+    # ② 진입 메커니즘 존재 여부 (조건 또는 랭킹) — 적립식은 납입 일정, 변동성 돌파는 돌파가가 곧 매수 규칙이다.
     if intent.intent == "CREATE_STRATEGY" and not contribution and not withdrawal \
+            and bt.volatility_breakout_k is None \
             and not strategy.entry_conditions and not strategy.ranking:
         missing.append("strategy.entry_conditions")
         questions.append(ClarificationQuestion(
@@ -222,7 +225,11 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
             # 컴파일러도 값 없이 mode(above/below)로 바인딩한다(_compile_technical).
             # 이걸 임계값 누락으로 보면 조건이 값 미정으로 제외돼 사용자가 명시한 진입·청산
             # 규칙이 통째로 사라진다(2026-08-05 전수 QA 치명 2건: EMA 추세 진입/청산).
-            compares_own_lines = {"short_period", "long_period"} <= set(spec.parameters)
+            # 가격 vs 한 선(VWAP, v16.48)도 같다 — 사건형 지표의 부등호는 선과의 상하 관계다.
+            compares_own_lines = (
+                {"short_period", "long_period"} <= set(spec.parameters)
+                or (spec.value_type == "event" and set(_COMPARISON_OPS) & set(spec.allowed_operators))
+            )
             needs_value = not compares_own_lines and (
                 cond.operator in _COMPARISON_OPS
                 or (cond.operator is None and spec.category != "event"

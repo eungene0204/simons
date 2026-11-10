@@ -70,6 +70,9 @@
 
 - 질문 문구는 **상수**로 뺀다(전용 답변 판정이 문장 동일성으로 라우팅한다 — A 유형).
 - `guard_text(q) == q` 테스트 — 규제 가드가 '분할 매수' 같은 문구를 문장째 지운다.
+- 되묻기로 정한 파라미터는 레지스트리 `ParamSpec`에 `default`를 두지 않는다(`required=True`만). 기본값이 있으면
+  `compile_partial._param_has_registry_default`가 보류하지 않고 기본값으로 컴파일해, 질문은 뜨는데 값은 이미 조용히
+  확정된다(VWAP v16.48 실측 — 이동평균 크로스는 의도적으로 이 경로다).
 - 값 대기 채널: 값이 확정되기 전에는 엔진에 보내지 않는다(`is_complete()` 패턴). 안내에는 내부 라벨 대신 사용자 인용(source_text)을 쓴다.
 - 칩: 결정론 정본 값 표(`strategy_slots.*_CHIP_VALUES`, 프론트 옵션 표)로 **값 결속**한다. 복합 칩은 금지다. 문구는
   `export_slot_prompts.py` / `export_clarification_chips.py` 픽스처로 공유한다.

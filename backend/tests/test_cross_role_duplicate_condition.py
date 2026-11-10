@@ -71,6 +71,21 @@ def test_cross_role_duplicate_regenerates_once():
     assert [(c.operator, c.value) for c in strategy.exit_conditions] == [(">=", 70)]
 
 
+def test_regeneration_that_only_empties_declined_is_kept():
+    """2026-11-09: 재생성본이 조건은 고치고 '안 함' 신고만 비워, 무관 칸 변경으로 세여 틀린 원출력으로 돌아갔다."""
+    def body(entry, declined):
+        payload = json.loads(_body(entry, [SELL]))
+        payload["strategy"]["declined"] = declined
+        return json.dumps(payload, ensure_ascii=False)
+
+    declined = [{"field": "stop_loss", "source_text": "손절 안 함"}, {"field": "take_profit", "source_text": "익절 안 함"}]
+    user = USER + " 손절 안 함, 익절 안 함"
+    replies = iter([body([REBOUND, SELL], declined), body([REBOUND], [])])
+    strategy = StrategyInterpreter(chat_fn=lambda s, u, **_: next(replies), model="stub-model").interpret(user).intent.strategy
+    assert [(c.operator, c.value) for c in strategy.entry_conditions] == [("crosses_above", 30)]
+    assert list(strategy.declined) == ["stop_loss", "take_profit"]
+
+
 def test_cross_role_duplicate_left_in_place_when_regeneration_keeps_it():
     """재생성본도 같으면 그대로 진행한다(판정 없음 — 어느 칸이 맞는지 결정론이 정하지 않는다)."""
     bad = _body([REBOUND, SELL], [SELL])

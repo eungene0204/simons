@@ -57,7 +57,10 @@ _EN_LABELS = {
     "technical.bollinger_middle_recovery": "Bollinger middle-band recovery after a lower-band touch",
     "technical.breakout": "New-high breakout", "technical.breakout_low": "New-low breakout", "technical.buy_at_start": "Buy at start", "technical.volume_spike": "Volume spike (OBV)",
     "technical.stochastic": "Stochastic", "technical.cci": "CCI", "technical.adx": "ADX",
-    "technical.williams_r": "Williams %R", "technical.mfi": "MFI", "technical.roc": "ROC", "technical.disparity": "Disparity (close ÷ MA)",
+    "technical.williams_r": "Williams %R", "technical.mfi": "MFI", "technical.roc": "ROC", "technical.disparity": "Disparity (close ÷ MA)", "technical.vwap": "VWAP",
+    "technical.bollinger_bandwidth": "Bollinger bandwidth", "technical.bollinger_squeeze": "Bollinger squeeze",
+    "technical.ma_rising": "Moving average rising", "technical.ma_falling": "Moving average falling",
+    "technical.high_52w_ratio": "Close vs 52-week high", "technical.gap": "Opening gap",
     "technical.candle_hammer": "Hammer candle", "technical.candle_hanging_man": "Hanging man candle", "technical.candle_inverted_hammer": "Inverted hammer candle", "technical.candle_shooting_star": "Shooting star candle", "technical.candle_doji": "Doji candle", "technical.candle_bullish_engulfing": "Bullish engulfing candle", "technical.candle_bearish_engulfing": "Bearish engulfing candle", "technical.candle_piercing_line": "Piercing line candle", "technical.candle_dark_cloud_cover": "Dark cloud cover candle", "technical.candle_morning_star": "Morning star candle", "technical.candle_evening_star": "Evening star candle", "technical.candle_three_white_soldiers": "Three white soldiers candle", "technical.candle_three_black_crows": "Three black crows candle",
     "technical.relative_return": "Excess return vs market",
     "technical.volatility": "Volatility (annualized)", "technical.trading_value": "Trading value",
@@ -70,7 +73,7 @@ _EN_LABELS = {
 
 _EN_PARAM_LABELS = {
     "short_period": "short period", "long_period": "long period", "period": "period",
-    "lookback_period": "lookback period", "touch_lookback": "lower-band touch window", "lookback_days": "lookback days", "threshold": "threshold",
+    "lookback_period": "lookback period", "touch_lookback": "lower-band touch window", "within_days": "squeeze window", "days": "consecutive days", "lookback_days": "lookback days", "threshold": "threshold",
 }
 
 # 값 단위 표기 — 한국어 정본(ratio='배', 억원)과 영어 표기가 다르다.

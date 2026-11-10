@@ -1,4 +1,5 @@
 import contextlib
+import threading
 import os
 import polars as pl
 import pandas as pd
@@ -151,6 +152,16 @@ def _max_indicator_period(*groups) -> int:
                 cands = [p.get('period', 12)]
             elif cid == 'disparity':
                 cands = [p.get('period', 20)]
+            elif cid == 'bollinger_bandwidth':
+                cands = [p.get('period', 20)]
+            elif cid == 'bollinger_squeeze':
+                cands = [int(p.get('period', 20)) + int(p.get('lookbackPeriod') or 0) + int(p.get('withinDays') or 0)]
+            elif cid in ('ma_rising', 'ma_falling'):
+                cands = [int(p.get('period') or 0) + int(p.get('days') or 0)]
+            elif cid == 'high_52w_ratio':
+                cands = [p.get('period', 252)]
+            elif cid == 'vwap':
+                cands = [p.get('period', 20)]
             elif cid == 'bollinger_bands':
                 # 밴드 지정(v16.39)의 하단 터치 이력 N거래일만큼 앞 봉이 더 필요하다.
                 cands = [int(p.get('period', 20)) + int(p.get('touchLookback') or 0)]
@@ -232,7 +243,35 @@ def _ranking_lookback_max(risk_params: Dict[str, Any]) -> int:
     return out
 
 
+def _period_start_for(period_req: str, ref_date: pd.Timestamp) -> Optional[pd.Timestamp]:
+    """기간 라벨의 시작일 — 기준일에서 정확히 그 기간 전이다(v16.49, 종전 5Y·10Y·20Y는 달력 연초라 5Y가 4.85년)."""
+    if period_req == '6M':
+        return ref_date - pd.DateOffset(months=6)
+    if period_req in ('1Y', '3Y', '5Y', '10Y', '20Y'):
+        return ref_date - pd.DateOffset(years=int(period_req[:-1]))
+    return None
+
+
 class BacktestEngine:
+    # 경고는 요청마다 따로 쌓는다 — 공유 엔진을 두 요청이 동시에 쓰면 인스턴스 칸의 경고가 섞였다
+    # (2026-11-09 실측: 신호·자산곡선은 같은데 다른 전략의 경고가 결과에 붙음).
+    @property
+    def warnings(self) -> set:
+        local = self.__dict__.setdefault('_warnings_local', threading.local())
+        if not hasattr(local, 'value'):
+            local.value = set()
+        return local.value
+
+    @warnings.setter
+    def warnings(self, value: set) -> None:
+        local = self.__dict__.setdefault('_warnings_local', threading.local())
+        local.value = value
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.pop('_warnings_local', None)
+        return state
+
     def __init__(self, data_dir: str = None):
         self.warnings = set()
         
@@ -510,6 +549,9 @@ class BacktestEngine:
     def _add_v1628_warnings(self, risk_params, options, alloc_ctx, cash_asset, cash_idx) -> None:
         """경쟁 격차 1차(v16.28) 설정의 적용 고지 — 시뮬레이터 통계로 무엇을 어떻게 적용했는지 남긴다."""
         sim = self.simulator
+        if options.get('execution_type', 'next_open') == 'next_open' and (
+                risk_params.get('stop_loss_pct') or risk_params.get('trailing_stop_pct')):
+            self.warnings.add(rw.warning(rw.STOP_FILLED_NEXT_OPEN))
         if alloc_ctx is not None:
             label = tr.part(rw.ALLOCATION_LABELS.get(alloc_ctx.method, alloc_ctx.method))
             if alloc_ctx.method == 'schedule':
@@ -1329,6 +1371,12 @@ class BacktestEngine:
                 _exec_price_basis = 'avg'
                 options['exec_price_basis'] = 'avg'
                 self.warnings.add(rw.warning(rw.EXEC_AVG_PRICE))
+            if exec_type == 'next_open':
+                _leaves: List[Dict[str, Any]] = []
+                _phase1._collect_leaf_conditions(req.get('entry'), _leaves)
+                _phase1._collect_leaf_conditions(req.get('exit'), _leaves)
+                if any(c.get('id') == 'gap' for c in _leaves):
+                    self.warnings.add(rw.warning(rw.GAP_FILLED_NEXT_OPEN))
             # 변동성 돌파 체결(v16.46)은 시가 체결에서만 계산된다(돌파가 = 시가 + 전일 고저폭 × k).
             if risk_params.get('volatility_breakout_k') and (exec_type != 'next_open' or _exec_price_basis != 'open'):
                 self.warnings.add(rw.warning(rw.VOLATILITY_BREAKOUT_NEEDS_OPEN))
@@ -1490,19 +1538,8 @@ class BacktestEngine:
             _warmup_start_str: str | None = None
 
             if _has_period_filter:
-                if start_date_req:
-                    _period_start_dt = pd.to_datetime(start_date_req)
-                elif period_req == '6M':
-                    _period_start_dt = ref_date - pd.DateOffset(months=6)
-                elif period_req == '1Y':
-                    _period_start_dt = ref_date - pd.DateOffset(years=1)
-                elif period_req == '3Y':
-                    _period_start_dt = ref_date - pd.DateOffset(years=3)
-                elif period_req in ['5Y', '10Y', '20Y']:
-                    y = int(period_req[:-1])
-                    _period_start_dt = pd.Timestamp(year=ref_date.year - (y-1), month=1, day=1)
-                else:
-                    _period_start_dt = None
+                _period_start_dt = (pd.to_datetime(start_date_req) if start_date_req
+                                    else _period_start_for(period_req, ref_date))
 
                 if _period_start_dt is not None:
                     _period_start_str = _period_start_dt.strftime("%Y-%m-%d")
@@ -1706,6 +1743,7 @@ class BacktestEngine:
                 warmup_start_str=_warmup_start_str, has_period_filter=_has_period_filter,
                 period_start_str=_period_start_str, end_str=_end_str,
                 apply_dividends=apply_dividends, dividend_tax_rate=_div_tax,
+                seasonal_months=risk_params.get("seasonal_months"),
                 skip_risk=bool(risk_params.get('skip_risk_management', False)),
                 skip_pos=bool(risk_params.get('skip_position_setting', False)),
                 init_cash=init_cash, pos_size_pct=pos_size_pct, liquid_limit=liquid_limit,
@@ -2755,6 +2793,7 @@ class BacktestEngine:
                 self.warnings.add(rw.warning(
                     rw.VOL_TARGET_APPLIED, str(int(_vt)) if _vt == int(_vt) else f"{_vt:g}",
                     VOL_TARGET_WINDOW, int(_vt_days)))
+                self.warnings.add(rw.warning(rw.VOL_TARGET_REALIZED_MAY_DIFFER, VOL_TARGET_WINDOW))
 
             # ── 리밸런싱 기간별 비교(FR-BT-064)를 Phase1 풀 워커에 미리 제출 ──
             # 결과 화면 전용 재시뮬레이션(6주기)이라 메인 결과 정리(Format)와 겹쳐 돌린다 —

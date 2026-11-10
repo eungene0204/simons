@@ -38,7 +38,10 @@ def _check_and_intersection(
         for cond in conds:
             c_lo, c_hi = _interval_for(cond.operator, cond.value)
             lo, hi = max(lo, c_lo), min(hi, c_hi)
-        if lo > hi:
+        # 경계가 한 점으로 만날 때는 양쪽이 모두 등호를 포함해야 그 점이 남는다('> 0' AND '<= 0'은 공집합).
+        touching_excluded = lo == hi and any(
+            c.operator in ("<", ">") and c.value == lo for c in conds)
+        if lo > hi or touching_excluded:
             spec = REGISTRY.get(factor)
             name = spec.display_name if spec else factor
             described = " AND ".join(f"{name} {c.operator} {c.value}" for c in conds)

@@ -158,8 +158,9 @@ def test_execution_extensions_reach_engine_and_reject_same_close():
     _, report2, parsed2, _, _ = _compile(_intent(
         backtest={"execution_timing": "current_close", "entry_limit_percent": 2},
     ))
-    assert any("지정가" in e for e in report2.errors)
-    assert parsed2.entry_limit_pct is None
+    # 지정가를 지우지 않고 체결 시점을 다음 날로 돌리며 알린다(2026-11-09 — LLM이 지어낸 current_close 실측).
+    assert any("지정가" in w for w in report2.warnings)
+    assert parsed2.entry_limit_pct == 2 and parsed2.execution_timing == "next_open"
 
     _, report3, parsed3, _, _ = _compile(_intent(backtest={"entry_tranches": {"count": 3}}))
     assert any(q.field == "strategy.backtest.entry_tranches" for q in report3.clarification_questions)

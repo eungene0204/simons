@@ -184,7 +184,8 @@ const BacktestDashboard = dynamic(
 type Stage = "idle" | "ready" | "running" | "done";
 // ranking-fix-v3: risk.ranking_metric를 스키마가 버리던 버그 수정(모멘텀 랭킹 0거래) →
 // 같은 strategy_id로 캐시된 잘못된 0거래 결과를 무효화하기 위해 버전을 올린다.
-const BACKTEST_ENGINE_VERSION = "audit-fixes-v4";
+// audit-fixes-v5: 엔진 v16.49가 보유 N일·5Y 기간 정의와 스토캐스틱 임계 조건의 결과를 바꿨다.
+const BACKTEST_ENGINE_VERSION = "audit-fixes-v5";
 const OPTIMIZATION_BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 const RUN_METRIC_OPTIMIZATION_CHIP = "이 범위로 계산";
 const CANCEL_METRIC_OPTIMIZATION_CHIP = "계산 취소";

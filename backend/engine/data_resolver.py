@@ -13,7 +13,15 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from .indicator_columns import TRADING_VALUE_SMA_RE as _TV_SMA_RE, trading_value_sma_col
+from .indicator_columns import (
+    GAP_COLUMN,
+    TRADING_VALUE_SMA_RE as _TV_SMA_RE,
+    bollinger_bandwidth_column,
+    bollinger_squeeze_column,
+    high_ratio_column,
+    ma_slope_column,
+    trading_value_sma_col,
+)
 from .signals import FUNDAMENTAL_CIDS, FUNDAMENTAL_LABELS
 
 logger = logging.getLogger(__name__)
@@ -39,7 +47,8 @@ FUNDAMENTAL_IDS = set(FUNDAMENTAL_CIDS)
 TECHNICAL_IDS = {
     'ma_crossover', 'rsi', 'ema', 'macd', 'stochastic',
     'cci', 'adx', 'bollinger_bands', 'volume_spike', 'volume_ratio', 'trading_value_ratio', 'breakout',
-    'williams_r', 'mfi', 'roc', 'disparity', 'relative_return',
+    'williams_r', 'mfi', 'roc', 'disparity', 'vwap', 'relative_return',
+    'bollinger_bandwidth', 'bollinger_squeeze', 'ma_rising', 'ma_falling', 'high_52w_ratio', 'gap',
 }
 
 # 계산 가능한 파생 지표
@@ -113,6 +122,19 @@ def _get_required_columns_base(cond: Dict) -> List[str]:
     elif cid == 'disparity':
         period = p.get('period', 20)
         return [f'disparity_{period}']
+    elif cid == 'bollinger_bandwidth':
+        return [bollinger_bandwidth_column(p)]
+    elif cid == 'bollinger_squeeze':
+        return [bollinger_squeeze_column(p)]
+    elif cid in ('ma_rising', 'ma_falling'):
+        return [ma_slope_column(cid, p)]
+    elif cid == 'high_52w_ratio':
+        return [high_ratio_column(p)]
+    elif cid == 'gap':
+        return [GAP_COLUMN]
+    elif cid == 'vwap':
+        period = p.get('period', 20)
+        return [f'vwap_{period}']
     elif cid == 'relative_return':
         period = p.get('period', 60)
         return [f'relative_return_{period}']

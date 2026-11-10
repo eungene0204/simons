@@ -861,7 +861,13 @@ class Simulator:
         def _day_reason(i: int) -> Optional[str]:
             return day_reasons[i] if (day_reasons is not None and day_reasons[i]) else None
 
+        # 다음 날 시가 체결에서 'N거래일 보유'는 체결일 E의 시가 → E+N의 시가 매도다(v16.49). 종가 판정 뒤
+        # 다음 봉에 체결하면 N+1일이 되고 N=1은 표현조차 안 되므로, 그 봉의 시가 체결 대상으로 바로 올린다.
+        hold_exit_at_open = has_position_risk and max_hold > 0 and exec_type == 'next_open'
+
         for i in range(n_rows):
+            if hold_exit_at_open:
+                pending_exit |= active_mask & ((i - entry_day) >= max_hold)
             # Step 0: 이월된 청산을 거래 가능일에 방출
             released = np.zeros(num_symbols, dtype=bool)
             if pending_exit.any():
@@ -959,7 +965,7 @@ class Simulator:
                 # 사유 라벨은 result_handler가 실제 보유일수(exit_idx-entry_idx)로 정확히
                 # 붙이므로(수익률 크기 무관) 여기서 override하지 않는다 — next_open 체결 시
                 # 플래그일과 체결일이 달라 보유일수가 1 어긋나는 것을 피한다.
-                if max_hold > 0:
+                if max_hold > 0 and not hold_exit_at_open:
                     should_exit |= base & ~should_exit & ((i - entry_day) >= max_hold)
 
                 # SL / TP / Trailing stop (vectorized, no re-exit if already flagged)

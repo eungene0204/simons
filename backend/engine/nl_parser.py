@@ -775,10 +775,11 @@ class TechnicalSignal(BaseModel):
     indicator: Literal[
         "ma_crossover", "rsi", "ema", "macd",
         "bollinger_bands", "breakout", "buy_at_start", "consecutive_up", "consecutive_down", "volume_spike", "volume_ratio", "trading_value_ratio",
-        "stochastic", "cci", "adx", "williams_r", "mfi", "roc", "disparity", "volatility",
+        "stochastic", "cci", "adx", "williams_r", "mfi", "roc", "disparity", "vwap", "volatility",
+        "bollinger_bandwidth", "bollinger_squeeze", "ma_rising", "ma_falling", "high_52w_ratio", "gap",
         "relative_return", "trading_value", "ai_model", "ai_drop_model",
         "candle_hammer", "candle_hanging_man", "candle_inverted_hammer", "candle_shooting_star", "candle_doji", "candle_bullish_engulfing", "candle_bearish_engulfing", "candle_piercing_line", "candle_dark_cloud_cover", "candle_morning_star", "candle_evening_star", "candle_three_white_soldiers", "candle_three_black_crows"
-    ] = Field(description="지표 종류. candle_*=캔들 패턴(완성 봉에 신호). williams_r=Williams %R(-100~0), mfi=자금흐름지표(0~100), roc=변화율/모멘텀(%), disparity=이격도(종가÷period일 단순이동평균×100, 120=이동평균보다 20% 위, value=이격도 값), volatility=연환산 변동성(%, 일수익률 롤링 표준편차×√246), relative_return=시장 대비 초과수익률(%p, 종목 N일 수익률−상장 시장 지수 N일 수익률), volume_ratio=거래량 배수(당일 거래량 ÷ 직전 N일 평균 거래량, value=배수), trading_value_ratio=거래대금 배수(당일 거래대금 ÷ 직전 N일 평균 거래대금, value=배수), ai_model=AI 상승 예측 매수, ai_drop_model=AI 하락 예측 매도, buy_at_start=백테스트 시작일에 조건 없이 한 번 사서 계속 보유(매수 전용)")
+    ] = Field(description="지표 종류. candle_*=캔들 패턴(완성 봉에 신호). williams_r=Williams %R(-100~0), mfi=자금흐름지표(0~100), roc=변화율/모멘텀(%), disparity=이격도(종가÷period일 단순이동평균×100, 120=이동평균보다 20% 위, value=이격도 값), vwap=종가 vs period일 VWAP(일봉 누적 거래량가중 평균가, 전형가격 기준 — mode above/below=머무는 상태, 아니면 cross 방향 교차), volatility=연환산 변동성(%, 일수익률 롤링 표준편차×√246), relative_return=시장 대비 초과수익률(%p, 종목 N일 수익률−상장 시장 지수 N일 수익률), volume_ratio=거래량 배수(당일 거래량 ÷ 직전 N일 평균 거래량, value=배수), trading_value_ratio=거래대금 배수(당일 거래대금 ÷ 직전 N일 평균 거래대금, value=배수), ai_model=AI 상승 예측 매수, ai_drop_model=AI 하락 예측 매도, buy_at_start=백테스트 시작일에 조건 없이 한 번 사서 계속 보유(매수 전용)")
     signal_type: Literal["buy", "sell"] = Field(default="buy", description="매수=buy, 매도=sell")
 
     # MA / EMA 크로스오버
@@ -792,7 +793,7 @@ class TechnicalSignal(BaseModel):
 
     # MACD / RSI 모드. rsi 'rebound'=과매도/과매수 임계선을 다시 돌파하는 반등(단순 임계값 비교가 아님).
     # ema 'above'/'below'=지속 상태 추세 필터(가격이 EMA 위/아래에 머무는지 — 크로스오버 아님).
-    mode: Optional[Literal["crossover", "zero", "rebound", "above", "below"]] = Field(default=None, description="MACD: crossover/zero. RSI: rebound. EMA: above/below=추세 필터(가격 vs EMA 지속 상태)")
+    mode: Optional[Literal["crossover", "zero", "rebound", "above", "below"]] = Field(default=None, description="MACD: crossover/zero. RSI: rebound. EMA·VWAP: above/below=추세 필터(가격 vs 선 지속 상태)")
 
     # 브레이크아웃
     lookback_period: Optional[int] = Field(default=None, description="브레이크아웃 기준 기간 (breakout)")
@@ -807,7 +808,10 @@ class TechnicalSignal(BaseModel):
     # touch_lookback=N이면 직전 N거래일 안에 종가가 하단 이하였던 적이 있어야 한다('하단 터치 후
     # 중심선 회복'). band가 없으면 역할 고정 레거시(매수=종가≤하단, 매도=종가≥상단)다.
     band: Optional[Literal["upper", "middle", "lower"]] = Field(default=None, description="볼린저 대상 밴드 (bollinger_bands)")
-    cross: Optional[Literal["above", "below"]] = Field(default=None, description="볼린저 밴드 교차 방향 (bollinger_bands, band와 함께)")
+    cross: Optional[Literal["above", "below"]] = Field(default=None, description="교차 방향 (bollinger_bands는 band와 함께, vwap은 종가가 VWAP을 교차하는 방향)")
+    # 볼린저 스퀴즈·이동평균 기울기(v16.50) — within_days=최저가 난 날이 최근 며칠 안이어야 하나, days=연속 거래일 수.
+    within_days: Optional[int] = Field(default=None, ge=1, le=60, description="스퀴즈 인정 기간(거래일, bollinger_squeeze)")
+    days: Optional[int] = Field(default=None, ge=1, le=60, description="이동평균 연속 상승·하락 거래일 수 (ma_rising, ma_falling)")
     touch_lookback: Optional[int] = Field(default=None, ge=1, le=250, description="볼린저 하단 터치 인정 기간(거래일, bollinger_bands)")
 
     # AI 모델
@@ -4292,7 +4296,7 @@ def enforce_initial_capital_bounds(parsed: ParsedStrategy) -> Optional[str]:
 # 그 외 설정값 하한선. max_positions는 추출기(0종목→1)와 스키마(ge=1)가 이미 1로 바닥을 깔아
 # 별도 보정이 필요 없다. 비율(%) 필드는 자연스러운 양수 하한이 없어 0 이하면 제거(드롭)한다.
 MIN_HOLD_PERIOD_DAYS = 1
-MIN_RANKING_LOOKBACK_DAYS = 10  # 모멘텀/랭킹 기준 기간 하한(너무 짧으면 노이즈)
+MIN_RANKING_LOOKBACK_DAYS = 5  # 모멘텀/랭킹 기준 기간 하한(너무 짧으면 노이즈)
 MAX_RATIO_PCT = 100.0  # 손절/익절/트레일링/MDD 상한 — 매수 포지션 손실률 한계(-100%)
 TINY_RATIO_WARN_PCT = 0.5  # 이 미만의 손절/익절 폭은 거래 비용보다 작아 실효성 경고
 MAX_COST_RATE_PCT = 10.0  # 수수료/슬리피지 상식 상한(초과 시 기본값 복원 + 안내)
@@ -4331,7 +4335,7 @@ def enforce_strategy_minimums(parsed: ParsedStrategy) -> list[str]:
         and parsed.ranking_lookback_days < MIN_RANKING_LOOKBACK_DAYS
     ):
         parsed.ranking_lookback_days = MIN_RANKING_LOOKBACK_DAYS
-        notices.append("모멘텀/랭킹 기준 기간은 최소 10일입니다. 10일로 설정했어요.")
+        notices.append(f"모멘텀/랭킹 기준 기간은 최소 {MIN_RANKING_LOOKBACK_DAYS}일입니다. {MIN_RANKING_LOOKBACK_DAYS}일로 설정했어요.")
 
     for field, label in _RATIO_FIELD_LABELS.items():
         value = getattr(parsed, field)
@@ -4580,7 +4584,6 @@ _UNSUPPORTED_CONCEPT_PATTERNS: tuple[tuple[str, str], ...] = (
     # 미지원 기술 지표/분석 기법 — 감지 공백으로 LLM 폴백이 안내 없이 일반 되묻기만 하던
     # 막다른 길(퍼징 QA BF-16) 보정. 구현(지원) 시 이 목록에서 제거할 것(커버리지 가드 원칙).
     ("ichimoku", r"이치모쿠|일목균형표|ichimoku"),
-    ("vwap", r"vwap|브이왑"),
     ("peg", r"peg(?![a-z])"),
     ("fibonacci", r"피보나치|fibonacci"),
     ("elliott", r"엘리엇|엘리어트|파동이론"),
@@ -4620,7 +4623,6 @@ _UNSUPPORTED_CONCEPT_LABELS: dict[str, str] = {
     "intraday": "실시간/장중 단위 매매·리밸런싱(일봉 기준만 지원)",
     "preferred_stock": "우선주 종목 지정(보통주 데이터만 지원)",
     "ichimoku": "이치모쿠(일목균형표) 지표",
-    "vwap": "VWAP(거래량 가중 평균가) 지표",
     "peg": "PEG(주가수익성장비율) 조건",
     "fibonacci": "피보나치 되돌림 조건",
     "elliott": "엘리엇 파동 분석",

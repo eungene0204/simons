@@ -12,6 +12,11 @@ from engine.indicator_columns import (
     bollinger_params,
     macd_columns,
     stochastic_columns,
+    GAP_COLUMN,
+    bollinger_bandwidth_column,
+    bollinger_squeeze_column,
+    high_ratio_column,
+    ma_slope_column,
 )
 
 # Fix 6: 멀티스레드 안전한 표준 logging 모듈로 교체
@@ -243,6 +248,52 @@ def _add_condition_columns(sdf, cid, p, target_cols, log) -> None:
                 sdf['close'] / sdf['close'].rolling(window=period).mean() * 100.0
             )
             target_cols.add(f'disparity_{period}')
+        elif cid in ('bollinger_bandwidth', 'bollinger_squeeze'):
+            # 밴드폭(v16.50) = (상단−하단)÷중심선×100. 밴드 값은 볼린저 조건과 같은 계산을 쓴다.
+            _add_condition_columns(sdf, 'bollinger_bands', p, set(), log)
+            period, _ = bollinger_params(p)
+            ub_col, lb_col = bollinger_columns(p)
+            bbw_col = bollinger_bandwidth_column(p)
+            # stockstats 볼린저는 창이 차기 전에도 값을 내므로, 신규 상장 초기의 짧은 창을 밴드폭으로 쓰지 않게 가린다.
+            window_full = sdf['close'].rolling(window=period).mean().notna()
+            sdf[bbw_col] = ((sdf[ub_col] - sdf[lb_col]) / sdf[f'close_{period}_sma'] * 100.0).where(window_full)
+            if cid == 'bollinger_bandwidth':
+                target_cols.add(bbw_col)
+            else:
+                # 최근 N일 최저(동률 포함)였던 날이 최근 M거래일 안에 있으면 1. 초기 NaN 구간은 0.
+                lookback, within = int(p['lookbackPeriod']), int(p['withinDays'])
+                at_low = sdf[bbw_col] <= sdf[bbw_col].rolling(window=lookback).min()
+                sq_col = bollinger_squeeze_column(p)
+                sdf[sq_col] = at_low.astype(float).rolling(window=within, min_periods=1).max()
+                target_cols.add(sq_col)
+        elif cid in ('ma_rising', 'ma_falling'):
+            # 이동평균 기울기(v16.50) — 단순이동평균이 전일보다 높은(낮은) 날이 days거래일 연속.
+            sma_step = sdf['close'].rolling(window=int(p['period'])).mean().diff()
+            moving = sma_step > 0 if cid == 'ma_rising' else sma_step < 0
+            col = ma_slope_column(cid, p)
+            sdf[col] = (moving.astype(float).rolling(window=int(p['days'])).sum() == int(p['days'])).astype(float)
+            target_cols.add(col)
+        elif cid == 'high_52w_ratio':
+            # 종가 ÷ 최근 N거래일 최고가(장중 고가, 당일 포함) × 100(v16.50). 100=신고가 위치.
+            col = high_ratio_column(p)
+            sdf[col] = sdf['close'] / sdf['high'].rolling(window=int(p.get('period', 252))).max() * 100.0
+            target_cols.add(col)
+        elif cid == 'gap':
+            # 시가 갭 %(v16.50) = 당일 시가 ÷ 전일 종가 − 1. 값은 그날 시가에 확정된다.
+            sdf[GAP_COLUMN] = (sdf['open'] / sdf['close'].shift(1) - 1.0) * 100.0
+            target_cols.add(GAP_COLUMN)
+        elif cid == 'vwap':
+            # 일봉 N일 VWAP = Σ(전형가격 × 거래량) ÷ Σ거래량, 전형가격=(고가+저가+종가)/3.
+            # 분봉이 없어 장중 VWAP 대신 최근 N거래일 누적으로 계산한다. 현재 봉까지만 쓰고,
+            # 구간 거래량 합이 0이면(거래정지) 값이 없다.
+            period = int(p.get('period', 20))
+            typical = (sdf['high'] + sdf['low'] + sdf['close']) / 3.0
+            vol = sdf['volume'].astype(float)
+            vol_sum = vol.rolling(window=period).sum()
+            sdf[f'vwap_{period}'] = (
+                (typical * vol).rolling(window=period).sum() / vol_sum.where(vol_sum > 0)
+            )
+            target_cols.add(f'vwap_{period}')
         elif cid == 'volatility':
             # 연환산 변동성(%): 일수익률 롤링 표준편차 × √246 × 100.
             # 연환산 계수는 결과 통계와 동일한 KRX 실측 연 거래일(v12.0 정정)을

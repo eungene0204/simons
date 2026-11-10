@@ -174,6 +174,15 @@ def assemble_response_notices(result, *, consume=False):
             reflected_strategy.entry_conditions = [c for c in strategy.entry_conditions if c in reflected]
             reflected_strategy.exit_conditions = [c for c in strategy.exit_conditions if c in reflected]
             generated += p._approximation_notices(reflected_strategy)
+            # 값 대기로 빠진 근사 조건 — 값을 정하는 턴은 근사 신고를 싣지 않아 지금 알린다.
+            pending_keys = {(item.get("role"), item.get("source_text")) for item in context["pending"]}
+            waiting_strategy = strategy.model_copy(deep=True)
+            waiting_strategy.entry_conditions = [c for c in strategy.entry_conditions
+                                                 if ("entry", c.source_text) in pending_keys]
+            waiting_strategy.exit_conditions = [c for c in strategy.exit_conditions
+                                                if ("exit", c.source_text) in pending_keys]
+            waiting_strategy.ranking = []
+            generated += p._approximation_notices(waiting_strategy, pending=True)
         covered = " ".join([result.get("clarification_question") or "",
             p._queued_ask_text(result.get("pending_ask"))] + candidates + generated
             + [str(item.get("label") or "") for item in context["pending"]])

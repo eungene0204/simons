@@ -2906,7 +2906,7 @@ def test_enforce_strategy_minimums_reports_capital_over_limit():
 
 
 def test_enforce_strategy_minimums_clamps_hold_and_lookback():
-    # [회귀] 보유기간 0일→1일, 모멘텀/랭킹 기준 기간 3일→10일로 보정하고 안내한다.
+    # [회귀] 보유기간 0일→1일, 모멘텀/랭킹 기준 기간 3일→5일로 보정하고 안내한다.
     from engine.nl_parser import enforce_strategy_minimums
     parsed = make_base_strategy().model_copy(update={
         "hold_period_days": 0,
@@ -2915,7 +2915,7 @@ def test_enforce_strategy_minimums_clamps_hold_and_lookback():
     })
     notices = enforce_strategy_minimums(parsed)
     assert parsed.hold_period_days == 1
-    assert parsed.ranking_lookback_days == 10
+    assert parsed.ranking_lookback_days == 5
     assert any("보유기간" in n for n in notices)
     assert any("기준 기간" in n for n in notices)
 
@@ -3531,13 +3531,12 @@ def test_sector_validator_normalizes_llm_free_text():
 # ─── 퍼징 QA(2026-07-24, docs/builder_fuzz_qa_report.md BF-16/BF-19) 회귀 ──────────
 
 def test_bf16_unsupported_indicator_concepts_detected():
-    """[BF-16] 이치모쿠·VWAP·PEG·PCR·피보나치·엘리엇·캔들패턴이 미지원 개념으로 감지돼
+    """[BF-16] 이치모쿠·PEG·PCR·피보나치·엘리엇·캔들패턴이 미지원 개념으로 감지돼
     조용한 누락/안내 없는 LLM 폴백 대신 notices 안내로 이어진다."""
     from engine.nl_parser import _mentioned_unsupported_concepts
 
     cases = {
         "이치모쿠 구름대 돌파 시 매수": "ichimoku",
-        "VWAP 위로 돌파하면 매수": "vwap",
         "PEG 1 이하 종목": "peg",
         "PCR 5 이하 종목": "cash_flow",
         "피보나치 되돌림 61.8%에서 매수": "fibonacci",
@@ -3546,6 +3545,8 @@ def test_bf16_unsupported_indicator_concepts_detected():
     }
     for prompt, concept in cases.items():
         assert concept in _mentioned_unsupported_concepts(prompt), prompt
+    # VWAP은 엔진 v16.48부터 지원 지표라 목록에서 뺐다(지원 시 제거 원칙, FR-STR-023d).
+    assert "vwap" not in _mentioned_unsupported_concepts("VWAP 위로 돌파하면 매수")
 
 
 # ─── Ollama 워밍업: 추론과 동일한 num_ctx 회귀 ────────────────────────────────

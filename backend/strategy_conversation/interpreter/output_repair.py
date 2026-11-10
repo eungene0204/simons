@@ -166,6 +166,27 @@ def _salvage_array(raw_text: str, key: str) -> list:
     return []
 
 
+def salvage_complete_objects(raw_text: str, key: str) -> list:
+    """토큰 한도로 잘린 응답에서 `"<key>": [...]` 배열의 **완결된 객체만** 형식 추출한다."""
+    pos = raw_text.find(f'"{key}"')
+    start = raw_text.find("[", pos) if pos != -1 else -1
+    if start == -1:
+        return []
+    decoder = json.JSONDecoder()
+    items = []
+    index = start + 1
+    while True:
+        while index < len(raw_text) and raw_text[index] in " \t\r\n,":
+            index += 1
+        if index >= len(raw_text) or raw_text[index] != "{":
+            return items
+        try:
+            item, index = decoder.raw_decode(raw_text, index)
+        except json.JSONDecodeError:
+            return items
+        items.append(item)
+
+
 def salvage_clarification_questions(raw_text: str) -> list:
     """깨진 원출력에서 `clarification_questions` 배열만 형식 추출한다(실패 시 빈 리스트).
 
@@ -415,7 +436,9 @@ def cross_role_duplicate_error(paths: list) -> str:
     return (
         f"{' / '.join(paths)}: 같은 source_text의 같은 조건이 entry_conditions와 exit_conditions에 "
         "함께 있습니다 — 이대로는 매수한 날 매도 조건도 참이 되어 전략이 성립하지 않습니다. "
-        "입력에서 그 조각이 매수를 말하는지 매도를 말하는지 보고 그 칸에만 두세요."
+        "입력에서 그 조각이 매수를 말하는지 매도를 말하는지 보고 그 칸에만 두세요. "
+        "매도를 말하면 entry_conditions의 사본을 지우고 exit_conditions에 남기며, "
+        "매수를 말하면 exit_conditions의 사본을 지우고 entry_conditions에 남깁니다."
     )
 
 

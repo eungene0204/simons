@@ -21,6 +21,17 @@ const base: ParsedSummary = {
 };
 
 describe("getRankingLabel — 복합 순위 합산", () => {
+  it("시장 대비 초과수익률 구성 지표를 내부명으로 노출하지 않는다", () => {
+    // 2026-11-10 화면 전수 조사: 요약 카드에 relative_return이 그대로 나갔다.
+    const label = getRankingLabel({
+      ...base,
+      ranking_metric: "composite",
+      ranking_components: [{ metric: "relative_return", direction: "top" }],
+    });
+    expect(label).toContain("시장 대비 초과수익률");
+    expect(label).not.toContain("relative_return");
+  });
+
   it("구성 지표 라벨+방향을 나열하고 내부명을 노출하지 않는다", () => {
     const label = getRankingLabel({
       ...base,

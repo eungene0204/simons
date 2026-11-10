@@ -72,6 +72,30 @@ def bollinger_middle_column(p: Dict[str, Any]) -> str:
     return f"close_{period}_sma"
 
 
+def bollinger_bandwidth_column(p: Dict[str, Any]) -> str:
+    """볼린저 밴드폭 %((상단−하단)÷중심선×100, v16.50) 컬럼명."""
+    period, std = bollinger_params(p)
+    return f"bbw_{period}_{str(std).replace('.', 'p')}"
+
+
+def bollinger_squeeze_column(p: Dict[str, Any]) -> str:
+    """밴드폭이 최근 lookbackPeriod일 최저였던 날이 최근 withinDays거래일 안에 있는가(v16.50, 0/1)."""
+    return f"{bollinger_bandwidth_column(p)}_sq_{int(p['lookbackPeriod'])}_{int(p['withinDays'])}"
+
+
+def ma_slope_column(cid: str, p: Dict[str, Any]) -> str:
+    """이동평균이 days거래일 연속 상승·하락했는가(v16.50, 0/1)."""
+    return f"{cid}_{int(p['period'])}_{int(p['days'])}"
+
+
+def high_ratio_column(p: Dict[str, Any]) -> str:
+    """종가 ÷ 최근 N거래일 최고가 × 100(v16.50) 컬럼명."""
+    return f"high_ratio_{int(p.get('period', 252))}"
+
+
+GAP_COLUMN = "gap_pct"
+
+
 def bollinger_band_column(p: Dict[str, Any]) -> Optional[str]:
     """밴드 지정 볼린저 조건(v16.39)의 대상 밴드 컬럼. band가 없으면 None(역할 고정 레거시)."""
     band = p.get("band")

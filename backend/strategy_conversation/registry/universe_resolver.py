@@ -66,6 +66,16 @@ def _resolve_via_knowledge_graph(term: str) -> Optional[str]:
         return None
 
 
+# 운용사 브랜드 개명 — 옛 이름 상품은 새 브랜드로 정확 일치할 때만 같은 상품으로 본다.
+_RENAMED_ETF_BRANDS = {"KOSEF": "KIWOOM", "KBSTAR": "RISE", "ARIRANG": "PLUS", "KINDEX": "ACE"}
+
+
+def _current_etf_brand(ref: str) -> str:
+    head, _, rest = ref.partition(" ")
+    new_brand = _RENAMED_ETF_BRANDS.get(head.upper())
+    return f"{new_brand} {rest}" if new_brand and rest else ref
+
+
 def resolve_symbols(refs: Sequence[str]) -> Tuple[List[str], List[str]]:
     """지정 종목 표현 목록 → (종목코드/티커 목록, 해석 실패 표현 목록).
 
@@ -114,7 +124,7 @@ def resolve_symbols(refs: Sequence[str]) -> Tuple[List[str], List[str]]:
         if ui_language.get_ui_language() != "en":
             from engine.universe_pit import is_etf_symbol, resolve_single_etf_product
 
-            product = resolve_single_etf_product(ref)
+            product = resolve_single_etf_product(ref) or resolve_single_etf_product(_current_etf_brand(ref))
             etf_code = product["symbol"] if product else (ref if is_etf_symbol(ref) else None)
             if etf_code is not None:
                 if etf_code not in codes:

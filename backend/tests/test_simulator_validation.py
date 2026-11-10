@@ -57,10 +57,12 @@ def test_final_bar_risk_execution_is_independent_of_window_end(
     np.testing.assert_allclose(short.value(), extended.value().iloc[:3])
     sells = extended_orders[extended_orders["side"] == 1]
     assert len(sells) == 1
-    fill_day = 3 if execution_type == "next_open" else 2
+    # 보유 기간은 장중 트리거가 아니다 — 다음 날 시가 체결이면 N거래일째 시가에 판다(v16.49, 정확히 N일).
+    hold_rule = "max_holding_days" in risk_rule
+    fill_day = 2 if hold_rule or execution_type != "next_open" else 3
     assert sells[0]["idx"] == fill_day
     assert sells[0]["price"] == pytest.approx(execution_prices.iloc[fill_day, 0])
-    if execution_type == "next_open":
+    if execution_type == "next_open" and not hold_rule:
         assert len(short_orders) == 1
         assert short.trades.records_readable.iloc[0]["Status"] == "Open"
         assert float(short.final_value()) == pytest.approx(100 * last_close)

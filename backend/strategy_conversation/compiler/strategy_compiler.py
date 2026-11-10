@@ -148,6 +148,16 @@ def _compile_technical(
                 kwargs["long_period"] = _int_param("long_period") or _int_param("short_period")
     elif indicator == "macd":
         kwargs["mode"] = "crossover"
+    elif indicator == "vwap":
+        # 종가 vs N일 VWAP(v16.48) — 부등호=머무는 상태, crosses_*=교차 방향(역할과 독립).
+        # 기간은 되묻기 대상이라 없으면 컴파일하지 않는다(값 대기 조건은 compile_partial이 먼저 거른다).
+        if params.get("period") is None:
+            raise StrategyCompileError(f"'{cond.factor}' 조건에 VWAP 기간이 없습니다 (검증 누락?)")
+        kwargs["period"] = _int_param("period")
+        if cond.operator in (">", "<"):
+            kwargs["mode"] = "above" if cond.operator == ">" else "below"
+        elif cond.operator in ("crosses_above", "crosses_below"):
+            kwargs["cross"] = "above" if cond.operator == "crosses_above" else "below"
     elif indicator == "bollinger_bands":
         kwargs["period"] = _int_param("period")
         band = _BOLLINGER_BAND_FACTORS.get(cond.factor)
@@ -189,6 +199,11 @@ def _compile_technical(
     elif indicator == "trading_value":
         kwargs["operator"] = cond.operator
         kwargs["value"] = cond.value
+    elif indicator == "bollinger_squeeze":
+        kwargs.update(period=_int_param("period"), lookback_period=_int_param("lookback_period"),
+                      within_days=_int_param("within_days"))
+    elif indicator in ("ma_rising", "ma_falling"):
+        kwargs.update(period=_int_param("period"), days=_int_param("days"))
     else:
         # rsi/stochastic/cci/adx/williams_r/mfi/roc/volume_spike/bollinger_bands
         kwargs["period"] = _int_param("period")
@@ -803,6 +818,7 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
             kelly_fraction=risk.position_sizing.kelly_fraction,
         ) if risk.position_sizing is not None else None),
         entry_limit_pct=bt.entry_limit_percent,
+        volatility_breakout_k=bt.volatility_breakout_k,
         exit_limit_pct=bt.exit_limit_percent,
         entry_tranches=(EntryTranches(
             count=bt.entry_tranches.count, step_pct=bt.entry_tranches.step_percent,

@@ -130,6 +130,7 @@ function crossStatus(): { status: NodeStatus; statusNote: string | null } {
 
 const LEVEL_INDICATORS = new Set([
   "cci", "adx", "williams_r", "mfi", "roc", "disparity", "volatility", "relative_return",
+  "bollinger_bandwidth", "high_52w_ratio", "gap",
   "volume_ratio", "trading_value_ratio", "trading_value",
 ]);
 
@@ -248,6 +249,23 @@ export function describeCondition(cond: EngineCondition, meta: GraphMeta | null)
     };
   }
 
+  if (id === "vwap") {
+    // 종가 vs N일 VWAP(엔진 v16.48) — mode=머무는 상태, 아니면 cross 방향 교차(없으면 역할 기본).
+    const period = num(p.period);
+    const mode = text(p.mode);
+    const stays = mode === "above" || mode === "below";
+    const down = stays ? mode === "below" : p.cross ? p.cross === "below" : sell;
+    const n = period ?? "?";
+    return {
+      ...base,
+      expression: stays
+        ? down ? t("종가가 {0}일 VWAP 아래 유지", n) : t("종가가 {0}일 VWAP 위 유지", n)
+        : down ? t("종가 {0}일 VWAP 하향 이탈", n) : t("종가 {0}일 VWAP 상향 돌파", n),
+      rows: [...(period !== null ? [row(t("기간"), t("{0}일", period))] : []), row(t("판정 방식"), stays ? t("지속 상태(교차 사건 아님)") : t("교차 사건")), NO_THRESHOLD()],
+      ...(stays ? { status: "not_applicable" as const, statusNote: t("지속 상태 판정이라 기준값이 필요하지 않습니다.") } : crossStatus()),
+    };
+  }
+
   if (id === "volume_spike") {
     const period = num(p.period);
     return {
@@ -265,6 +283,33 @@ export function describeCondition(cond: EngineCondition, meta: GraphMeta | null)
       rows: [row(t("판정 방식"), t("시작일 1회")), NO_THRESHOLD()],
       status: "not_applicable",
       statusNote: t("조건 없이 시작일에 사는 규칙이라 기준값이 필요하지 않습니다."),
+    };
+  }
+
+  if (id === "ma_rising" || id === "ma_falling") {
+    const period = num(p.period);
+    const days = num(p.days);
+    const expression = id === "ma_rising"
+      ? t("{0}일 이동평균 {1}거래일 연속 상승", period ?? "?", days ?? "?")
+      : t("{0}일 이동평균 {1}거래일 연속 하락", period ?? "?", days ?? "?");
+    return {
+      ...base,
+      expression,
+      rows: [...(days !== null ? [row(t("연속 기간"), t("{0}거래일", days))] : []), NO_THRESHOLD()],
+      status: period === null || days === null ? "pending" : "not_applicable",
+      statusNote: period === null || days === null ? t("연속 기간이 스냅샷에 없습니다.") : t("연속 판정이라 기준값이 필요하지 않습니다."),
+    };
+  }
+
+  if (id === "bollinger_squeeze") {
+    const lookback = num(p.lookbackPeriod);
+    const within = num(p.withinDays);
+    return {
+      ...base,
+      expression: t("볼린저 밴드폭 최근 {0}일 최저(최근 {1}거래일 내)", lookback ?? "?", within ?? "?"),
+      rows: [NO_THRESHOLD()],
+      status: lookback === null || within === null ? "pending" : "not_applicable",
+      statusNote: lookback === null || within === null ? t("연속 기간이 스냅샷에 없습니다.") : t("최저 구간 판정이라 기준값이 필요하지 않습니다."),
     };
   }
 

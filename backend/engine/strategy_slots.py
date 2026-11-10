@@ -535,6 +535,45 @@ def volume_ratio_chip_patch(chip: str, parsed_dump: dict) -> Optional[dict]:
     return {key: current + [signal]}
 
 
+# 기간 없이 말한 VWAP(엔진 v16.48)의 기간 칩 — 2026-11-06 사용자 결정: 되묻기 + 5·20·60거래일 칩. 볼린저 터치
+# 칩과 같이 신호 전체를 추가하는 패치로 결속한다. 칩 문구가 역할과 조건 모양(교차 방향·머무는 상태)을 담는다 —
+# 모양이 다른 칩을 내면 클릭이 '위에 있을 때'를 '돌파한 날'로 바꾼다.
+VWAP_PERIOD_OPTIONS: tuple[int, ...] = (5, 20, 60)
+_VWAP_SHAPES: dict[str, tuple[str, dict]] = {
+    "crosses_above": ("위로 돌파하면", {"cross": "above"}),
+    "crosses_below": ("아래로 이탈하면", {"cross": "below"}),
+    ">": ("위에 있을 때", {"mode": "above"}),
+    "<": ("아래에 있을 때", {"mode": "below"}),
+}
+
+
+def vwap_period_chip(role: str, operator: str, days: int) -> str:
+    action = "매수" if role == "entry" else "매도"
+    return f"종가가 {days}일 VWAP {_VWAP_SHAPES[operator][0]} {action}"
+
+
+VWAP_PERIOD_CHIP_VALUES: dict[str, tuple[str, str, int]] = {
+    vwap_period_chip(role, op, days): (role, op, days)
+    for role in ("entry", "exit") for op in _VWAP_SHAPES for days in VWAP_PERIOD_OPTIONS
+}
+
+
+def vwap_period_chip_patch(chip: str, parsed_dump: dict) -> Optional[dict]:
+    """VWAP 기간 칩이면 신호를 덧붙인 ParsedStrategy 패치, 아니면 None.
+    같은 신호가 이미 있으면 바꿀 것이 없으므로 None(결속 실패 = 칩 미노출)."""
+    picked = VWAP_PERIOD_CHIP_VALUES.get((chip or "").strip())
+    if picked is None:
+        return None
+    role, op, days = picked
+    key = "entry_signals" if role == "entry" else "exit_signals"
+    signal = {"indicator": "vwap", "signal_type": "buy" if role == "entry" else "sell",
+              "period": days, **_VWAP_SHAPES[op][1]}
+    current = list(parsed_dump.get(key) or [])
+    if any(isinstance(s, dict) and all(s.get(k) == v for k, v in signal.items()) for s in current):
+        return None
+    return {key: current + [signal]}
+
+
 def portfolio_chip_patch(chip: str, parsed_dump: dict) -> Optional[dict]:
     """위 표들의 칩이면 ParsedStrategy 패치(최상위 필드), 아니면 None.
 
@@ -792,8 +831,9 @@ def _has_value(parsed: Any, field: str) -> bool:
     if field == ENTRY:
         # 지정 종목은 진입 조건이 아니다 — 종목이 정해져도 매수 시점 규칙이 없으면
         # 엔진은 매수를 만들지 않는다(빈 조건 그룹=all-False, 0거래).
+        # 변동성 돌파(v16.46)는 돌파가 자체가 매수 규칙이라 매수 조건 칸이 비어 있어도 거래가 난다.
         return (_nonempty(g("entry_signals")) or _nonempty(g("fundamental_filters"))
-                or _nonempty(g("ranking_metric")))
+                or _nonempty(g("ranking_metric")) or _positive(g("volatility_breakout_k")))
     if field == EXIT:
         # 익절류(익절·분할 익절·트레일링 스탑)도 매도 규칙이다 — 2026-09-28 사용자 결정으로 07-22
         # '청산은 손절·익절과 별개' 규칙을 개정했다(분할 익절 +100% 전량 매도까지 말한 전략에 매도

@@ -64,7 +64,8 @@ def _operator_notice_label(operator: str) -> str:
 
 # 교차 방향이 역할(signal_type)로만 정해지는 지표 — 엔진 signals.py의 crossover(direction)이
 # buy=golden/sell=dead로 고정한다. 매수 칸의 crosses_below는 표현 불가(컴파일러도 같은 판정).
-_DIRECTIONAL_CROSS_LEAVES = frozenset({"technical.ma_crossover", "technical.ema", "technical.macd", "technical.breakout"})
+_DIRECTIONAL_CROSS_LEAVES = frozenset({"technical.ma_crossover", "technical.ema", "technical.macd", "technical.breakout",
+                                        "technical.volume_spike"})
 _ROLE_CROSS_DIRECTION = {"진입": "crosses_above", "청산": "crosses_below"}
 # 역할 고정 레거시 볼린저(매수=종가≤하단, 매도=종가≥상단)가 표현하는 방향 — 디컴파일 표기와 같다.
 # 반대 방향('상단 돌파 매수'·'하단 닿으면 청산')은 밴드 지정 볼린저(v16.39)로만 표현된다.
@@ -445,6 +446,9 @@ def validate_capability(intent: StrategyIntent, universe_findings=None) -> Tuple
             # 같은 방향의 부등호로 정규화한다(LLM 출력 표기 정규화 — 원문을 읽지 않는다).
             # 종전엔 여기서 오류만 남기고 컴파일러가 연산자·값을 조용히 버려 엔진 기본값
             # (ADX ≥ 25)으로 백테스트됐다 — 사용자가 말한 값이 반대 방향 기본값으로 바뀐다.
+            # 교차 지표의 기간 칸 표기 흔들림(2026-11-09: OBV에 lookback_period) — 키 이름만 맞춘다.
+            if spec.id == "technical.volume_spike" and "lookback_period" in cond.parameters:
+                cond.parameters.setdefault("period", cond.parameters.pop("lookback_period"))
             if spec.id == "technical.volume_spike" and cond.value is not None:
                 # 배수가 실린 거래량 조건('평소보다 1.5배')의 정본은 v16.10부터 거래량 배수
                 # 지표(technical.volume_ratio, 당일 거래량 ÷ 직전 N일 평균)다. LLM이 옛 자리
@@ -951,18 +955,35 @@ def validate_capability(intent: StrategyIntent, universe_findings=None) -> Tuple
             strategy.taa = None
         else:
             _taa.model = _m
+            # 자산 표기를 코드로 찾지 못하면 컴파일러는 그 자산만 빼고 지나간다 — 전략의 자산 구성이
+            # 말없이 바뀌므로 여기서 알린다(입력은 LLM이 뽑은 상품명, registry 대조).
+            from strategy_conversation.registry.universe_resolver import resolve_symbols
+            for _key in ("offensive", "defensive", "canary"):
+                for _ref in getattr(_taa, _key) or []:
+                    if not resolve_symbols([_ref])[0] and _ref not in unsupported:
+                        unsupported.append(_ref)
 
     # 지정가·분할 매수(v16.28)는 다음 날 체결에서만 뜻이 있다 — 당일 종가 체결과 함께 오면 알리고 뺀다.
     _bt = strategy.backtest
     if _bt.execution_timing == "current_close" and (
             _bt.entry_limit_percent is not None or _bt.exit_limit_percent is not None
-            or _bt.entry_tranches is not None):
-        errors.append(ui_language.msg(
-            "지정가·분할 매수는 '다음 날 체결'에서만 지원됩니다 — 당일 종가 체결과 함께 쓸 수 없습니다",
-            "Limit orders and tranche entries are only supported with next-day execution",
+            or _bt.entry_tranches is not None or _bt.volatility_breakout_k is not None):
+        # 체결 시점 칸은 사용자가 말하지 않아도 LLM이 채운 실측이 있다(2026-11-09: 지정가 요청에 current_close).
+        # 체결 시점을 위해 지정가를 지우면 말한 주문이 사라지므로, 주문을 살리고 체결 시점을 알린다.
+        warnings.append(ui_language.msg(
+            "지정가·분할 매수·변동성 돌파는 시가 기준 체결로만 계산할 수 있어 체결 시점을 다음 날로 두었어요",
+            "Limit orders, tranche entries and volatility breakouts can only be computed with open-based execution, "
+            "so execution was set to the next day",
         ))
-        _bt.entry_limit_percent = _bt.exit_limit_percent = None
-        _bt.entry_tranches = None
+        _bt.execution_timing = None
+    # ParsedStrategy는 0 < k <= 2만 받는다 — 범위 밖 값이 조립 예외로 전략 전체를 던지지 않게 먼저 거른다.
+    if _bt.volatility_breakout_k is not None and not 0 < _bt.volatility_breakout_k <= 2:
+        errors.append(ui_language.msg(
+            "변동성 돌파 계수 {k:g}은(는) 0 초과 2 이하여야 합니다",
+            "The volatility breakout factor {k:g} must be above 0 and at most 2",
+            k=_bt.volatility_breakout_k,
+        ))
+        _bt.volatility_breakout_k = None
     # 분할 매수 사다리(v16.36) 범위 — 값이 다 있을 때만 본다(빈 값은 완결성 검증기가 되묻는다).
     # 하락 폭 0~100% 미만, 각 비중 0% 초과 100% 이하. 첫 매수 + 추가 매수 합이 100%를 넘는 것은
     # 허용한다 — '처음에 100% 사고 -15%에 10% 더'는 사용자가 정한 규칙이고, 엔진은 추가 매수를
@@ -1140,6 +1161,13 @@ def validate_capability(intent: StrategyIntent, universe_findings=None) -> Tuple
     # 납입액을 정하는 규칙**이라 적립식과 함께 쓸 수 있다 — 금액이 없는 진입 조건만 '섞인 요청'이다.
     _has_plan = bt.contribution_amount is not None or bt.contribution_period is not None
     if _has_plan:
+        # 시작일 매수는 제한이 아니라 계획과 함께 있어도 말한 조건을 잃지 않는다(LLM 출력 factor만 본다).
+        # 값 없는 조건·근사 신고가 덧붙은 말인지는 primary._resolve_filler_conditions(LLM)가 먼저 가렸다 —
+        # 여기까지 남은 조건은 사용자의 조건이므로 '섞인 요청'으로 안내한다.
+        strategy.entry_conditions = [
+            c for c in strategy.entry_conditions
+            if c.buy_amount is not None or c.factor != "technical.buy_at_start"
+        ]
         # 금액이 붙었는데 납입액 규칙이 될 수 없는 조건(기술적 조건이 아님)은 걷는다 — 120B는
         # "매월 100만 원씩 매수"(기본 납입 그 자체)나 "보유 현금의 10% 이내"를 거래대금 조건으로
         # 지어내 금액을 붙인다(2026-09-21 실측 2/3). 기본 납입액을 되풀이한 것(같은 금액·set)은

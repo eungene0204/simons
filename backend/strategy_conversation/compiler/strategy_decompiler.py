@@ -66,6 +66,15 @@ def _decompile_technical(sig: TechnicalSignal) -> StrategyCondition:
             parameters["long_period"] = float(sig.long_period)
     elif sig.indicator == "macd":
         operator = "crosses_above" if sig.signal_type == "buy" else "crosses_below"
+    elif sig.indicator == "vwap":
+        # 컴파일러의 역방향(v16.48): 상태 mode → 부등호, 아니면 교차 방향(없으면 역할 기본).
+        if sig.mode in ("above", "below"):
+            operator = ">" if sig.mode == "above" else "<"
+        else:
+            cross = sig.cross or ("above" if sig.signal_type == "buy" else "below")
+            operator = "crosses_above" if cross == "above" else "crosses_below"
+        if sig.period is not None:
+            parameters["period"] = float(sig.period)
     elif sig.indicator == "breakout":
         if sig.side == "low":
             factor = "technical.breakout_low"      # 신저가 돌파(v16.41) — 연산자 없는 개념 ID
@@ -105,12 +114,19 @@ def _decompile_technical(sig: TechnicalSignal) -> StrategyCondition:
         operator = "crosses_below" if sig.signal_type == "buy" else "crosses_above"
         if sig.period is not None:
             parameters["period"] = float(sig.period)
+    elif sig.indicator == "bollinger_squeeze":
+        parameters.update(period=float(sig.period or 20), lookback_period=float(sig.lookback_period),
+                          within_days=float(sig.within_days))
+    elif sig.indicator in ("ma_rising", "ma_falling"):
+        parameters.update(period=float(sig.period), days=float(sig.days))
     else:
         # rsi/stochastic/cci/adx/williams_r/mfi/roc/volume_spike/bollinger_bands
         operator = sig.operator
         value = sig.value
-        if sig.indicator == "rsi" and sig.mode == "rebound":
+        if (sig.indicator == "rsi" and sig.mode == "rebound") or sig.indicator == "volume_spike":
             # 임계선 재돌파 반등 — 컴파일러의 crosses_above/below → rebound 역방향
+            # OBV 교차는 방향을 signal_type으로만 담는다 — 복원하지 않으면 진입·청산이 같은 조건이 돼
+            # 볼린저(위)와 같이 미러 가드가 청산을 지운다.
             operator = "crosses_above" if sig.signal_type == "buy" else "crosses_below"
         if sig.period is not None:
             parameters["period"] = float(sig.period)
@@ -315,6 +331,7 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
             withdrawal_period=parsed.withdrawal_period,
             benchmark=parsed.benchmark,
             entry_limit_percent=parsed.entry_limit_pct,
+            volatility_breakout_k=parsed.volatility_breakout_k,
             exit_limit_percent=parsed.exit_limit_pct,
             entry_tranches=(EntryTranchesSpec(
                 count=parsed.entry_tranches.count, step_percent=parsed.entry_tranches.step_pct,

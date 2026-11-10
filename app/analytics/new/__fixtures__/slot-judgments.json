@@ -34,6 +34,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -54,6 +56,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -271,6 +275,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -291,6 +297,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -406,6 +414,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -426,6 +436,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -551,6 +563,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -683,6 +697,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -810,6 +826,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -936,6 +954,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -1062,6 +1082,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -1189,6 +1211,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -1316,6 +1340,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -1442,6 +1468,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -1572,6 +1600,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -1697,6 +1727,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -1821,6 +1853,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -1841,6 +1875,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -1965,6 +2001,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -1985,6 +2023,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -2111,6 +2151,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -2131,6 +2173,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -2256,6 +2300,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -2276,6 +2322,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -2402,6 +2450,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -2422,6 +2472,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -2550,6 +2602,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -2570,6 +2624,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -2695,6 +2751,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -2715,6 +2773,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -2840,6 +2900,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -2860,6 +2922,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -2988,6 +3052,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -3008,6 +3074,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -3137,6 +3205,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -3157,6 +3227,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -3285,6 +3357,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -3305,6 +3379,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -3430,6 +3506,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -3450,6 +3528,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -3574,6 +3654,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -3594,6 +3676,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -3718,6 +3802,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -3738,6 +3824,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -3863,6 +3951,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -3883,6 +3973,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -4010,6 +4102,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -4030,6 +4124,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -4156,6 +4252,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -4279,6 +4377,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -4299,6 +4399,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -4423,6 +4525,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -4443,6 +4547,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -4569,6 +4675,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -4589,6 +4697,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -4714,6 +4824,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -4734,6 +4846,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -4860,6 +4974,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null
@@ -4880,6 +4996,8 @@
             "price_basis": null,
             "band": null,
             "cross": null,
+            "within_days": null,
+            "days": null,
             "touch_lookback": null,
             "threshold": null,
             "timeframe": null

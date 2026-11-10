@@ -767,6 +767,8 @@ interface BacktestResult {
 
 `technical.disparity`(엔진 v16.43.0)는 `IndicatorEngine`이 `disparity_{period}` 열(종가÷단순이동평균×100)을 직접 계산하고 `SignalEngine`이 임계 비교하는 오실레이터형 조건이다. 온톨로지 시드 등록은 위와 같다.
 
+`technical.vwap`(엔진 v16.48.0)은 `IndicatorEngine`이 `vwap_{period}` 열(N거래일 전형가격 거래량가중 평균)을 직접 계산하고 `SignalEngine`이 종가와 비교한다 — `mode`(above/below)=머무는 상태, `cross`(above/below)=교차, 둘 다 없으면 역할 기본(매수=상향). 온톨로지는 `class.moving_average`(가격 vs 한 선, 임계값 없음)에 등록해 어휘에 노출하고, 기간은 레지스트리 기본값 없는 필수 파라미터라 completeness가 되묻고 `compile_partial`이 보류한다. 기간 칩은 `strategy_slots.VWAP_PERIOD_CHIP_VALUES`가 신호 전체 패치로 결속한다. completeness의 "부등호=선과의 관계(값 없음)" 판정은 이동평균·EMA 전용에서 "부등호를 받는 사건형 지표" 일반으로 넓혔다(현재 이동평균·EMA·VWAP). 전략 ID 해시(`_canonicalize_technical_signal`)는 같은 작업에서 신호 모양 칸(band·cross·side·price_basis·touch_lookback·timeframe)을 모두 담도록 고쳤다 — 저장 기록이 이 ID로 업서트되어, 빠지면 이 칸만 다른 전략끼리 기록을 덮어썼다(FR-STR-091a). 수정 턴 환각 게이트에는 위험 관리 해제 패치의 출처 판정(`risk_clear_scope_verdict`, 시장 범위 판정과 같은 구조)을 더했다 — 인용 실재만으로는 "설정을 없애라"는 요청의 증거가 되지 않는다(FR-STR-091b).
+
 `technical.consecutive_up`은 해석기의 `parameters.period`를 `TechnicalSignal.period`와 백테스트 조건에 보존한다. 신호 엔진은 OHLCV 파케이 `close`의 현재일까지 N회 연속 상승(전일 종가 대비 엄격한 증가)을 벡터·행별 경로에서 동일하게 판정한다. 동일 종가·결측은 거짓이며 미래 봉을 읽지 않는다.
 
 ```
@@ -911,9 +913,10 @@ LLM Strategy Interpreter (interpreter/llm_strategy_interpreter.py)
 >
 > 종가 기준 돌파(엔진 v16.44, 2026-10-29): 돌파 조건이 있는 턴에만 전용 판정 `interpreter/breakout_basis_check.py`가 인용의 가격 기준(close/intraday/unspecified)을 묻고, close면 `parameters.price_basis="close"`(문자열 조건 파라미터, `STRING_CONDITION_PARAMS`) → `TechnicalSignal.price_basis` → 엔진 `priceBasis:"close"`(종가 vs 직전 N일 최고·최저 종가, `close_{N}_max/min` 열)로 옮긴다. 메인 프롬프트는 이 칸을 모른다. 판정 실패·애매함은 고가·저가 기준 유지.
 > 시작일 매수(엔진 v16.45, 2026-10-29): `technical.buy_at_start`(매수 전용·파라미터 없음) → 엔진 `buy_at_start` 조건. phase1이 진입 그룹에 이 조건이 있을 때만 `__window_start` 열(창 첫 봉=1, 직전 봉이 없으면 둘째 봉 — 유동성 게이트가 전일 거래대금을 보기 때문)을 얹고, 신호 평가가 그 열을 읽는다. 청산 칸은 NOT_APPLICABLE(`strategy_slots.has_buy_at_start`·프론트 `hasBuyAtStart`)·완결성 ⑤ 면제. 마지막 날 강제 정산은 엔진 기존 동작.
+> 밴드폭·기울기·고가 비율·갭(엔진 v16.50, 2026-11-09, FR-STR-091): 열 이름은 `engine/indicator_columns.py` 도우미가 정본이고, `indicators._add_condition_columns`가 계산한다. 밴드폭은 창이 차기 전 값을 비워 신규 상장 초기의 짧은 창이 스퀴즈 기준이 되지 않게 한다.
 > 변동성 돌파 체결(엔진 v16.46, 2026-11-05, FR-BT-092): 위험 설정 `volatility_breakout_k`. `backtest_engine.py`가 시가 체결(next_open·시가 기준)이 아니면 경고와 함께 키를 빼고, 매수 조건이 없으면 진입 패널을 거래 가능 마스크로 채운다(이후 유니버스·유동성 마스크는 그대로). `simulator.py` 조건 루프(Step 3)가 후보마다 '시가 + 전일 고저폭 × k'에 그날 고가가 닿았는지 보고 돌파가로 체결가를 덮고(지정가와 같은 셀 체결가 덮어쓰기), 진입 즉시 이월 청산(`pending_exit`)으로 예약해 다음 거래 가능일 Step 0이 시가에 방출한다. 순수 리밸런싱 경로로 가지 않도록 `loop_only`에 포함한다. 해석 레인(인터프리터·컴파일러·디컴파일러) 배선은 없다 — 연구노트 계산(`scripts/research_classic_techniques.py`)만 쓴다.
     └── 조건을 평이한 문장으로 옮겨 적어 보여주고 항목마다 expresses(yes/no/unclear)·
-        describes(moving_average/bollinger/new_high_breakout/other) enum을 받음 →
+        describes(moving_average/bollinger/new_high_breakout/intraday/other 등) enum을 받음 →
         결정론은 enum 소속만: new_high_breakout=신고가 오분류 교정, 분명한 no=다른 설정 문구
         제거(25자 상한 안내). planner-first 대기와 겹치게 메인 스레드에서 호출, unclear·실패=
         판정 없음(교정·제거 안 함). 어휘 정규식 4종 대체(2026-09-17, 칸 분류 질문은 9B 회귀로 폐기)
