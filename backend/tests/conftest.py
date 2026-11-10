@@ -145,6 +145,7 @@ def _pin_llm_provider_ollama(monkeypatch):
     OpenRouter 형식으로 바뀌어 깨진다. OpenRouter 변환 자체는 test_llm_chat_openrouter.py가
     setenv로 명시 오버라이드한다."""
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("EXAONE_API_KEY", raising=False)  # 로컬 .env 키가 한도 소진 폴백 경로를 바꾸지 않게
     try:
         import llm_backend
 

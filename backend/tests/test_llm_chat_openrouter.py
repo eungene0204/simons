@@ -971,3 +971,102 @@ def test_http_status_upstream_502_uses_short_retry_not_cold_start_budget(openrou
     assert models == ["qwen/qwen3-32b"] * (1 + len(llm_chat._TRANSIENT_RETRY_BACKOFF_S)) + ["backup/model"]
     # 짧은 백오프만 — 콜드스타트 관문의 3초 간격 재시도(320초 예산)는 타지 않는다
     assert no_sleep == list(llm_chat._TRANSIENT_RETRY_BACKOFF_S)
+
+
+def test_exaone_keeps_answer_budget_and_lowers_reasoning(openrouter_env, monkeypatch):
+    """K-EXAONE은 추론이 max_tokens에 포함돼 짧은 예산이 content 없이 끝난다 — 추론 몫을 더한다."""
+    monkeypatch.setenv("OPENROUTER_MODEL", "k-exaone_v2.5")
+    body = llm_chat.to_openrouter_payload(PAYLOAD)
+    assert body["max_tokens"] == 1024 + llm_chat._EXAONE_REASONING_HEADROOM_TOKENS
+    assert body["reasoning_effort"] == "low"
+    assert "reasoning" not in body
+
+
+def test_other_models_keep_exact_max_tokens(openrouter_env):
+    body = llm_chat.to_openrouter_payload(PAYLOAD)
+    assert body["max_tokens"] == 1024
+    assert "reasoning_effort" not in body
+
+
+def test_top_level_reasoning_tokens_are_reported():
+    assert llm_chat._usage_fields({"completion_tokens": 9, "reasoning_tokens": 7})["reasoning_eval_count"] == 7
+
+
+EXAONE_URL = "https://api.exaone.ai/v1/chat/completions"
+OPENAI_OK = json.dumps({"choices": [{"message": {"role": "assistant", "content": "exaone says hi"}}]}).encode()
+OLLAMA_OK = json.dumps({"message": {"role": "assistant", "content": "ollama says hi"}, "done": True}).encode()
+
+
+@pytest.fixture
+def exaone_fallback(openrouter_env, ollama_host, monkeypatch):
+    """한도 소진 시 K-EXAONE 폴백 — 레인별 응답을 지정할 수 있는 가짜 전송."""
+    import urllib.error
+    import urllib.request
+    from engine import nl_parser
+
+    monkeypatch.setenv("EXAONE_API_KEY", "ex-test")
+    monkeypatch.setattr(nl_parser, "_ollama_align_runner_num_ctx", lambda: False)
+    monkeypatch.setattr(nl_parser, "_ollama_ensure_warm", lambda *a, **k: None)
+    monkeypatch.setattr(llm_chat.time, "sleep", lambda s: None)
+    sent = []
+    state = {"exaone_error": None}
+
+    def fake_urlopen(req, timeout):
+        sent.append((req.full_url, json.loads(req.data), req.get_header("Authorization")))
+        if "openrouter.ai" in req.full_url:
+            raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {}, io.BytesIO(QUOTA_429))
+        if req.full_url == EXAONE_URL:
+            if state["exaone_error"]:
+                raise urllib.error.HTTPError(req.full_url, state["exaone_error"], "err", {}, io.BytesIO(b"{}"))
+            return _Resp(OPENAI_OK)
+        return _Resp(OLLAMA_OK)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    yield sent, state
+    llm_backend.resume_openrouter()
+
+
+def _content(**kwargs):
+    with llm_chat.open_chat(PAYLOAD, timeout=30, **kwargs) as resp:
+        return llm_chat.read_chat_response(resp.read())["message"]["content"]
+
+
+@pytest.mark.parametrize("retry", [True, False])
+def test_daily_quota_falls_back_to_exaone(exaone_fallback, retry):
+    sent, _ = exaone_fallback
+    assert _content(retry=retry) == "exaone says hi"
+    assert [u for u, _, _ in sent] == ["https://openrouter.ai/api/v1/chat/completions", EXAONE_URL]
+    assert sent[1][1]["model"] == llm_backend.EXAONE_MODEL
+    assert sent[1][2] == "Bearer ex-test"
+    assert llm_backend.openrouter_fallback_active() is False
+    # 다음 요청은 OpenRouter를 건드리지 않고, 리셋이 지나면 Nemotron으로 복귀한다
+    sent.clear()
+    assert _content() == "exaone says hi"
+    assert [u for u, _, _ in sent] == [EXAONE_URL]
+    assert llm_chat.probe_request().full_url == "https://api.exaone.ai/v1/models"
+    llm_backend.pause_openrouter_until(0.0)
+    assert llm_backend.openrouter_model() == "qwen/qwen3-32b"
+    assert llm_chat.probe_request().full_url == "https://openrouter.ai/api/v1/key"
+
+
+def test_exaone_failure_sends_only_that_request_to_ollama(exaone_fallback):
+    sent, state = exaone_fallback
+    state["exaone_error"] = 500
+    assert _content() == "ollama says hi"
+    assert sent[-1][0] == "http://localhost:11434/api/chat"
+    assert llm_backend.exaone_quota_fallback_active() is True
+
+
+def test_exaone_429_does_not_extend_openrouter_pause(exaone_fallback):
+    _, state = exaone_fallback
+    llm_backend.pause_openrouter_until(4102444800.0)
+    state["exaone_error"] = 429
+    assert _content() == "ollama says hi"
+    assert llm_backend._openrouter_paused_until == 4102444800.0
+
+
+def test_in_flight_model_override_cannot_reach_exaone_endpoint(exaone_fallback):
+    """한도 소진 직전 시작한 동시 요청의 재시도가 OpenRouter 슬러그를 EXAONE으로 보내면 안 된다."""
+    llm_backend.pause_openrouter_until(4102444800.0)
+    with llm_backend.openrouter_model_for_this_request("qwen/qwen3-32b"):
+        assert llm_chat.to_openrouter_payload(PAYLOAD)["model"] == llm_backend.EXAONE_MODEL

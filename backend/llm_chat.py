@@ -21,8 +21,8 @@ payload(model·messages·stream·think·format·options)를 만들고, 응답도
     · stream=True      → stream_options.include_usage 로 마지막 청크에 usage를 받는다.
 
 무료 한도 폴백(2026-09-06 사용자 지시): OpenRouter가 `free-models-per-day` 429를 주면
-`open_chat()`이 그 요청부터 Ollama 레인으로 다시 보내고, 프로세스 전역을 리셋 시각까지
-Ollama로 전환한다(llm_backend.pause_openrouter_until). 응답 파싱은 프로바이더 플래그가 아니라
+`open_chat()`이 그 요청부터 K-EXAONE(EXAONE_API_KEY가 없으면 Ollama 레인)으로 다시 보내고,
+프로세스 전역을 리셋 시각까지 전환한다(llm_backend.pause_openrouter_until). 응답 파싱은 프로바이더 플래그가 아니라
 **응답 형태**(OpenAI `choices` / SSE `data:` vs Ollama `message` / NDJSON)로 판별해, 전환
 순간의 레이스에서도 어느 쪽 응답이든 올바르게 읽는다.
 
@@ -45,7 +45,6 @@ import llm_backend
 from engine.console_logging import console_logger
 from llm_backend import (
     OLLAMA_BASE_URL,
-    OPENROUTER_BASE_URL,
     is_local_ollama,
     is_openrouter,
     ollama_auth_headers,
@@ -61,6 +60,10 @@ logger = console_logger(__name__, "LLM")
 # Qwen3 계열의 thinking 소프트 스위치 — 사용자 원문을 해석하는 것이 아니라 LLM에 보내는
 # 메시지 끝에 붙이는 제어 토큰이다(프롬프트 계층).
 _NO_THINK_SWITCH = " /no_think"
+
+# K-EXAONE은 추론을 끌 수 없고 추론 토큰이 max_tokens에 포함된다 — 호출부의 짧은 예산(48~512)이
+# 추론에 다 타서 content 없이 finish=length로 끝난 실측(2026-11-11). 답변 예산은 그대로 두고 추론 몫을 더한다.
+_EXAONE_REASONING_HEADROOM_TOKENS = 2048
 
 
 class OpenRouterQuotaExhausted(RuntimeError):
@@ -107,8 +110,8 @@ def check_openrouter_quota(err: urllib.error.HTTPError) -> None:
 
     분당 한도 429(free-models-per-min)는 일시적이라 그대로 둔다(호출부가 재시도).
     """
-    if err.code != 429:
-        return
+    if err.code != 429 or llm_backend.exaone_quota_fallback_active():
+        return  # K-EXAONE의 429는 OpenRouter 계정 한도가 아니다 — 일시 오류 재시도를 탄다
     try:
         body = err.read().decode("utf-8", "replace")
     except Exception:  # noqa: BLE001 — 본문을 못 읽으면 일시 오류로 취급
@@ -118,8 +121,10 @@ def check_openrouter_quota(err: urllib.error.HTTPError) -> None:
     reset = _parse_reset_epoch(body) or (time.time() + _QUOTA_RETRY_AFTER_S)
     llm_backend.pause_openrouter_until(reset)
     logger.warning(
-        "OpenRouter 무료 모델 일일 한도 소진 — %s까지 Ollama 레인(%s)으로 폴백 | body=%s",
-        time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(reset)), OLLAMA_BASE_URL, body[:200],
+        "OpenRouter 무료 모델 일일 한도 소진 — %s까지 %s 레인으로 폴백 | body=%s",
+        time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(reset)),
+        llm_backend.EXAONE_MODEL if llm_backend.exaone_quota_fallback_active() else f"Ollama({OLLAMA_BASE_URL})",
+        body[:200],
     )
     raise OpenRouterQuotaExhausted(
         f"OpenRouter 무료 모델 일일 요청 한도 초과 — Ollama 레인으로 폴백 (응답: {body[:200]})",
@@ -162,6 +167,9 @@ def open_chat(payload: dict[str, Any], timeout: int, *, retry: bool = True):
         try:
             return _open_with_model_fallback(payload, _open)
         except OpenRouterQuotaExhausted:
+            if llm_backend.exaone_quota_fallback_active():
+                logger.warning("OpenRouter 한도 소진 — 이 요청을 K-EXAONE으로 다시 보낸다")
+                return open_chat(payload, timeout, retry=retry)
             logger.warning("OpenRouter 한도 소진 — 이 요청을 Ollama 레인으로 다시 보낸다")
         except (OpenRouterUpstreamUnavailable, OpenRouterModelUnavailable) as exc:
             logger.warning(
@@ -407,9 +415,10 @@ def describe_lane(payload: dict[str, Any]) -> str:
     OpenRouter 레인이면 모델은 payload의 Ollama 슬롯명이 아니라 OPENROUTER_MODEL이다.
     """
     if is_openrouter():
+        lane = "exaone(OpenRouter 한도 소진 폴백)" if llm_backend.exaone_quota_fallback_active() else "openrouter(외부 API)"
         return (
-            f"lane=openrouter(외부 API) model={openrouter_model()} "
-            f"url={OPENROUTER_BASE_URL}"
+            f"lane={lane} model={openrouter_model()} "
+            f"url={llm_backend.openai_compatible_base_url()}"
         )
     if is_local_ollama():
         where = "ollama-local(로컬 모델)"
@@ -433,7 +442,7 @@ def chat_request(payload: dict[str, Any]) -> urllib.request.Request:
     if is_openrouter():
         body = json.dumps(to_openrouter_payload(payload)).encode()
         return urllib.request.Request(
-            f"{OPENROUTER_BASE_URL}/chat/completions",
+            f"{llm_backend.openai_compatible_base_url()}/chat/completions",
             data=body,
             headers={"Content-Type": "application/json", **openrouter_headers()},
             method="POST",
@@ -449,8 +458,9 @@ def chat_request(payload: dict[str, Any]) -> urllib.request.Request:
 def probe_request() -> urllib.request.Request:
     """본문 없는 GET 도달 가능성 확인 요청. ollama=/api/tags, openrouter=/key(인증 확인)."""
     if is_openrouter():
+        path = "models" if llm_backend.exaone_quota_fallback_active() else "key"  # EXAONE에는 /key가 없다
         return urllib.request.Request(
-            f"{OPENROUTER_BASE_URL}/key", headers=openrouter_headers(), method="GET"
+            f"{llm_backend.openai_compatible_base_url()}/{path}", headers=openrouter_headers(), method="GET"
         )
     return urllib.request.Request(
         f"{OLLAMA_BASE_URL}/api/tags", headers=ollama_auth_headers(), method="GET"
@@ -470,12 +480,16 @@ def to_openrouter_payload(payload: dict[str, Any]) -> dict[str, Any]:
         out["temperature"] = options["temperature"]
     if "top_p" in options:
         out["top_p"] = options["top_p"]
+    is_exaone = out["model"].lower().startswith("k-exaone")
     if "num_predict" in options:
-        out["max_tokens"] = options["num_predict"]
+        out["max_tokens"] = options["num_predict"] + (_EXAONE_REASONING_HEADROOM_TOKENS if is_exaone else 0)
     if payload.get("format") == "json":
         out["response_format"] = {"type": "json_object"}
     if payload.get("think") is False:
-        out["reasoning"] = {"enabled": False, "exclude": True}
+        if is_exaone:
+            out["reasoning_effort"] = "low"
+        else:
+            out["reasoning"] = {"enabled": False, "exclude": True}
         if "qwen" in out["model"].lower():
             _append_no_think(messages)
     if out["stream"]:
@@ -607,6 +621,8 @@ def _usage_fields(usage: dict[str, Any] | None) -> dict[str, Any]:
     details = usage.get("completion_tokens_details")
     if isinstance(details, dict) and isinstance(details.get("reasoning_tokens"), int):
         out["reasoning_eval_count"] = details["reasoning_tokens"]
+    elif isinstance(usage.get("reasoning_tokens"), int):  # K-EXAONE은 usage 최상위에 싣는다
+        out["reasoning_eval_count"] = usage["reasoning_tokens"]
     return out
 
 

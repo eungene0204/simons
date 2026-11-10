@@ -79,19 +79,42 @@ def request_forced_to_ollama() -> bool:
     return bool(getattr(_request_lane, "force_ollama", False))
 
 
+# 무료 한도 소진 폴백(2026-11-11 사용자 결정) — OpenRouter 일일 한도가 차면 리셋 시각까지
+# K-EXAONE(OpenAI 호환)으로 보낸다. 키가 없으면 종전대로 Ollama 레인으로 간다.
+EXAONE_BASE_URL = os.environ.get("EXAONE_BASE_URL", "https://api.exaone.ai/v1").rstrip("/")
+EXAONE_MODEL = "k-exaone_v2.5"
+
+
+def exaone_quota_fallback_active() -> bool:
+    """OpenRouter 무료 한도 소진 중이라 이 요청이 K-EXAONE으로 나가는가."""
+    return (
+        llm_provider() == "openrouter"
+        and not request_forced_to_ollama()
+        and time.time() < _openrouter_paused_until
+        and bool(os.environ.get("EXAONE_API_KEY", "").strip())
+    )
+
+
+def openai_compatible_base_url() -> str:
+    return EXAONE_BASE_URL if exaone_quota_fallback_active() else OPENROUTER_BASE_URL
+
+
 def is_openrouter() -> bool:
+    """OpenAI 호환 원격 레인(OpenRouter, 한도 소진 중에는 K-EXAONE)으로 보내는가."""
     if llm_provider() != "openrouter":
         return False
     if request_forced_to_ollama():
         return False
-    return time.time() >= _openrouter_paused_until
+    return time.time() >= _openrouter_paused_until or exaone_quota_fallback_active()
 
 
 def openrouter_fallback_active() -> bool:
     """설정은 openrouter인데 한도 소진(전역) 또는 상류 오류(이 요청)로 Ollama 레인을 쓰는 중인가."""
     if llm_provider() != "openrouter":
         return False
-    return request_forced_to_ollama() or time.time() < _openrouter_paused_until
+    if request_forced_to_ollama():
+        return True
+    return time.time() < _openrouter_paused_until and not exaone_quota_fallback_active()
 
 
 def pause_openrouter_until(reset_epoch_s: float) -> None:
@@ -162,6 +185,8 @@ def reset_model_cooldowns() -> None:
 
 def candidate_models() -> list[str]:
     """이번 요청이 순서대로 시도할 모델. 쿨다운 중인 모델은 뒤로 미룬다(전부 죽었어도 시도는 한다)."""
+    if exaone_quota_fallback_active():
+        return [EXAONE_MODEL]
     chain = openrouter_model_chain()
     return [m for m in chain if not model_is_cooling_down(m)] + [m for m in chain if model_is_cooling_down(m)]
 
@@ -202,7 +227,11 @@ def openrouter_model() -> str:
     Ollama 슬롯 env(NL_OLLAMA_MODEL 등)는 Ollama 모델명이라 OpenRouter에는 의미가 없다.
 
     우선순위: 요청 단위 지정(폴백 시도 중) > 쿨다운에 걸리지 않은 첫 모델(주 모델 → 폴백).
-    그래서 주 모델이 죽은 동안 관찰 라벨(active_chat_model)도 실제 쓰는 폴백 모델을 가리킨다."""
+    그래서 주 모델이 죽은 동안 관찰 라벨(active_chat_model)도 실제 쓰는 폴백 모델을 가리킨다.
+    K-EXAONE 폴백 중에는 요청 단위 지정보다 앞선다 — 한도 소진 직전에 시작한 동시 요청의 재시도가
+    OpenRouter 슬러그를 EXAONE 엔드포인트로 보내면 안 된다."""
+    if exaone_quota_fallback_active():
+        return EXAONE_MODEL
     override = getattr(_request_model, "model", None)
     if override:
         return override
@@ -222,6 +251,8 @@ def active_chat_model(payload_model: str) -> str:
 def openrouter_headers() -> dict[str, str]:
     """OpenRouter 인증 헤더. 키가 없으면 즉시 실패한다 — 조용히 로컬로 폴백하면
     운영과 다른 모델로 검증하고도 성공한 것처럼 보이는 사고가 난다(FR-STR-019p ⑤)."""
+    if exaone_quota_fallback_active():
+        return {"Authorization": f"Bearer {os.environ['EXAONE_API_KEY'].strip()}"}
     key = os.environ.get("OPENROUTER_API_KEY", "").strip()
     if not key:
         raise RuntimeError(
