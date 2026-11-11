@@ -80,3 +80,9 @@ python .claude/skills/strategy-interpretation-fix/scripts/trace_turn.py --trace-
 
 CLAUDE.md 설명 스타일(결론 한 줄 → 번호 단계 → "한 줄로: …"). 묶음 목록은 등급·신호·건수·세션 수·첫 진단만
 표로. 원문 표본은 필요한 것만 짧게. 무엇을 고르지 않았는지(인프라·의도된 거절)와 그 이유도 적는다.
+
+## Gotchas
+
+형식: `[날짜] 증상 → 원인 → 규칙` 한 줄. 이 스킬을 쓰다 Claude가 실수해 사용자가 지적하거나 사고가 나면, 고친 뒤 같은 작업에서 맨 아래에 한 줄을 더한다. 저장소 전체에 해당하는 실수는 CLAUDE.md `## Gotchas`에 쓴다.
+
+(아직 없음)
