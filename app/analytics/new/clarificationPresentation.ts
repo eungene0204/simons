@@ -2,6 +2,8 @@ import type { ParsedSummary } from "@/lib/strategy-summary";
 
 import {
   getNextMissingBacktestCondition,
+  isExplicit,
+  type BacktestReadinessOptions,
   type MissingBacktestCondition,
 } from "./backtestReadiness";
 import { t } from "@/lib/i18n";
@@ -13,41 +15,36 @@ export type PresentedClarification = {
 };
 
 type ClarificationInput = {
-  prompt: string;
   parsed: ParsedSummary;
   backendQuestion?: string | null;
   backendSuggestions?: string[] | null;
+  /** 되묻기 게이트와 같은 판정 입력 — 빠지면 '안 함'으로 거부한 슬롯을 다시 묻는다
+   *  (2026-11-12: 기간만 바꿨는데 '익절 안 함'으로 정한 익절을 반복해서 물었다). */
+  gateOptions?: BacktestReadinessOptions;
 };
 
 const DIRECT_INPUT = "직접 입력";
 const STOCK_TYPO_QUESTION = "입력하신 종목명을 인식하지 못했어요";
 
-function hasExplicitPortfolioSize(prompt: string): boolean {
-  return (
-    /(?:최대\s*)?\d+\s*종목/i.test(prompt) ||
-    /포트폴리오|동시\s*보유/i.test(prompt)
-  );
-}
-
+// 사용자가 종목 수를 직접 말했는가는 인터프리터 LLM이 판정한 provenance(explicit_fields)로만 본다 —
+// 원문을 정규식으로 다시 읽지 않는다(2026-11-12 원문 판정 제거, CLAUDE.md 대원칙 1).
 function shouldSuppressContradictedQuestion(
-  prompt: string,
   parsed: ParsedSummary,
   question: string,
+  gateOptions: BacktestReadinessOptions | undefined,
 ): boolean {
+  const portfolioSizeStated = isExplicit("max_positions", gateOptions?.explicitFields);
   if (
     question.includes(STOCK_TYPO_QUESTION) &&
     !parsed.target_symbols?.length &&
-    hasExplicitPortfolioSize(prompt)
+    portfolioSizeStated
   ) {
-    return true;
-  }
-  if (question.includes("배당") && !prompt.includes("배당")) {
     return true;
   }
   if (
     question.includes("상위 몇 종목") &&
     parsed.max_positions != null &&
-    hasExplicitPortfolioSize(prompt)
+    portfolioSizeStated
   ) {
     return true;
   }
@@ -67,12 +64,12 @@ function shouldSuppressContradictedQuestion(
 }
 
 export function presentStrategyClarification({
-  prompt,
   parsed,
   backendQuestion,
   backendSuggestions,
+  gateOptions,
 }: ClarificationInput): PresentedClarification | null {
-  const missingCondition = getNextMissingBacktestCondition(parsed);
+  const missingCondition = getNextMissingBacktestCondition(parsed, gateOptions);
   if (missingCondition) {
     return {
       question: missingCondition.question,
@@ -83,7 +80,7 @@ export function presentStrategyClarification({
 
   if (
     !backendQuestion ||
-    shouldSuppressContradictedQuestion(prompt, parsed, backendQuestion)
+    shouldSuppressContradictedQuestion(parsed, backendQuestion, gateOptions)
   ) {
     return null;
   }

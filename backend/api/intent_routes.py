@@ -184,6 +184,7 @@ async def classify_query(req: IntentRequest) -> IntentResult:
             workflow_effect=result.workflow_effect.value,
             workflow_status=result.workflow_status.value,
             clarify_target=result.clarify_target,
+            options_target=result.options_target,
             # 규제 게이트를 통과해 사실 조회로 답한 턴인지 — 게이트 분리가 실제로
             # 어떤 발화를 열어줬는지가 커버리지 리포트의 판정 근거다.
             fact_metric=result.fact_metric,

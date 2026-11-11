@@ -7,6 +7,7 @@ import {
   takeProfitPrompt,
 } from "./parsedStrategyMerge";
 import { t } from "@/lib/i18n";
+import modificationChipBindings from "./modificationChipBindings.json";
 
 type SpeechAct =
   | "ask"
@@ -88,6 +89,9 @@ export type SemanticClassification = {
   // "무엇을 바꾸려는데 값이 없다"는 의미 판정이므로 LLM이 하고, 무엇을 물을지(문구·선택지)는
   // 이 라벨을 키로 아래 표에서 결정론이 고른다 — 프론트가 원문을 다시 읽지 않는다.
   clarifyTarget?: string | null;
+  // 선택지(옵션)를 보여 달라고 한 설정(백엔드 clarify_targets.SETTING_TARGETS). 라벨과 직교하는
+  // 축이다 — '손절 옵션은?'이 상태 조회로 분류돼도 이 값이 있으면 그 설정의 값 칩을 띄운다.
+  optionsTarget?: string | null;
   // 값 조회가 성립한 종목 지표(백엔드 intent/stock_facts.py의 닫힌 목록).
   // 라벨과 직교하는 축이다 — 같은 STOCK_ANALYSIS라도 "사도 될까?"(판단 요청)는 거절,
   // "PER 얼마야?"(값 조회)는 규제상 허용 범위라 답한다. 값이 있으면 suggestedReply는
@@ -523,6 +527,15 @@ export function getModificationClarification(prompt: string): ModificationClarif
   };
 }
 
+/** 프론트가 띄운 되묻기 칩 중 값이 결속된 칩과 그 값(칩=값 결속 계약).
+ *  표는 백엔드 결속기와 같은 값을 낸다(backend/tests/test_slot_clarification_chips.py가 대조).
+ *  pending_ask로 실으면 클릭이 의도 분류·수정 인터프리터 LLM 없이 백엔드 칩 레인으로 적용된다.
+ *  '직접 입력'·영역 칩처럼 표에 없는 칩은 빠진다 — 그 클릭은 종전대로 분류를 거친다. */
+export function chipBindingsFor(chips: readonly string[]): Record<string, Record<string, unknown>> {
+  const table = modificationChipBindings as Record<string, Record<string, unknown>>;
+  return Object.fromEntries(chips.filter((chip) => chip in table).map((chip) => [chip, table[chip]]));
+}
+
 /** 되묻기 대상 라벨 → 문구·선택지. LLM이 고른 라벨을 키로 정해진 문구를 고른다.
  *  목록에 없는 라벨이면 null — 없는 문구를 지어내지 않는다(백엔드 검증을 통과한 값만 온다). */
 export function clarificationForTarget(target: string): ModificationClarification | null {
@@ -746,6 +759,26 @@ export function decideConversationTurn(
     isNamedStockStrategyRequest(prompt, symbol)
   ) {
     return buildStrategyInputDecision(prompt, context, "named_stock_strategy_request");
+  }
+
+  // ── 선택지 요청 (라벨과 직교 — '손절 옵션은?') ─────────────────────
+  // 읽기 전용 라벨보다 먼저다: 열린 질문이 있으면 분류 LLM이 이 발화를 상태 조회로 냈다
+  // (2026-11-12 실측 2/2). 열린 질문이 있어도 띄운다 — 선택지 요청은 그 질문의 답이 아니므로
+  // L2'의 '답변 턴 불개입'(2026-07-31) 대상이 아니다. 판정·성립 검증은 백엔드가 마쳤다.
+  const optionsClarification = classification.optionsTarget && context.hasCurrentStrategy
+    ? clarificationForTarget(classification.optionsTarget)
+    : null;
+  if (optionsClarification && optionsClarification.suggestions.length > 0) {
+    return {
+      action: "respond",
+      speechAct: "ask",
+      topic: optionsClarification.topic,
+      confidence: 1,
+      reason: "options_request",
+      message: optionsClarification.message,
+      suggestions: optionsClarification.suggestions,
+      opensClarification: true,
+    };
   }
 
   // ── 읽기 전용 질문 (상태를 묻기만 한다) ────────────────────────────

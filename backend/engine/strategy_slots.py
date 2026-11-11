@@ -232,6 +232,25 @@ def ask_field_for_topic(
     return field
 
 
+def shared_topic_question(
+    topic: Optional[str], parsed: Any = None,
+    declined_fields: Optional[Iterable[str]] = None,
+) -> Optional[str]:
+    """라벨을 공유하는 슬롯(리스크 관리 = 손절·익절)이면 아직 물어야 할 필드의 정본 질문, 아니면 None.
+
+    칩은 이미 State로 고른다(ask_field_for_topic). planner가 쓴 질문 문장은 구성원 중 어느 쪽을
+    가리킬지 보장되지 않아, 칩과 다른 칸을 묻는 일이 생긴다(2026-11-12 실측: 손절 -8%가 정해진
+    전략에서 익절 칩 위에 "손절 기준을 정할까요?"). 질문도 같은 필드의 정본 문장으로 맞춘다 —
+    planner 문장을 읽어 판정하지 않는다.
+    """
+    field = slot_for_topic(topic)
+    if field is None or parsed is None:
+        return None
+    if sum(1 for f in FIELD_ORDER if SLOT_LABELS[f] == SLOT_LABELS[field]) == 1:
+        return None
+    return _question_for(parsed, ask_field_for_topic(topic, parsed, declined_fields))[0]
+
+
 def suggestions_for_topic(
     topic: Optional[str], universe: Optional[Sequence[str]] = None,
     parsed: Any = None, declined_fields: Optional[Iterable[str]] = None,

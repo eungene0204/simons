@@ -12,6 +12,7 @@
   liquidity       주문금액 ÷ 최근 20거래일 평균 거래대금(참여율) 분포와 참여율 10% 기준 운용 가능 자본 추정.
   benchmarks      지역 표준 벤치마크 3종(+사용자가 고른 비교 지수) 대비 수익률·베타·알파·정보비율.
   portfolioMix    실제 보유 종목 간 상관행렬과 효율적 프론티어(롱온리·과거 통계).
+  crisisPeriods   백테스트 기간과 겹치는 역사적 위기 구간(지수 고점→저점)의 전략·벤치마크 수익률·낙폭·회복 거래일(v16.50.1).
 """
 
 from __future__ import annotations
@@ -485,6 +486,86 @@ def benchmark_comparisons(loader, region: str, common_index: pd.Index, strat_ret
     return rows
 
 
+# ── 역사적 위기 구간 ─────────────────────────────────────────────────────────
+
+# 지역 대표 지수 종가의 고점→저점 구간(KR=KOSPI, US=SPY 종가로 확인). 표시 이름은 프론트가 id로 고른다.
+CRISIS_PERIODS = {
+    "kr": [
+        ("imf_1997", "1997-06-17", "1998-06-16"),
+        ("dotcom_2000", "2000-01-04", "2001-04-10"),
+        ("gfc_2008", "2007-10-31", "2008-10-24"),
+        ("euro_2011", "2011-05-02", "2011-09-26"),
+        ("trade_war_2018", "2018-01-29", "2019-01-03"),
+        ("covid_2020", "2020-01-22", "2020-03-19"),
+        ("rate_hike_2022", "2021-07-06", "2022-09-30"),
+        ("carry_unwind_2024", "2024-07-11", "2024-08-05"),
+        ("tariff_2025", "2025-02-19", "2025-04-09"),
+    ],
+    "us": [
+        ("dotcom_2000", "2000-03-24", "2002-10-09"),
+        ("gfc_2008", "2007-10-09", "2009-03-09"),
+        ("euro_2011", "2011-04-29", "2011-10-03"),
+        ("q4_2018", "2018-09-20", "2018-12-24"),
+        ("covid_2020", "2020-02-19", "2020-03-23"),
+        ("rate_hike_2022", "2022-01-03", "2022-10-12"),
+        ("carry_unwind_2024", "2024-07-16", "2024-08-05"),
+        ("tariff_2025", "2025-02-19", "2025-04-08"),
+    ],
+}
+
+
+def _path_stats(path: np.ndarray):
+    """구간 첫 값 대비 수익률과 구간 안 최대 낙폭(%)."""
+    ret = (path[-1] / path[0] - 1.0) * 100.0
+    mdd = float((path / np.maximum.accumulate(path) - 1.0).min()) * 100.0
+    return ret, mdd
+
+
+def crisis_periods(equity: pd.Series, bench_rets: Optional[pd.Series], region: str) -> List[Dict[str, Any]]:
+    """백테스트 기간과 겹치는 위기 구간마다 전략·벤치마크의 구간 수익률·최대 낙폭과 전략의 회복 거래일 수.
+
+    구간 일부만 겹치면 겹친 부분만 계산하고 partial로 표시한다. 회복=구간 시작 자산을 구간 종료 뒤 다시
+    넘은 첫 날까지의 거래일 수(백테스트 끝까지 못 넘으면 null·recovered=False, 구간 중에 백테스트가 끝나면 둘 다 null).
+    """
+    rows: List[Dict[str, Any]] = []
+    if equity is None or len(equity) < 2:
+        return rows
+    idx = pd.DatetimeIndex(equity.index)
+    values = np.asarray(equity.values, dtype=float)
+    for crisis_id, start, end in CRISIS_PERIODS.get(region, []):
+        start_ts, end_ts = pd.Timestamp(start), pd.Timestamp(end)
+        pos = np.flatnonzero((idx >= start_ts) & (idx <= end_ts))
+        if len(pos) < 2:
+            continue
+        path = values[pos]
+        if not np.all(np.isfinite(path)) or path[0] <= 0:
+            continue
+        cut_end = bool(idx[-1] < end_ts)
+        strat_ret, strat_mdd = _path_stats(path)
+        recovery, recovered = None, None
+        if not cut_end:
+            after = np.flatnonzero(values[pos[-1] + 1:] >= path[0])
+            recovered = bool(len(after) or path[-1] >= path[0])
+            if path[-1] >= path[0]:
+                recovery = 0
+            elif len(after):
+                recovery = int(after[0] + 1)
+        bench_ret = bench_mdd = None
+        if bench_rets is not None:
+            br = bench_rets.reindex(idx[pos[1:]]).to_numpy(dtype=float)
+            if len(br) and np.all(np.isfinite(br)):
+                bench_ret, bench_mdd = _path_stats(np.concatenate([[1.0], np.cumprod(1.0 + br)]))
+        rows.append({
+            "id": crisis_id, "start": start, "end": end,
+            "coveredStart": idx[pos[0]].strftime("%Y-%m-%d"), "coveredEnd": idx[pos[-1]].strftime("%Y-%m-%d"),
+            "partial": bool(idx[0] > start_ts or cut_end), "tradingDays": int(len(pos)),
+            "strategyReturn": _f(strat_ret), "strategyMaxDrawdown": _f(strat_mdd),
+            "benchmarkReturn": _f(bench_ret), "benchmarkMaxDrawdown": _f(bench_mdd),
+            "recoveryDays": recovery, "recovered": recovered,
+        })
+    return rows
+
+
 # ── 조립 ─────────────────────────────────────────────────────────────────────
 
 def build_analytics(*, pf, symbols: List[str], common_index: pd.Index, init_cash: float,
@@ -524,4 +605,5 @@ def build_analytics(*, pf, symbols: List[str], common_index: pd.Index, init_cash
                                             extra=extra_benchmark, dividend_tax_rate=dividend_tax_rate),
         "portfolioMix": portfolio_mix(pf, symbols, prices, init_cash, strat_series,
                                       periods_per_year, risk_free_rate),
+        "crisisPeriods": crisis_periods(val, bench_series, region),
     }

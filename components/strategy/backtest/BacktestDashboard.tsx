@@ -2178,6 +2178,7 @@ export default function BacktestDashboard({
                       dates={result.dates}
                       currency={isUsResult ? "usd" : "krw"}
                       stockMetadata={stockMetadata}
+                      benchmarkLabel={benchmarkLabel.replace(/\s*\(\d+\)$/, "")}
                     />
                   )}
                   {returnsView === "monthly" && monthlyReturnSeries.length > 0 && (

@@ -126,3 +126,52 @@ def test_cost_sweep_grid_and_cagr_drop():
     assert out["cagrDrop"] == pytest.approx(1000 * (0.001 + 0.005))
     assert eng.calls[-1]["options"]["fee_rate"] == pytest.approx(0.001)
     assert cost_sweep(eng, {}, fee_rates_pct=[-1], slippage_rates_pct=[0])["status"] == "error"
+
+
+def _crisis_equity(start, values):
+    return pd.Series(values, index=pd.bdate_range(start, periods=len(values)), dtype=float)
+
+
+def test_crisis_periods_return_drawdown_and_recovery():
+    # 2020-01-22(코로나 구간 시작) 전후 — 구간 안에서 100→80→90, 구간 뒤 회복.
+    idx = pd.bdate_range("2019-12-02", "2020-06-30")
+    eq = pd.Series(100.0, index=idx)
+    win = (idx >= "2020-01-22") & (idx <= "2020-03-19")
+    n = int(win.sum())
+    eq[win] = np.concatenate([np.linspace(100, 80, n - 5), np.linspace(85, 90, 5)])
+    after = idx > "2020-03-19"
+    eq[after] = np.linspace(95, 110, int(after.sum()))
+    bench = pd.Series(0.0, index=idx)
+    bench[win] = -0.01
+    rows = ra.crisis_periods(eq, bench, "kr")
+    assert [r["id"] for r in rows] == ["covid_2020"]
+    r = rows[0]
+    assert not r["partial"] and r["tradingDays"] == n
+    assert r["strategyReturn"] == pytest.approx(-10.0)
+    assert r["strategyMaxDrawdown"] == pytest.approx(-20.0)
+    assert r["benchmarkReturn"] == pytest.approx(((0.99 ** (n - 1)) - 1) * 100)
+    first_back = int(np.flatnonzero(eq[after].to_numpy() >= 100.0)[0]) + 1
+    assert r["recovered"] is True and r["recoveryDays"] == first_back
+
+
+def test_crisis_periods_partial_overlap_and_unrecovered():
+    # 백테스트가 구간 중간(2020-02-03)에 시작하고 끝까지 시작 자산을 못 넘음.
+    eq = _crisis_equity("2020-02-03", np.linspace(100, 70, 60))
+    r = ra.crisis_periods(eq, None, "kr")[0]
+    assert r["id"] == "covid_2020" and r["partial"] is True
+    assert r["coveredStart"] == "2020-02-03"
+    assert r["benchmarkReturn"] is None
+    assert r["recovered"] is False and r["recoveryDays"] is None
+
+
+def test_crisis_periods_cut_by_backtest_end_has_no_recovery_verdict():
+    eq = _crisis_equity("2020-01-02", np.linspace(100, 90, 30))  # 2020-02-12에 끝남
+    r = ra.crisis_periods(eq, None, "kr")[0]
+    assert r["partial"] is True and r["recovered"] is None and r["recoveryDays"] is None
+
+
+def test_crisis_periods_skips_non_overlapping_and_uses_region_table():
+    eq = _crisis_equity("2023-01-02", np.full(200, 100.0))
+    assert ra.crisis_periods(eq, None, "kr") == []
+    us = ra.crisis_periods(_crisis_equity("2020-02-03", np.full(60, 100.0)), None, "us")
+    assert [r["id"] for r in us] == ["covid_2020"] and us[0]["start"] == "2020-02-19"

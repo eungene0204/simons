@@ -770,6 +770,47 @@ describe("StrategyLabPage scroll behavior", () => {
     expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/strategy/builder/step")).toBe(false);
   });
 
+  it("되묻기 중 채팅을 입력해 응답을 기다리는 동안 오른쪽 카드가 칸을 끝까지 채운다", async () => {
+    // 2026-11-12: 입력을 보내면 카드가 '대기 중' 감싸개로 옮겨지는데, 오른쪽 칸은 바로 아래 자식만
+    // 늘려서 카드가 내용 높이로 줄어 칸이 반만 찼다.
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/model/status") {
+        return Promise.resolve(createJsonResponse({ status: "ready", error: null }));
+      }
+      if (url === "/api/user") {
+        return Promise.resolve(createJsonResponse({ user: { id: 1, name: "Tester" } }));
+      }
+      if (url === "/api/query/classify") {
+        return Promise.resolve(createJsonResponse({ intent: "STRATEGY_ADVICE", symbols: [] }));
+      }
+      if (url === "/api/strategy/parse/stream") {
+        return Promise.resolve(createParseStreamResponseMissingRebalancing());
+      }
+      return Promise.resolve(createJsonResponse({}));
+    });
+
+    render(<StrategyLabPage />);
+    fireEvent.change(await screen.findByRole("textbox"), {
+      target: {
+        value:
+          "코스피에서 PER 10 이하, 최대 5종목, 최근 5년 데이터, 초기 자금 1,000만원 전략을 만들어줘",
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "전략 생성" }));
+    await screen.findByText("다음으로 포트폴리오를 얼마나 자주 다시 구성할지 정해볼까요?");
+
+    // 다음 분류는 끝나지 않게 둔다 — 대기 상태를 붙잡아 본다.
+    fetchMock.mockImplementation(() => new Promise(() => {}));
+    const input = screen.getByTestId("lab-chat-input");
+    fireEvent.change(input, { target: { value: "리밸런싱은 분기로 해줘" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    const held = await screen.findByTestId("held-aside");
+    expect(screen.getByTestId("lab-chat-aside")).toContainElement(held);
+    expect(held.className).toContain("[&>*]:flex-1");
+  });
+
   it("리밸런싱 안 함을 선택하면 같은 질문을 반복하지 않고 다음 누락 조건으로 진행한다", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);

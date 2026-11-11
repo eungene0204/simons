@@ -317,6 +317,7 @@ Domain 검증            Registry + validation/ (지표 지원 여부·범위·�
 | `primary.fast_path_can_handle` → `nl_parser._modify_rule_based` | **primary 활성 분기 제거(2026-10-13)** — 수정 요청은 `llm_first` 패치 레인으로 보낸다. 구 `fast_path_first` 설정은 `llm_first`로 정규화한다. 레거시 함수 자체의 원문 판정은 `nl_parser.py` 부채다 |
 | `engine/term_grounding.py::general_facts_block` ①② · `api/coach_routes.py::_detect_question_topics` | 미이관 — 원문에서 개념·질문 주제를 스캔(2026-09-17 발견) |
 | `app/analytics/new/conversationDecision.ts`(프론트 턴 중재자) | 미이관 — `EXPLICIT_*_PATTERN`·`MODIFICATION_REQUEST_PATTERN`·`parsedStrategyMerge.isAdvisorFollowUpPrompt` 등이 원문을 정규식으로 판정. **보유 기간 선판정은 제거 완료(2026-09-20)**: `resolveStrategyAssumptions`(원문 `단기|장기|중기`)가 "단기 주가 변동에 따른 손절매는 적용하지 않는다"의 '단기'를 보고 LLM 해석 전에 "단기 매매 전략으로 이해했어요. 얼마나 오래 보유할까요?"를 띄우고 '중기'는 63일을 조용히 확정하던 블록(`ask_holding_period`·`parseHoldingPeriodDays`·`strategyAssumptions` 주입)을 지웠다 — 기간 어감·보유 기간 해석의 정본은 백엔드 인터프리터와 `completeness_validator` |
+| `app/analytics/new/clarificationPresentation.ts::shouldSuppressContradictedQuestion`·`hasExplicitPortfolioSize` | **이관 완료(2026-11-12)** — 백엔드 되묻기를 숨길지 원문(`prompt`)을 정규식·`includes("배당")`으로 판정하던 위반(같은 날 발견). 종목 수 언급 판정은 인터프리터 provenance(`explicit_fields`의 `max_positions`)로 대체, 원문 '배당' 판정은 구조 대체 신호가 없어 삭제(지어낸 조건은 조건 인용 대조 LLM 레인 소관). `presentStrategyClarification`은 원문을 받지 않는다 |
 | `scripts/qa_template_detect.py`의 기대값 추출 | **한국어 81개 이관 완료(2026-10-13)** — 원문 정규식 기대값 추출을 제거하고 사람이 검토한 `qa_template_expectations.json`의 의미 기대값으로 판정한다. 미국 예시는 정답표 미작성으로 게이트를 명시 중단하며 검증 완료로 세지 않는다 |
 | `intent/classifier.py` 의도 분류 | **이관 완료(2026-07-30)** — 기본 경로는 `intent/interpreter.py`. 파일 안의 `_classify_deterministic`/`_classify_with_llm`과 `intent/scope.py`의 `is_*(text)` 예측자는 `INTENT_CLASSIFIER_MODE=legacy` 롤백 전용이며, 기본 경로로 되돌리지 않는다 |
 
@@ -442,6 +443,8 @@ agent 파이프라인(전략 해석·플래너·분류기·빌더·수정·검�
 - [10-15] 로컬은 전부 통과, CI 27건 실패 → 로컬 `.env`의 실제 LLM이 테스트를 우연히 통과시킴 → `.env` 없는 깨끗한 체크아웃 기준으로 판정한다
 - [10-15] 삭제된 기능의 테스트를 영어 레인으로 "고정"해 살림 → 테스트를 기능과 분리해 봄 → 기능을 지우면 그 테스트도 같이 지운다
 - [10-27] 작업마다 전체 스위트를 반복해 시간 낭비 → "수정 후 전체 실행"을 매 수정으로 해석 → 중간엔 관련 테스트만, 전체는 수정을 다 끝낸 뒤 한 번 돌린다
+- [11-12] 상류 장애 대응으로 예비 모델·K-EXAONE 전환을 추천했다가 둘 다 더 느려 되돌림 → "OK" 한 마디 지연과 가동률만 보고 판단 → LLM 레인 비교는 실제 해석 한 턴(3만 토큰 프롬프트)의 단계별 시간으로 잰다
+- [11-12] 선택지 요청을 분류 규칙 한 줄로 고쳤다가 '손절 옵션은?'을 사용자가 먼저 발견 → 규칙 예시와 닮은 문장만, 열린 질문 없이 실측 → 분류 수리는 말투 변형·열린 질문 유무를 섞어 재고, 라벨 규칙보다 라벨과 직교하는 출력 칸을 먼저 검토한다
 - [상시] 실패 테스트를 "기존 버그·내 변경과 무관"으로 넘김 → 원인 규명 생략 → 실패는 원인을 밝히고, 무관하면 설명 후 수정 여부를 묻는다
 
 ---

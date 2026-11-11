@@ -97,3 +97,51 @@ def test_prompt_documents_both_labels():
     assert "RESULT_EXPLAIN" in prompt
     # 경계 규칙 4-3(묻기 vs 바꾸기)·4-4(일반 지식 vs 내 결과)
     assert "4-3." in prompt and "4-4." in prompt
+
+
+
+@pytest.mark.parametrize(
+    "intent", [QueryIntent.STRATEGY_STATUS, QueryIntent.STRATEGY_ADVICE]
+)
+def test_options_request_survives_status_label(intent):
+    """'손절 옵션은?'이 상태 조회로 분류돼도 선택지 요청 칸은 살아남는다(2026-11-12 사고).
+
+    열린 확정 질문이 있으면 LLM이 라벨을 STRATEGY_STATUS로 냈다(2/2). 칩을 보여 주는 것은
+    상태를 바꾸지 않으므로 읽기 전용 라벨에서도 막지 않는다.
+    """
+    result = classifier._apply_domain_policy(
+        _interp(intent, options_target="stop_loss"),
+        last_symbol=None,
+        query="손절 옵션은?",
+        active_strategy=True,
+        workflow_status=WorkflowStatus.ACTIVE,
+    )
+
+    assert result.options_target == "stop_loss"
+
+
+@pytest.mark.parametrize("intent,active", [
+    (QueryIntent.PERSONAL_ADVICE, True),
+    (QueryIntent.STRATEGY_ADVICE, False),
+])
+def test_options_request_blocked_by_gate_or_no_strategy(intent, active):
+    """규제 게이트 라벨이거나 진행 중인 전략이 없으면 선택지 요청은 성립하지 않는다."""
+    result = classifier._apply_domain_policy(
+        _interp(intent, options_target="stop_loss"),
+        last_symbol=None,
+        query="손절 옵션은?",
+        active_strategy=active,
+        workflow_status=WorkflowStatus.ACTIVE,
+    )
+
+    assert result.options_target is None
+
+
+def test_options_target_accepts_only_settings():
+    """선택지 표가 있는 설정만 받는다 — 영역·재무 지표·목록 밖 표기는 None."""
+    from intent import clarify_targets
+
+    assert clarify_targets.normalize_options_target("Stop-Loss") == "stop_loss"
+    assert clarify_targets.normalize_options_target("entry_signal") is None
+    assert clarify_targets.normalize_options_target("per") is None
+    assert clarify_targets.normalize_options_target("null") is None

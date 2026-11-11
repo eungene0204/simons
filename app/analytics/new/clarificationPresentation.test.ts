@@ -25,10 +25,19 @@ const complete: ParsedSummary = {
 };
 
 describe("presentStrategyClarification", () => {
+  it("'익절 안 함'으로 거부한 익절은 다시 묻지 않는다(2026-11-12 기간 수정 뒤 반복 질문)", () => {
+    expect(
+      presentStrategyClarification({
+        parsed: { ...complete, take_profit_pct: null },
+        backendQuestion: null,
+        gateOptions: { declinedFields: ["take_profit"] },
+      }),
+    ).toBeNull();
+  });
+
   it("백엔드 질문보다 파싱 결과의 다음 누락 조건을 우선한다", () => {
     expect(
       presentStrategyClarification({
-        prompt: "PBR 1 이하, 손절 10%",
         parsed: { ...complete, take_profit_pct: null },
         backendQuestion: "익절 — 목표 수익 비율을 정해주세요",
         backendSuggestions: ["익절 20%"],
@@ -41,39 +50,37 @@ describe("presentStrategyClarification", () => {
     });
   });
 
-  it("완성된 포트폴리오 전략의 허위 종목 오타 질문을 숨긴다", () => {
+  it("종목 수를 직접 말한 전략(LLM provenance)의 허위 종목 오타 질문을 숨긴다", () => {
     expect(
       presentStrategyClarification({
-        prompt: "KOSPI에서 골든크로스 전략을 최대 10종목으로 구성해 주세요.",
         parsed: complete,
         backendQuestion:
           "입력하신 종목명을 인식하지 못했어요. 혹시 '코이즈'를 말씀하신 건가요?",
+        gateOptions: { explicitFields: ["max_positions"] },
       }),
     ).toBeNull();
   });
 
-  it("원문에 없는 지표나 이미 정한 종목 수를 다시 묻지 않는다", () => {
+  it("이미 정한 종목 수를 다시 묻지 않는다 — 판정은 explicit_fields만 본다", () => {
     expect(
       presentStrategyClarification({
-        prompt: "PBR 1 이하 종목을 10종목으로 구성해 주세요.",
-        parsed: complete,
-        backendQuestion: "청산 조건의 배당수익률 기준값을 얼마로 할까요?",
-      }),
-    ).toBeNull();
-    expect(
-      presentStrategyClarification({
-        prompt: "상대강도 순위로 전체 포트폴리오는 10종목으로 제한해 주세요.",
         parsed: complete,
         backendQuestion: "상위 몇 종목을 선택할까요?",
+        gateOptions: { explicitFields: ["max_positions"] },
       }),
     ).toBeNull();
+    // 사용자가 말했다는 기록이 없으면 원문을 다시 읽지 않고 질문을 그대로 둔다(2026-11-12 원문 판정 제거).
+    expect(
+      presentStrategyClarification({
+        parsed: complete,
+        backendQuestion: "입력하신 종목명을 인식하지 못했어요. 혹시 '코이즈'를 말씀하신 건가요?",
+      }),
+    ).toMatchObject({ missingCondition: null });
   });
 
   it("진입 조건이 이미 있으면 종목 선택 되묻기를 숨긴다", () => {
     expect(
       presentStrategyClarification({
-        prompt:
-          "KOSPI 흑자 기업 매수, 손절 10% 익절 30%, 매월 리밸런싱, 최근 5년, 3000만원",
         parsed: complete,
         backendQuestion:
           "어떤 조건으로 종목을 선택할까요? (예: 재무 지표 기준, 기술적 신호, 기간 수익률 상위)",
@@ -84,7 +91,6 @@ describe("presentStrategyClarification", () => {
   it("실제 추가 확인 질문은 친절한 안내와 직접 입력 선택지를 유지한다", () => {
     expect(
       presentStrategyClarification({
-        prompt: "삼성전자와 SK하이닉스 중 하나로 설정해 주세요.",
         parsed: complete,
         backendQuestion: "여러 종목이 지정되었습니다. 어느 종목을 대상으로 할까요?",
         backendSuggestions: ["삼성전자", "SK하이닉스"],

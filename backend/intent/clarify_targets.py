@@ -82,6 +82,14 @@ def normalize_clarify_target(value: object) -> Optional[str]:
     return label if label in allowed_targets() else None
 
 
+def normalize_options_target(value: object) -> Optional[str]:
+    """선택지를 보여 달라고 한 설정(LLM 출력)을 SETTING_TARGETS 값으로 정규화한다. 목록 밖이면 None.
+
+    값 칩을 보여 줄 수 있는 것은 설정 필드뿐이다 — 영역·재무 지표는 선택지 표가 다르다."""
+    label = normalize_clarify_target(value)
+    return label if label in SETTING_TARGETS else None
+
+
 def _has_value(value: object) -> bool:
     """LLM이 modify_value에 값의 원문 표기를 실었는가. null 표기·빈 문자열은 '값 없음'.
 

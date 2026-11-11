@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  chipBindingsFor,
+  clarificationForTarget,
   decideConversationTurn,
   getModificationClarification,
   needsEntrySignalClarification,
@@ -838,5 +840,50 @@ describe("액션 계층 — 상태 기본 액션(L4)과 발화 지목 규칙(L2)
         { intent: "STRATEGY_ADVICE" },
       ).action,
     ).not.toBe("ask_next_condition");
+  });
+});
+
+describe("chipBindingsFor", () => {
+  // 2026-11-12: 프론트 되묻기 칩에 값이 없어 클릭이 분류·해석 LLM을 거쳤다(41초).
+  it("binds every value chip of the frontend setting questions", () => {
+    for (const target of ["stop_loss", "trailing_stop", "mdd", "max_positions", "hold_period",
+      "rebalancing", "initial_capital", "backtest_period", "take_profit"]) {
+      const chips = (clarificationForTarget(target)?.suggestions ?? []).filter((c) => c !== "직접 입력");
+      expect(chips.length).toBeGreaterThan(0);
+      expect(Object.keys(chipBindingsFor(chips))).toEqual(chips);
+    }
+  });
+
+  it("leaves free-input and area chips unbound", () => {
+    expect(chipBindingsFor(["분기 리밸런싱으로 변경", "직접 입력", "진입 신호 변경"])).toEqual({
+      "분기 리밸런싱으로 변경": { rebalancing_period: "quarterly" },
+    });
+  });
+});
+
+describe("options request", () => {
+  // 2026-11-12: '손절 옵션은?'이 확정 질문이 열린 상태에서 상태 조회로 분류돼 요약 카드만 나왔다.
+  it("shows the setting's value chips even when labelled status with an open question", () => {
+    const decision = decideConversationTurn(
+      "손절 옵션은?",
+      { ...baseContext, hasCurrentStrategy: true, hasOpenClarification: true },
+      { intent: "STRATEGY_STATUS", optionsTarget: "stop_loss" },
+    );
+    expect(decision).toMatchObject({
+      action: "respond",
+      reason: "options_request",
+      opensClarification: true,
+      suggestions: clarificationForTarget("stop_loss")?.suggestions,
+    });
+  });
+
+  it("keeps the status card when no options were asked", () => {
+    expect(
+      decideConversationTurn(
+        "아까 손절 몇 퍼센트로 했었지?",
+        { ...baseContext, hasCurrentStrategy: true, hasOpenClarification: true },
+        { intent: "STRATEGY_STATUS" },
+      ),
+    ).toMatchObject({ reason: "classified_strategy_status" });
   });
 });

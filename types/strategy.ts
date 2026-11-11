@@ -261,6 +261,19 @@ export interface AnalyticsResult {
   }>;
   /** 실제 보유했던 종목 간 상관행렬과 롱온리 효율적 프론티어(엔진 v16.33, 과거 통계). */
   portfolioMix?: PortfolioMixResult | null;
+  /** 백테스트 기간과 겹치는 역사적 위기 구간(지수 고점→저점, 엔진 v16.50.1). 이전 결과에는 없다. */
+  crisisPeriods?: CrisisPeriodResult[];
+}
+
+export interface CrisisPeriodResult {
+  id: string; start: string; end: string; coveredStart: string; coveredEnd: string;
+  partial: boolean; tradingDays: number;
+  strategyReturn: number | null; strategyMaxDrawdown: number | null;
+  benchmarkReturn: number | null; benchmarkMaxDrawdown: number | null;
+  /** 구간 시작 자산을 구간 종료 뒤 다시 넘기까지의 거래일 수. 못 넘었거나 백테스트가 구간 중에 끝나면 null. */
+  recoveryDays: number | null;
+  /** false=백테스트 끝까지 미회복, null=백테스트가 구간 중에 끝나 판정 없음. */
+  recovered: boolean | null;
 }
 
 /** 자산 상관·효율적 프론티어(엔진 v16.33) — 과거 데이터의 기술 통계이며 추천이 아니다. */

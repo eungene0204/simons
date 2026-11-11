@@ -358,3 +358,55 @@ def test_risk_topic_keeps_stop_loss_first_when_both_empty():
         "손절 -5%", "손절 -10%", "손절 -15%", "손절 안 함"]
     # parsed 없이 라벨만 주면 종전 동작 그대로(호출자 호환).
     assert strategy_slots.ask_field_for_topic("리스크관리") == strategy_slots.STOP_LOSS
+
+
+def test_risk_topic_question_follows_the_field_its_chips_answer():
+    """손절이 정해진 전략에서 planner가 "손절 기준을 정할까요?"라고 써도 질문은 익절 정본으로 맞춘다
+    (2026-11-12 실측: 익절 칩 위에 손절 질문). 라벨을 공유하지 않는 칸은 planner 문장을 그대로 둔다."""
+    from engine import strategy_slots
+    from strategy_conversation import primary
+
+    parsed = _risk_strategy(stop_loss_pct=8.0)
+    assert strategy_slots.shared_topic_question("리스크 관리", parsed) == "이제 익절 기준을 몇 %로 정할까요?"
+    assert strategy_slots.shared_topic_question(
+        "리스크 관리", _risk_strategy(), declined_fields=["stop_loss"]) == "이제 익절 기준을 몇 %로 정할까요?"
+    assert strategy_slots.shared_topic_question("리스크 관리", _risk_strategy()) == "이제 손절 기준을 몇 %로 정할까요?"
+    assert strategy_slots.shared_topic_question("리밸런싱", parsed) is None
+
+
+def test_replan_replaces_mismatched_risk_question(monkeypatch):
+    from strategy_conversation import primary
+
+    parsed = _risk_strategy(stop_loss_pct=8.0)
+    monkeypatch.setattr(primary.config, "dag_planner_mode", lambda: "primary")
+    monkeypatch.setattr("engine.nl_parser.detect_incomplete_backtest_conditions",
+                        lambda *_a, **_k: ("익절", []))
+    monkeypatch.setattr(primary, "_dag_planner_clarification",
+                        lambda *_a, **_k: ("손절 기준을 정할까요?", [], "리스크 관리"))
+    question, chips, priority, ask = primary._replan_next_question("익절 안 함", parsed)
+    assert question == "이제 익절 기준을 몇 %로 정할까요?"
+    assert ask["question"] == question
+    assert chips == ["익절 10%", "익절 20%", "익절 30%", "익절 안 함"]
+
+
+def test_frontend_modification_chips_match_backend_binding():
+    """프론트가 띄우는 수정 되묻기 칩의 결속 표가 백엔드 결속기와 같은 값을 낸다(2026-11-12).
+
+    프론트 칩에는 값이 묶여 있지 않아 클릭이 직접 입력처럼 의도 분류·수정 인터프리터 LLM을
+    거쳤다(06:30 '분기 리밸런싱으로 변경' 41초). 표(modificationChipBindings.json)를 pending_ask로
+    실어 백엔드 칩 레인이 LLM 없이 적용한다 — 표가 정본 결속과 어긋나면 엉뚱한 값이 들어간다.
+    """
+    import json
+    from pathlib import Path
+
+    table = json.loads(
+        (Path(__file__).resolve().parents[2] / "app" / "analytics" / "new"
+         / "modificationChipBindings.json").read_text(encoding="utf-8")
+    )
+    # 현재값과 같은 칩은 결속기가 '변경 없음'으로 내므로 기준 전략 값을 표와 겹치지 않게 둔다.
+    base = _base_strategy().model_copy(
+        update={"initial_capital": 5_000_000.0, "backtest_period": "1y", "max_positions": 3}
+    )
+    _bound, bindings, _confirms, _declines = _bind_chips(list(table), base, None)
+
+    assert bindings == table

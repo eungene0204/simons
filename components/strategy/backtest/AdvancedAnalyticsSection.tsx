@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { AnalyticsHistogramBin, AnalyticsResult, AnalyticsStat } from "@/types/strategy";
+import type { AnalyticsHistogramBin, AnalyticsResult, AnalyticsStat, CrisisPeriodResult } from "@/types/strategy";
 import { formatCompactNumberEn, getLanguage, t } from "@/lib/i18n";
 import { Question } from "phosphor-react";
 import { explainFactorEstimate, interpretFactor, summarizeFactorPattern, summarizeFactorStatistics } from "./factorInterpretation";
@@ -11,6 +11,7 @@ interface Props {
   dates: string[];
   currency?: "krw" | "usd";
   stockMetadata?: Record<string, { name: string; sector: string }>;
+  benchmarkLabel?: string;
 }
 
 const POSITIVE = "#ef4444";
@@ -359,13 +360,93 @@ function StatRow({ label, stat, ko, en }: { label: string; stat: AnalyticsStat |
   );
 }
 
+const CRISIS_LABELS: Record<string, { ko: string; en: string }> = {
+  imf_1997: { ko: "1997 외환위기", en: "1997 Asian financial crisis" },
+  dotcom_2000: { ko: "닷컴 버블 붕괴", en: "Dot-com crash" },
+  gfc_2008: { ko: "2008 글로벌 금융위기", en: "2008 global financial crisis" },
+  euro_2011: { ko: "2011 유럽 재정위기", en: "2011 euro debt crisis" },
+  trade_war_2018: { ko: "2018 미·중 무역분쟁", en: "2018 US–China trade war" },
+  q4_2018: { ko: "2018 4분기 급락", en: "Q4 2018 sell-off" },
+  covid_2020: { ko: "2020 코로나19 폭락", en: "2020 COVID-19 crash" },
+  rate_hike_2022: { ko: "금리 인상기 약세장", en: "Rate-hike bear market" },
+  carry_unwind_2024: { ko: "2024년 8월 급락", en: "August 2024 sell-off" },
+  tariff_2025: { ko: "2025 관세 충격", en: "2025 tariff shock" },
+};
+
+function recoveryText(r: CrisisPeriodResult, english: boolean): string {
+  if (r.recovered == null) return "—";
+  if (!r.recovered) return english ? "Not recovered" : "미회복";
+  if (r.recoveryDays === 0) return english ? "Within period" : "구간 내 회복";
+  return english ? `${r.recoveryDays} trading days` : `${r.recoveryDays}거래일`;
+}
+
+export function CrisisPeriodsCard({ rows, benchmarkLabel, english }: { rows: CrisisPeriodResult[]; benchmarkLabel?: string; english: boolean }) {
+  const bench = benchmarkLabel || (english ? "Benchmark" : "벤치마크");
+  return (
+    <div className={`${ANALYTICS_CARD} lg:col-span-2`} data-testid="analytics-crisis-periods">
+      <div className="mb-1 text-sm font-black text-white">{t(english ? "Historical crisis periods" : "역사적 위기 구간")}</div>
+      <p className="text-xs leading-relaxed text-[var(--text-label)] sm:text-sm">
+        {t(english
+          ? "Strategy and benchmark results within past market declines that overlap the backtest period. Each period runs from the index's closing high to its closing low (KOSPI for Korea, SPY for the US)."
+          : "백테스트 기간과 겹치는 과거 시장 하락 구간에서 전략과 벤치마크의 결과입니다. 구간은 대표 지수 종가의 고점부터 저점까지입니다(국내 KOSPI, 미국 SPY).")}
+      </p>
+      {rows.length === 0 ? (
+        <p className="mt-2 text-xs font-bold text-[var(--text-label)]">{t(english ? "The backtest period does not overlap any of the listed crisis periods." : "백테스트 기간이 정해 둔 위기 구간과 겹치지 않습니다.")}</p>
+      ) : (
+        <div className="mt-2 overflow-x-auto">
+          <table className="w-full min-w-[820px] border-collapse">
+            <thead>
+              <tr>
+                <th className={`${TH} text-left`}>{t(english ? "Period" : "구간")}</th>
+                <th className={`${TH} text-left`}>{t(english ? "Dates" : "기간")}</th>
+                <th className={`${TH} text-right`}>{t(english ? "Strategy return" : "전략 수익률")}</th>
+                <th className={`${TH} text-right`}>{t(english ? "Strategy MDD" : "전략 MDD")}</th>
+                <th className={`${TH} text-right`}>{english ? `${bench} return` : `${bench} 수익률`}</th>
+                <th className={`${TH} text-right`}>{english ? `${bench} MDD` : `${bench} MDD`}</th>
+                <th className={`${TH} text-right`}>
+                  <span className="inline-flex items-center gap-1">
+                    {t(english ? "Recovery" : "회복")}
+                    <BenchmarkMetricHelp
+                      id="help-crisis-recovery"
+                      label={t(english ? "Recovery" : "회복")}
+                      ko="구간 시작일의 전략 자산을 구간이 끝난 뒤 다시 넘어서기까지 걸린 거래일 수입니다. 백테스트가 끝날 때까지 넘지 못했으면 미회복, 백테스트가 구간 도중에 끝났으면 —로 표시합니다."
+                      en="Trading days after the period ended until strategy equity first exceeded its level on the period's start date. Shows Not recovered if that never happened before the backtest ended, and — if the backtest ended during the period."
+                    />
+                  </span>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/[0.04]">
+              {rows.map((r) => (
+                <tr key={r.id} className="transition-colors duration-150 hover:bg-white/[0.02]">
+                  <td className="whitespace-nowrap py-3 pl-2 pr-4 text-sm font-black text-white">
+                    {t(english ? CRISIS_LABELS[r.id]?.en ?? r.id : CRISIS_LABELS[r.id]?.ko ?? r.id)}
+                    {r.partial ? <span className="ml-1 text-[9px] text-amber-300">{t("일부 기간")}</span> : null}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-3 text-xs font-bold tabular-nums text-[var(--text-label)]">{r.coveredStart} ~ {r.coveredEnd}</td>
+                  <td className={`${TD} text-right ${colorClass(r.strategyReturn)}`}>{pct(r.strategyReturn)}</td>
+                  <td className={`${TD} text-right text-main-blue`}>{pct(r.strategyMaxDrawdown)}</td>
+                  <td className={`${TD} text-right ${colorClass(r.benchmarkReturn)}`}>{pct(r.benchmarkReturn)}</td>
+                  <td className={`${TD} text-right text-main-blue`}>{pct(r.benchmarkMaxDrawdown)}</td>
+                  <td className={`${TD} text-right text-gray-300`}>{recoveryText(r, english)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="mt-1 text-[10px] text-[var(--text-label)]">{t(english ? "Partial periods are calculated over the overlapping days only. Results are based on simulations using historical data." : "일부 기간은 겹친 날짜만으로 계산했습니다. 과거 데이터 기반 시뮬레이션 결과입니다.")}</p>
+    </div>
+  );
+}
+
 const FACTOR_LABELS: Record<string, string> = { MKT: "시장", SMB: "규모(소형−대형)", HML: "가치(저PBR−고PBR)", MOM: "모멘텀(12-1)" };
 const TH = "px-3 py-2 text-xs font-bold uppercase tracking-widest text-[var(--text-label)] whitespace-nowrap";
 const TD = "px-3 py-3 text-sm font-black tabular-nums font-outfit";
 const ANALYTICS_CARD = "min-w-0 rounded-xl border border-white/[0.12] bg-white/[0.025] p-4 sm:p-5";
 const ANALYTICS_PANEL = "min-w-0 rounded-lg border border-white/[0.08] bg-black/10 p-3 sm:p-4";
 
-export default function AdvancedAnalyticsSection({ analytics, dates, currency = "krw", stockMetadata = {} }: Props) {
+export default function AdvancedAnalyticsSection({ analytics, dates, currency = "krw", stockMetadata = {}, benchmarkLabel }: Props) {
   const a = analytics;
   const td = a.tradeDistribution;
   const fe = a.factorExposure;
@@ -615,6 +696,9 @@ export default function AdvancedAnalyticsSection({ analytics, dates, currency = 
             )}
             <p className="mt-1 text-[10px] text-[var(--text-label)]">{t("β·α·정보비율은 전략 일간 수익률을 각 벤치마크에 회귀한 값입니다.")}</p>
           </div>
+
+          {/* 역사적 위기 구간(엔진 v16.50.1) — 과거 통계이며 예측·추천이 아니다. 이전 결과에는 칸이 없다. */}
+          {a.crisisPeriods && <CrisisPeriodsCard rows={a.crisisPeriods} benchmarkLabel={benchmarkLabel} english={isEnglish} />}
 
           <div className="grid gap-4 lg:col-span-2 lg:grid-cols-2">
           {/* 자산 상관관계(엔진 v16.33) — 과거 통계이며 추천이 아니다. */}

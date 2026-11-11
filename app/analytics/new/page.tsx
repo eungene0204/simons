@@ -86,6 +86,7 @@ import {
 import {
   buildResearchMetricIntro,
   buildResearchMetricSummary,
+  chipBindingsFor,
   decideConversationTurn,
   getResearchMetricLabel,
   parseMetricOptimizationRange,
@@ -3144,6 +3145,8 @@ function StrategyLabContent() {
         workflowStatus: workflowStatusRef.current,
         // 값 없이 지목된 수정 대상 — 백엔드가 성립 검증까지 마친 라벨이다(재심 금지).
         clarifyTarget: data.clarify_target ?? null,
+        // 선택지를 보여 달라고 한 설정 — 백엔드가 성립 검증까지 마친 라벨이다.
+        optionsTarget: data.options_target ?? null,
         // 값 조회가 성립한 지표 — 있으면 suggested_reply가 거절 안내가 아니라
         // 백엔드가 데이터에서 만든 사실 문장이다.
         factMetric: data.fact_metric ?? null,
@@ -3351,7 +3354,6 @@ function StrategyLabContent() {
           : [],
       });
 
-      const promptContext = getStrategyPromptContext(promptText);
       const explicitMissingCondition = getNextMissingBacktestCondition(nextParsed, {
         explicitFields: explicitFieldsRef.current,
         declinedFields: declinedFieldsRef.current,
@@ -3396,10 +3398,14 @@ function StrategyLabContent() {
             missingCondition: explicitMissingCondition,
           }
         : presentStrategyClarification({
-            prompt: promptContext,
             parsed: nextParsed,
             backendQuestion: parsedPayload.clarification_question,
             backendSuggestions: parsedPayload.clarification_suggestions,
+            gateOptions: {
+              allowNoRebalancing: explicitNoRebalancingRef.current,
+              explicitFields: explicitFieldsRef.current,
+              declinedFields: declinedFieldsRef.current,
+            },
           }));
       if (
         explicitNoRebalancingRef.current &&
@@ -3940,6 +3946,13 @@ function StrategyLabContent() {
           clarification: turnDecision.message,
           clarificationSuggestions: turnDecision.suggestions,
         });
+        // 이 질문의 칩도 값을 묶어 pending_ask로 싣는다 — 클릭이 직접 입력처럼 분류·해석
+        // LLM을 거치지 않고 백엔드 칩 레인으로 적용된다(2026-11-12: 칩 클릭 41초).
+        // 결속 칩이 없으면 비운다 — 열린 질문이 바뀌었으니 이전 백엔드 칩은 낡았다.
+        const chipBindings = chipBindingsFor(turnDecision.suggestions ?? []);
+        pendingAskRef.current = Object.keys(chipBindings).length
+          ? { question: turnDecision.message, chips: Object.keys(chipBindings), chip_bindings: chipBindings }
+          : null;
       }
       await emitAssistant(patch);
       setIsSending(false);
@@ -5064,7 +5077,9 @@ function StrategyLabContent() {
   if (dockedCardNow) heldAsideCardRef.current = dockedCardNow;
   else if (!isSending) heldAsideCardRef.current = null;
   const heldAside = !dockedCardNow && isSending ? heldAsideCardRef.current : null;
-  const asideNode = dockedCardNow ?? (heldAside ? <div className="pointer-events-none flex flex-1 flex-col" aria-busy="true">{heldAside}</div> : undefined);
+  // 감싸는 칸 안의 카드도 늘린다 — 오른쪽 칸은 바로 아래 자식만 늘리므로, 빠지면 대기 중 카드가
+  // 내용 높이로 줄어 칸이 반만 찬다(2026-11-12).
+  const asideNode = dockedCardNow ?? (heldAside ? <div className="pointer-events-none flex flex-1 flex-col [&>*]:flex-1" aria-busy="true" data-testid="held-aside">{heldAside}</div> : undefined);
 
   return (
     <DashboardLayout userName="">

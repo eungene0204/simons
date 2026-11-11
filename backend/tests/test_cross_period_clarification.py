@@ -128,3 +128,28 @@ def test_modify_incomplete_condition_returns_options_not_fallback(monkeypatch):
     assert result["parsed"].model_dump()["exit_signals"] == []
     assert "매도(청산) 이동평균 크로스" in result["clarification_question"]
     assert "데드크로스(20일/60일) 발생 시 매도" in result["clarification_suggestions"]
+
+
+# ── 수정 턴 '안 함' 신고 (2026-11-12 '익절 안 함' 반복 질문) ──────────────────────
+
+def test_modify_declined_patch_reaches_declined_fields(monkeypatch):
+    prev = ParsedStrategy(
+        description="PBR 1 이하",
+        fundamental_filters=[{"metric": "pbr", "operator": "<=", "value": 1}],
+        hold_period_days=63,
+        max_positions=6,
+        stop_loss_pct=8.0,
+    )
+    _stub_interpreter(monkeypatch, StrategyIntent.model_validate({
+        "intent": "MODIFY_STRATEGY",
+        "confidence": 1.0,
+        "patches": [
+            {"op": "replace", "path": "/risk_management/take_profit", "value": None, "source_text": "익절 안 함"},
+            {"op": "add", "path": "/declined/-", "value": {"field": "take_profit", "source_text": "익절 안 함"},
+             "source_text": "익절 안 함"},
+        ],
+    }))
+    result = primary.run_primary_modification(
+        "익절 안 함", prev.model_dump(), previous_declined_fields=["rebalancing"])
+    assert result is not None
+    assert result["declined_fields"] == ["rebalancing", "take_profit"]

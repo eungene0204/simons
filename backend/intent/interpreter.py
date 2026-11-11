@@ -200,6 +200,13 @@ SYSTEM_PROMPT = (
     "    list_count_only를 true로 한다 — 목록을 보여 달라는 발화('어떤 회사들이 있어?',\n"
     "    '목록 보여줘')는 false다.\n"
     "\n"
+    "그리고 **라벨과 별개로** — 어느 라벨을 골랐든, 답을 기다리는 질문이 있든 — 전략 설정 하나의\n"
+    "**고를 수 있는 선택지(옵션)를 보여 달라는** 발화면 그 설정을 options_target에 적는다.\n"
+    "'손절 옵션은?' → stop_loss, '리밸런싱 옵션 보여줘' → rebalancing, '익절 선택지 뭐 있어?' →\n"
+    "take_profit, '보유 기간은 어떤 걸 고를 수 있어?' → hold_period.\n"
+    "  설정: " + " / ".join(clarify_targets.SETTING_TARGETS) + "\n"
+    "이미 정한 값을 묻거나('손절 몇 퍼센트로 했지?') 뜻을 묻는 발화('손절이 뭐야?')는 null이다(기본값).\n"
+    "\n"
     "추가 출력: turn_action은 run_backtest(실행 확인), follow_up(다음 진행 질문), "
     "horizon_compare(단기/장기 연구 가정 비교), research_metric(성과 지표 연구 목표), "
     "해당 없으면 null입니다. 전략 조건을 함께 말하면 실행 확인으로 분류하지 마세요. "
@@ -215,6 +222,7 @@ SYSTEM_PROMPT = (
     '"fact_metric": "<지표 키 또는 null>", '
     '"list_scope": "<업종/테마/시장/지수 표기 또는 null>", '
     '"list_count_only": <종목 수만 물으면 true, 아니면 false>, '
+    '"options_target": "<선택지를 보여 달라고 한 설정 또는 null>", '
     '"turn_action":null,"research_metric":null,"backtest_period_years":null,"backtest_period_quote":null}'
 )
 
@@ -248,6 +256,10 @@ class IntentInterpretation(BaseModel):
     # 종목 수만 물었는가('몇 종목?'). 목록 답변에서 회사명 나열을 생략하는 표시 축이다 —
     # 값이 틀려도 답의 사실은 같고 장황함만 달라진다(미출력·표기 불량은 False 안전 방향).
     list_count_only: bool = False
+    # 선택지(옵션)를 보여 달라고 한 설정(SETTING_TARGETS 닫힌 목록). 라벨과 직교하는 축이다 —
+    # '손절 옵션은?'은 열린 질문이 있으면 상태 조회로 끌려갔다(2026-11-12 실측 2/2). 라벨 규칙을
+    # 늘리지 않고 칸을 따로 뽑게 한다(출력 형태 > 규칙). 목록 밖·미출력은 None(안전 방향).
+    options_target: Optional[str] = None
     # Structured turn routing; only the existing classification LLM assigns meaning.
     turn_action: Optional[str] = None
     research_metric: Optional[str] = None
@@ -395,6 +407,7 @@ def interpret(
             # stock_lists에 위임한다(형식 정규화와 지식 조회의 분리).
             list_scope=_clean_stock_name(payload.get("list_scope")),
             list_count_only=bool(payload.get("list_count_only")),
+            options_target=clarify_targets.normalize_options_target(payload.get("options_target")),
             turn_action=payload.get("turn_action") if payload.get("turn_action") in
                 ("run_backtest", "follow_up", "horizon_compare", "research_metric") else None,
             research_metric=payload.get("research_metric") if payload.get("research_metric") in

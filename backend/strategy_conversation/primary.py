@@ -2813,6 +2813,8 @@ def run_primary_parse(
         if planner_ask is not None:
             clarification_question, clarification_suggestions, dag_topic = planner_ask
             clarification_priority = "dag_planner"
+            clarification_question = strategy_slots.shared_topic_question(
+                dag_topic, parsed) or clarification_question
             pending_ask, clarification_suggestions = _bound_ask_with_slot_fallback(
                 clarification_question, clarification_suggestions, dag_topic, parsed
             )
@@ -4490,6 +4492,7 @@ def _replan_next_question(
     if strategy_slots.slot_for_topic(topic) is None:
         _log_llm("↩ 재계획 질문 불채택", f"골격 칸이 아닌 topic={topic!r}")
         return None, None, None, None
+    question = strategy_slots.shared_topic_question(topic, parsed, declined_fields) or question
     next_ask, chips = _bound_ask_with_slot_fallback(
         question, chips, topic, parsed, declined_fields=declined_fields)
     # 결속된 칩만 보인다(_bind_chips) — 재계획 질문의 칩도 같은 계약을 따른다.
@@ -6381,6 +6384,15 @@ def run_primary_modification(
     # 기간을 "2016년부터 2026년까지"로 정확히 답해도 재질문). 칩 확정 레인(run_chip_answer)
     # 이 재계획 전에 명시 필드를 합치는 것과 같은 순서다.
     turn_explicit_fields = _modify_explicit_fields(cued_patches, previous_explicit_fields)
+    # 수정 턴의 '안 함' 신고(declined 패치)도 생성 턴과 같은 채널로 나른다 — 빠지면 LLM이 거부를
+    # 해석했는데도 게이트가 같은 슬롯을 다시 묻는다(2026-11-12 '익절 안 함' 반복 질문).
+    turn_declined = list(getattr(validated.strategy, "declined", None) or []) \
+        if validated.strategy is not None else []
+    declined_fields = None
+    if turn_declined:
+        from strategy_conversation.response.provenance import merge_declined_fields
+
+        declined_fields = merge_declined_fields(previous_declined_fields, turn_declined)
 
     # 이월 질문 큐(한 턴에 한 질문)가 있으면 재계획보다 먼저 소비한다 — 자유 서술
     # ('직접 입력' 후 "12% 이상")로 답한 턴에도 남은 기준값 질문이 이어져야 한다.
@@ -6403,7 +6415,8 @@ def run_primary_modification(
         # 후속 질문·칩도 그에 맞게 재생성 — 사용자 계약 "입력은 답변 귀속이 아니라 State
         # 변경 판정이 먼저").
         dag_question, dag_suggestions, dag_priority, dag_pending_ask = _replan_next_question(
-            user_input, parsed, turn_explicit_fields, previous_declined_fields
+            user_input, parsed, turn_explicit_fields,
+            declined_fields if declined_fields is not None else previous_declined_fields,
         )
     if decision_log is not None:
         decision_log.groups.append({"stage": "modification_commit", "base_hash": approval.base_hash,
@@ -6422,6 +6435,7 @@ def run_primary_modification(
         "clarification_priority": dag_priority,
         "pending_ask": dag_pending_ask,
         "explicit_fields": turn_explicit_fields,
+        **({"declined_fields": declined_fields} if declined_fields is not None else {}),
         "field_states": _field_states(
             parsed, validated.strategy, report, turn_explicit_fields,
         ),

@@ -670,6 +670,26 @@ def _resolve_workflow(
     return effect, _EFFECT_TRANSITIONS.get(effect, workflow_status)
 
 
+# 선택지 요청을 인정하지 않는 라벨 — 규제·범위 게이트 안내가 칩으로 삼켜지지 않게 한다.
+# 읽기 전용 라벨(STRATEGY_STATUS·RESULT_EXPLAIN)은 막지 않는다: 칩을 보여 주는 것은 상태를
+# 바꾸지 않고(적용은 클릭 때), '손절 옵션은?'이 상태 조회로 분류돼도 선택지를 보여야 한다.
+_OPTIONS_BLOCKED_INTENTS = _EFFECT_BLOCKED_INTENTS - {
+    QueryIntent.STRATEGY_STATUS,
+    QueryIntent.RESULT_EXPLAIN,
+}
+
+
+def _resolve_options_target(
+    interp: interpreter.IntentInterpretation, active_strategy: bool
+) -> Optional[str]:
+    """LLM이 고른 '선택지를 보여 달라고 한 설정'의 성립 검증(_resolve_clarify_target과 같은 계약)."""
+    if interp.options_target is None or not active_strategy:
+        return None
+    if interp.intent in _OPTIONS_BLOCKED_INTENTS:
+        return None
+    return interp.options_target
+
+
 def _resolve_clarify_target(
     interp: interpreter.IntentInterpretation, active_strategy: bool
 ) -> Optional[str]:
@@ -825,6 +845,7 @@ def _apply_domain_policy(
         workflow_effect=effect,
         workflow_status=next_status,
         clarify_target=clarify_target,
+        options_target=_resolve_options_target(interp, active_strategy),
         fact_metric=fact_metric,
         list_scope=list_scope,
         turn_action=interp.turn_action if interp.intent in (QueryIntent.STRATEGY_ADVICE,
