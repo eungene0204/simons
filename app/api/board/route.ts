@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { createHash } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/server/adminAuth";
+import { publicOriginFrom } from "@/lib/server/publicOrigin";
 import { BoardError, categories, reasons, field, password, moderate } from "@/lib/board/rules";
 import { cleanup, identity, limit, postFields, publicFields } from "@/lib/board/server";
 
@@ -52,7 +53,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const origin = request.headers.get("origin");
-    if (origin && origin !== new URL(request.url).origin) throw new BoardError("허용되지 않은 요청입니다.", 403);
+    if (origin && origin !== publicOriginFrom(request)) throw new BoardError("허용되지 않은 요청입니다.", 403);
     if (!request.headers.get("content-type")?.includes("application/json")) throw new BoardError("JSON 요청이 필요합니다.");
     const raw = await request.text();
     if (Buffer.byteLength(raw) > 50000) throw new BoardError("입력 크기를 초과했습니다.", 413);
@@ -116,7 +117,7 @@ export async function POST(request: Request) {
     const fingerprint = createHash("sha256").update((title + body).normalize("NFKC").replace(/\s/g, "").toLowerCase()).digest("hex");
     const previousTitle = existing && "title" in existing ? existing.title : "";
     if (!existing || existing.body !== body || previousTitle !== title) await limit("duplicate:" + fingerprint, 1, 300);
-    const data = { nickname, body, status };
+    const data = { nickname, body, status: "PUBLIC" };
     if (action === "update") {
       const result = kind === "post"
         ? await prisma.boardPost.updateMany({ where: { id, status: "PUBLIC", updatedAt: existing!.updatedAt }, data: { ...data, title, category } })

@@ -16,7 +16,7 @@ import bcrypt from "bcryptjs";
 import { identity } from "@/lib/board/server";
 
 function request(input: Record<string, unknown>) {
-  return new Request("http://localhost/api/board", { method: "POST", headers: { "Content-Type": "application/json", Origin: "http://localhost" }, body: JSON.stringify(input) });
+  return new Request("http://localhost/api/board", { method: "POST", headers: { "Content-Type": "application/json", Host: "localhost", Origin: "http://localhost" }, body: JSON.stringify(input) });
 }
 const entry = { id: "post1", category: "자유", title: "질문입니다", nickname: "익명", body: "일반적인 본문입니다", status: "PUBLIC", updatedAt: new Date() };
 beforeEach(() => {
@@ -105,6 +105,15 @@ describe("board API", () => {
   it("rejects honeypots and cross-origin requests", async () => {
     expect((await POST(request({ website: "bot", action: "create" }))).status).toBe(400);
     expect((await POST(new Request("http://localhost/api/board", { method: "POST", headers: { Origin: "https://evil.example" } }))).status).toBe(403);
+  });
+  it("accepts the public origin behind the proxy and stores new posts as PUBLIC", async () => {
+    // 2026-11-13: 운영 컨테이너의 request.url은 localhost:3000이라 www.nullstock.im의 모든 글쓰기가 403이었고,
+    // 저장 값의 정의되지 않은 status(jsdom에서는 window.status라 테스트가 못 봤다)로 새 글이 503이었다.
+    const proxied = new Request("http://localhost:3000/api/board", { method: "POST",
+      headers: { "Content-Type": "application/json", Host: "www.nullstock.im", "X-Forwarded-Proto": "https", Origin: "https://www.nullstock.im" },
+      body: JSON.stringify({ action: "create", title: entry.title, body: entry.body, password: "secure-password" }) });
+    expect((await POST(proxied)).status).toBe(201);
+    expect(database.boardPost.create.mock.calls[0][0].data.status).toBe("PUBLIC");
   });
   it("applies server filters, pagination and explicit public projection", async () => {
     database.boardPost.findMany.mockResolvedValue([]);
