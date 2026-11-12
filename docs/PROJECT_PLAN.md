@@ -2634,3 +2634,13 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 - ✅ trace triage(11-10~12) 결함 후보 1순위. 인터프리터는 '하루 만에 N% 하락'을 1일 변화율(`technical.roc` period=1, `<=`, -N)로 맞게 옮겼는데, 해석 레이어 등록부(`indicator_registry.py`)의 ROC 기간 최솟값이 2라 파라미터 검증이 조건을 버리고 "period=1은 최소 2 이상" 내부 문구와 일반 되묻기가 나갔다. 엔진은 기간 하한이 없고 `close_1_roc`는 일간 등락률과 같다(005930 대조) — 최솟값을 1로 바꿨다. 회귀 `test_strategy_conversation.py::test_one_day_roc_passes_parameter_validation`(수정 전 실패 확인). 백엔드 5,838 통과.
 - 같은 triage의 '의미 정합 보정 384토큰 절단'(6건)은 전부 11-10 11:29~11:44 기록으로, 같은 날 17:42 커밋(92477ac6)의 완성 항목 건지기(`salvage_complete_objects`)·회귀 `test_correction_survives_truncation_after_invented_ids`가 이미 고쳤다 — 그 뒤 3일간 재발 0. 추가 수리 없음.
 - ✅ 주 모델이 느려지면 대화가 '해석하지 못했어요'가 됨(같은 날, 사용자 결정 '빈 답이면 다음 경로로'): triage의 분류 실패 15건은 전부 11-12 06:04~06:09 — 주 모델 408 쿨다운 중 예비 모델(nemotron-3-ultra-550b)이 finish=stop으로 1~3토큰 빈 답을 냈다(6회 중 5회). 11-13 재측정에서 예비 모델은 분류를 정상으로 해냈다(단발 1·동시 6, 전부 올바른 JSON) — 모델 능력이 아니라 같은 Nvidia 상류 장애였고, 빈 답은 HTTP 오류가 아니라 모델 체인 폴백이 못 봤다. `api/intent_routes._classify_llm`이 답에 JSON 객체가 없으면 그 모델을 5분 쿨다운(`mark_model_unavailable`)에 넣고 같은 요청을 다음 모델로, 체인이 다 막혔으면 Ollama 레인으로 한 번 더 보낸다(판정은 LLM 출력 형식만). 회귀 `test_llm_adapter_split.py` 3건. 실서버 재현은 상류가 정상이라 못 함.
+
+### 기능 — 2026-11-13 해석 자기 검증 에이전트 (로컬 dev) ✅ 완료(구현) · 게이트 미실행
+
+- ✅ 사용자 결정 3건: 범위=자기 검증 루프, 적용=로컬에서 바로(shadow 생략), LLM=현재 운영 레인(nemotron-3.5-super-vl).
+- ✅ `strategy_conversation/planner/verify_agent.py` — 검증 통과본을 요청 문장과 대조해 빠진 칸을 도구 루프(지표 조회 → 채우기 시도 → 검증기의 수락·거절 관찰 → 재시도 → 종료)로 채운다. 신규 도구 `lookup_indicator`. `run_primary_parse`의 검증 뒤·컴파일 앞, 한국 생성 턴 한정. `STRATEGY_VERIFY_AGENT_MODE=off(기본)/primary`.
+- ✅ 1차 범위는 **채우기 전용** — 값이 있는 칸의 교체·삭제는 적용하지 않고 Trace에 concerns로만 남긴다(10-23 의미 정합 보정이 맞는 EMA를 뒤집은 실측 때문). 교체 적용은 concerns 관측을 본 뒤 결정.
+- ✅ 회귀 `backend/tests/test_verify_agent.py` 21건(관문 17 + 배선 4), 운영 콘솔 흐름도(AgentsTab) 반영.
+- 실측(실 LLM, 일부러 칸을 지운 해석본 5건): 누락 2건 채움(3~4턴, 3~4초), 대조군 무변경, 틀린 값은 교체 거절+기록, 환산 필요 값은 조회 결과 없음으로 무변경. 실서버 생성 턴 2건은 누락 없음 → 무변경(+0.4~1.5초).
+- ⬜ 미실행: 예시 81 게이트(`qa_template_detect.py`)·화면 전수 조사·되묻기 하니스 — 무료 한도 소모로 승인 대기. 수정 턴·US 미적용. 커밋·main 병합 전(워크트리 `wt/verify-agent`).
+

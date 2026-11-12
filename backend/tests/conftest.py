@@ -136,6 +136,8 @@ def _pin_dag_planner_off(monkeypatch):
     LLM을 호출해 고정 질문 검증을 덮어쓴다(전체 실행에서만 실패하는 순서 의존 오염).
     DAG planner 자체 테스트는 test_dag_planner.py가 setenv로 명시 오버라이드한다."""
     monkeypatch.setenv("STRATEGY_DAG_PLANNER_MODE", "off")
+    # 해석 자기 검증 에이전트도 같은 이유로 끈다(test_verify_agent.py가 명시 오버라이드).
+    monkeypatch.setenv("STRATEGY_VERIFY_AGENT_MODE", "off")
 
 
 @pytest.fixture(autouse=True)

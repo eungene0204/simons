@@ -2270,6 +2270,15 @@ def _resolve_contribution_plan(
         _log_llm("✓ 적립식 판정", "; ".join(notes))
 
 
+def _condition_keys(strategy) -> frozenset:
+    """(칸, 정본 지표) 집합 — 해석 직후와 검증 직전의 차이로 이 턴에 빠진·보류된 조건을 센다."""
+    if strategy is None:
+        return frozenset()
+    return frozenset(
+        (role, getattr(resolve(c.factor), "id", c.factor))
+        for role in ("entry_conditions", "exit_conditions") for c in getattr(strategy, role))
+
+
 @decision_session
 def run_primary_parse(
     user_input: str, on_stage=None,
@@ -2379,6 +2388,7 @@ def run_primary_parse(
                 planner_first = _plan_first(user_input)
     from strategy_conversation.interpreter.check_batch import prepare_chat
 
+    conditions_before_guards = _condition_keys(result.intent.strategy)
     bind_conditions(result.intent.strategy)
     checks = required_policy()
     required_targets = checks.conditions(result.intent, user_input)
@@ -2573,6 +2583,18 @@ def run_primary_parse(
             },
         })
 
+    # 해석 자기 검증 에이전트 — 검증 통과본을 요청 문장과 대조해 빠진 칸을 채운다(도구 루프,
+    # planner/verify_agent.py). 앞 단계들이 빼거나 보류한 조건은 다시 넣지 못하게 넘긴다.
+    # 채운 것이 없거나 실패하면 원래 결과 그대로다.
+    if config.verify_agent_mode() == "primary" and kr_semantic and callable(recall_chat):
+        from strategy_conversation.planner.verify_agent import verify_interpretation
+
+        verified = verify_interpretation(
+            validated, report, user_input, recall_chat,
+            blocked=conditions_before_guards - _condition_keys(result.intent.strategy))
+        if verified is not None:
+            validated, report = verified
+            _log_llm("✓ 자기 검증", f"빠진 칸 채움 — status={report.status}")
     notices: List[str] = initial_validation_notices(report) + repair_notices
     if checks.blocked(validated.strategy.universe):
         held_conditions += [i for i in checks.items if i["subject"] is validated.strategy.universe

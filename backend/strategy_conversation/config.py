@@ -130,6 +130,20 @@ def dag_planner_shadow_log_path() -> str:
     )
 
 
+# ── 해석 자기 검증 에이전트 — 해석 결과를 요청 문장과 대조해 빠진 칸을 채운다 ──────
+# off(기본, prod) / primary(채운 결과가 응답에 반영 — 2026-11-13 사용자 결정으로 로컬 dev
+# 직행, shadow 관측 생략. 실패·무변경은 원래 결과 그대로).
+def verify_agent_mode() -> str:
+    mode = os.environ.get("STRATEGY_VERIFY_AGENT_MODE", "off").strip().lower()
+    return mode if mode in ("off", "primary") else "off"
+
+
+# 에이전트 LLM 턴 예산(무한 루프 금지). 상한 8로 클램프. 기본 5 — 조회→채우기→거절 사유를
+# 읽고 다시 채우기→종료가 4턴이다.
+def verify_agent_max_steps() -> int:
+    return max(1, min(8, int(_env_float("STRATEGY_VERIFY_AGENT_MAX_STEPS", 5))))
+
+
 def call_reduction_enabled() -> bool:
     """Rollback switch for auxiliary batching and conditional planner scheduling."""
     return os.environ.get("STRATEGY_CALL_REDUCTION", "on").strip().lower() != "off"

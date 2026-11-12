@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from strategy_conversation.interpreter.models import StrategyIntent, ValidationReport
 from strategy_conversation.tools.base import ToolError, ToolSpec, register
@@ -262,6 +262,34 @@ def _lookup_capabilities(inp: LookupCapabilitiesIn) -> LookupCapabilitiesOut:
     )
 
 
+# ── lookup_indicator — LLM이 뽑은 지표 표현 → 쓸 수 있는 정본 지표 목록 ─────────
+class LookupIndicatorIn(BaseModel):
+    # LLM이 뽑은 짧은 지표 표현(계약 § 3-2) — 문장을 받지 않는다
+    term: str = Field(max_length=40)
+
+
+class LookupIndicatorOut(BaseModel):
+    # [{"factor","name","operators","parameters"}] — 미지원·어휘 비공개 지표는 싣지 않는다
+    indicators: List[dict] = []
+
+
+def _lookup_indicator(inp: LookupIndicatorIn) -> LookupIndicatorOut:
+    from strategy_conversation.registry.indicator_registry import (
+        REGISTRY,
+        factor_ids_named_in,
+        resolve,
+    )
+
+    exact = resolve(inp.term)
+    ids = ([exact.id] if exact is not None else []) + sorted(factor_ids_named_in(inp.term))
+    specs = [REGISTRY[i] for i in dict.fromkeys(ids)]
+    return LookupIndicatorOut(indicators=[
+        {"factor": s.id, "name": s.display_name, "operators": list(s.allowed_operators),
+         "parameters": sorted(s.parameters)}
+        for s in specs if s.supported != "UNSUPPORTED" and not s.prompt_hidden
+    ][:6])
+
+
 # ── validate_intent — Schema 통과한 StrategyIntent의 Domain 검증 ────────────────
 class ValidateIntentIn(BaseModel):
     intent: StrategyIntent
@@ -327,6 +355,8 @@ for _spec in (
              ResolveUniverseIn, ResolveUniverseOut, _resolve_universe, deterministic=True),
     ToolSpec("lookup_capabilities", "플랫폼이 지원하는 시장·리밸런싱·비중·기간의 정본 목록을 조회한다",
              LookupCapabilitiesIn, LookupCapabilitiesOut, _lookup_capabilities, deterministic=True),
+    ToolSpec("lookup_indicator", "지표·개념 표현으로 쓸 수 있는 정본 지표(factor ID·연산자·파라미터 이름)를 조회한다",
+             LookupIndicatorIn, LookupIndicatorOut, _lookup_indicator, deterministic=True),
     ToolSpec("validate_intent", "StrategyIntent의 도메인 검증(지원 여부·범위·충돌·완결성)을 수행한다",
              ValidateIntentIn, ValidateIntentOut, _validate_intent, deterministic=True),
     ToolSpec("compile_strategy", "검증된 StrategyIntent를 ParsedStrategy로 컴파일한다(부분 컴파일 포함)",

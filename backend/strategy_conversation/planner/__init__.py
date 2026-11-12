@@ -5,6 +5,8 @@
 - DAG Planner(Phase 4): 대화 턴 전체를 Action DAG로 계획. 기본 off,
   STRATEGY_DAG_PLANNER_MODE=shadow에서 관측 전용으로만 실행된다 — 승격은
   shadow 로그·QA 게이트 판정 뒤다(Phase 3과 같은 절차).
+- 해석 자기 검증 에이전트(verify_agent): 검증 통과본을 요청 문장과 대조해 빠진 칸을
+  도구 루프로 채운다. STRATEGY_VERIFY_AGENT_MODE off/primary(로컬 dev, 2026-11-13).
 """
 
 from strategy_conversation.planner.dag import (  # noqa: F401

@@ -1297,6 +1297,26 @@ LLM 처리량**이다(입력은 llama-server 프롬프트 캐시가 6개까지 �
 (`_DEFERRED_VALIDATION_MAX_WAIT_S`)**로 맞춘다. 옛 120초 예산에서는 파싱이 끝났는데도
 프록시가 먼저 끊어 사용자에게 "aborted due to timeout"이 나갔다.
 
+**해석 자기 검증 에이전트 (planner/verify_agent.py, 기본 off — 2026-11-13)**: 고정 파이프라인이
+만든 전략(검증 통과본)을 LLM이 요청 문장과 다시 대조해 **말했는데 빠진 칸**을 도구 루프로
+채운다. 위치는 `run_primary_parse`의 `validate_intent` 뒤·컴파일 앞, 한국 생성 턴 한정이다
+(수정 턴·US 미적용). 매 턴 LLM이 JSON 액션 하나를 낸다 — `lookup`(신규 도구
+`lookup_indicator`: LLM이 뽑은 지표 표현 → 정본 factor ID·연산자·파라미터 이름),
+`patch`(인용+JSON Patch로 채우기 시도), `finish`(종료+관측용 concerns). 러너가 채우기 시도를
+복사본에 적용해 `validate_intent`를 다시 돌리고 수락·거절 사유를 다음 턴 관찰로 돌려준다
+(거절을 읽고 고쳐 다시 시도하는 루프). 안전 계약은 전부 결정론: ① **채우기만** — 값이 있던
+칸의 교체·삭제는 거절하고 LLM이 틀렸다고 본 칸은 concerns로 Trace에만 남긴다(두 번째 LLM이
+맞는 값을 뒤집은 2026-10-23 실측 때문) ② 인용은 요청 문장에 그대로 있어야 한다 ③ 패치 값의
+숫자는 인용에 적힌 숫자만(말하지 않은 값·환산값은 비워 두고 완결성 검증이 묻는다) ④ 경로는
+조건·리스크·포트폴리오·백테스트 칸만(유니버스는 planner 소유) ⑤ 같은 턴의 앞 단계가 빼거나
+보류한 조건은 재삽입 불가 ⑥ 재검증에서 오류·미지원이 늘면 거절 ⑦ 스텝 예산
+(`STRATEGY_VERIFY_AGENT_MAX_STEPS` 기본 5, 상한 8)·동일 액션 반복·형식 위반 즉시 종료 — 그때까지
+수락된 채우기만 남고 없으면 원래 결과 그대로. 운영: `STRATEGY_VERIFY_AGENT_MODE=off(기본)/primary`
+— 로컬 dev만 primary(사용자 결정으로 shadow 관측 생략), prod=off. 실측(nemotron-3.5-super-vl,
+일부러 칸을 지운 해석본 5건): 손절+매도 조건 누락 4턴 3.0초·재무 조건 누락 3턴 4.0초 채움,
+누락 없음 2턴 0.8초 무변경, 틀린 값은 교체 거절 후 concerns 기록. 예시 81 게이트·되묻기 하니스는
+미실행이다.
+
 ### 4.2.3 관찰 계층 (backend/observability/ — LangSmith + 로컬 Trace)
 
 Agent 실행 과정을 Trace로 남기는 **관찰 전용** 계층. 실행 경로·분기·되묻기
