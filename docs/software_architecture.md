@@ -1898,6 +1898,7 @@ class ParsedStrategy(BaseModel):
     entry_signals: List[TechnicalSignal]
     exit_signals: List[TechnicalSignal]
     fundamental_filters: List[FundamentalFilter]
+    exit_fundamental_filters: List[FundamentalFilter]  # 재무 지표 청산(v16.51) — 청산 그룹 OR 신호
     stop_loss_pct: Optional[float]
     take_profit_pct: Optional[float]
     trailing_stop_pct: Optional[float]

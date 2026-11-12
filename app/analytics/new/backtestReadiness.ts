@@ -174,6 +174,7 @@ export function isSlotFilled(
       // 손절만으로는 수익 쪽 청산이 없어 계속 묻는다. 판정은 백엔드 정본(strategy_slots._has_value)과 동형.
       hasValue =
         nonEmpty(parsed.exit_signals) ||
+        nonEmpty(parsed.exit_fundamental_filters) ||
         (parsed.hold_period_days ?? 0) > 0 ||
         hasRebalancing ||
         (parsed.take_profit_pct ?? 0) > 0 ||

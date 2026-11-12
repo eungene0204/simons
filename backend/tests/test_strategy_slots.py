@@ -151,6 +151,17 @@ def test_rebalancing_fills_exit_slot():
     assert "매도 조건" in filled and "리밸런싱" in filled
 
 
+def test_fundamental_exit_fills_exit_slot():
+    """재무 청산(v16.51, "PER 15 초과면 매도")만 있어도 매도 조건 슬롯이 찬다 — 비어 보이면
+    사용자가 이미 말한 매도 규칙을 "언제 팔까요?"로 다시 묻는다."""
+    from engine.nl_parser import FundamentalFilter
+
+    parsed = ParsedStrategy(description="재무 청산", universe=["KOSPI"],
+                            fundamental_filters=[FundamentalFilter(metric="per", operator="<=", value=10)],
+                            exit_fundamental_filters=[FundamentalFilter(metric="per", operator=">", value=15)])
+    assert "매도 조건" in slots.filled_slots(parsed)
+
+
 def test_backend_gate_scope_excludes_provenance_only_fields():
     """레거시 게이트는 최대 보유·기간·초기 자본을 묻지 않는다 — provenance 없이는
     기본값과 사용자 입력을 구분할 수 없어서다(그 셋은 provenance를 가진 레인 소관)."""

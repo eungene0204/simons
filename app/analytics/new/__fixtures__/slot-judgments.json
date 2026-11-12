@@ -63,6 +63,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -169,6 +170,7 @@
         "fundamental_filters": [],
         "entry_signals": [],
         "exit_signals": [],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -304,6 +306,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -443,6 +446,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -570,6 +574,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -704,6 +709,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -833,6 +839,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": "return",
@@ -962,6 +969,7 @@
           }
         ],
         "exit_signals": [],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -1090,6 +1098,7 @@
           }
         ],
         "exit_signals": [],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -1219,6 +1228,7 @@
           }
         ],
         "exit_signals": [],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -1308,6 +1318,141 @@
       ]
     },
     {
+      "name": "매도=재무 조건",
+      "parsed": {
+        "description": "완성 전략",
+        "universe": [
+          "KOSPI"
+        ],
+        "etf_theme": null,
+        "sector": null,
+        "us_industry": null,
+        "exclude_sectors": null,
+        "target_symbols": [],
+        "theme_universe": null,
+        "universe_source": null,
+        "new_listing_only": false,
+        "listing_from": null,
+        "listing_to": null,
+        "fundamental_filters": [],
+        "entry_signals": [
+          {
+            "indicator": "ma_crossover",
+            "signal_type": "buy",
+            "short_period": 5,
+            "long_period": 20,
+            "period": null,
+            "operator": null,
+            "value": null,
+            "mode": null,
+            "lookback_period": null,
+            "side": null,
+            "price_basis": null,
+            "band": null,
+            "cross": null,
+            "within_days": null,
+            "days": null,
+            "touch_lookback": null,
+            "threshold": null,
+            "timeframe": null
+          }
+        ],
+        "exit_signals": [],
+        "exit_fundamental_filters": [
+          {
+            "metric": "per",
+            "operator": ">",
+            "value": 15.0
+          }
+        ],
+        "entry_filters": [],
+        "entry_logic": "AND",
+        "ranking_metric": null,
+        "ranking_lookback_days": null,
+        "ranking_direction": null,
+        "ranking_quantile_groups": null,
+        "ranking_group_cap": null,
+        "ranking_components": null,
+        "ranking_skip_days": null,
+        "ranking_accumulation_days": null,
+        "ranking_entry_delay_days": null,
+        "ranking_expiry_days": null,
+        "max_position_weight_pct": null,
+        "universe_market_cap_top_n": null,
+        "universe_liquidity_exclude_bottom_pct": null,
+        "universe_liquidity_lookback_days": null,
+        "universe_market_cap_exclude_bottom_pct": null,
+        "universe_exclude_loss_making": null,
+        "max_sector_weight_pct": null,
+        "allocation_type": "equal",
+        "allocation_lookback_days": null,
+        "target_weights": null,
+        "rebalance_threshold_pct": null,
+        "min_holding_days": null,
+        "stop_cooldown_days": null,
+        "trailing_stop_activation_pct": null,
+        "entry_limit_pct": null,
+        "volatility_breakout_k": null,
+        "exit_limit_pct": null,
+        "entry_tranches": null,
+        "partial_take_profits": [],
+        "position_sizing": null,
+        "cash_asset": null,
+        "absolute_momentum_threshold_pct": null,
+        "slippage_model": null,
+        "slippage_impact_coeff": null,
+        "taa": null,
+        "macro_filters": [],
+        "market_regime": null,
+        "seasonal_months": null,
+        "volatility_target": null,
+        "max_positions": 10,
+        "max_positions_pct": null,
+        "max_positions_explicit": false,
+        "hold_period_days": null,
+        "rebalancing_period": "none",
+        "rebalance_method": "reconstitute",
+        "stop_loss_pct": 10.0,
+        "take_profit_pct": 20.0,
+        "trailing_stop_pct": null,
+        "max_mdd_limit_pct": null,
+        "backtest_period": "5y",
+        "backtest_start_date": null,
+        "backtest_end_date": null,
+        "initial_capital": 10000000.0,
+        "execution_timing": "next_open",
+        "fee_rate": 0.015,
+        "slippage_rate": 0.05,
+        "sell_tax_rate": null,
+        "contribution_amount": null,
+        "contribution_period": null,
+        "withdrawal_amount": null,
+        "withdrawal_period": null,
+        "benchmark": null,
+        "contribution_rules": [],
+        "cash_pool": null
+      },
+      "explicitFields": [
+        "universe",
+        "max_positions",
+        "backtest_period",
+        "initial_capital"
+      ],
+      "allowNoRebalancing": false,
+      "declinedFields": [],
+      "expectedMissingField": "rebalancing",
+      "expectedFilledSlots": [
+        "유니버스",
+        "매수 조건",
+        "매도 조건",
+        "최대 보유",
+        "리밸런싱 방식",
+        "리스크 관리",
+        "백테스트 기간",
+        "초기 자본"
+      ]
+    },
+    {
       "name": "매도=익절만",
       "parsed": {
         "description": "완성 전략",
@@ -1348,6 +1493,7 @@
           }
         ],
         "exit_signals": [],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -1476,6 +1622,7 @@
           }
         ],
         "exit_signals": [],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -1608,6 +1755,7 @@
           }
         ],
         "exit_signals": [],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -1735,6 +1883,7 @@
           }
         ],
         "exit_signals": [],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -1882,6 +2031,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -2030,6 +2180,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -2180,6 +2331,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -2329,6 +2481,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -2479,6 +2632,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -2631,6 +2785,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -2780,6 +2935,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -2929,6 +3085,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -3081,6 +3238,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -3234,6 +3392,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -3386,6 +3545,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -3535,6 +3695,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -3683,6 +3844,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -3831,6 +3993,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -3980,6 +4143,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -4131,6 +4295,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -4259,6 +4424,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -4406,6 +4572,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -4554,6 +4721,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -4704,6 +4872,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -4853,6 +5022,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -5003,6 +5173,7 @@
             "timeframe": null
           }
         ],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -5112,6 +5283,7 @@
         "fundamental_filters": [],
         "entry_signals": [],
         "exit_signals": [],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -5221,6 +5393,7 @@
         "fundamental_filters": [],
         "entry_signals": [],
         "exit_signals": [],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,
@@ -5325,6 +5498,7 @@
         "fundamental_filters": [],
         "entry_signals": [],
         "exit_signals": [],
+        "exit_fundamental_filters": [],
         "entry_filters": [],
         "entry_logic": "AND",
         "ranking_metric": null,

@@ -60,6 +60,8 @@ export interface ParsedSummary {
     side?: string | null;
     price_basis?: string | null;
   }>;
+  // 재무 지표 매도 조건(엔진 v16.51) — "PER 15 초과면 매도". 기술적 매도 신호와 OR로 결합된다.
+  exit_fundamental_filters?: Array<{ metric: string; operator: string; value: number }>;
   // 진입 게이트 필터(추세·거래대금·RSI 결합) — 진입 신호와 AND 결합. 빌더 전용, 없으면 생략.
   entry_filters?: Array<{
     indicator: string;
@@ -1407,17 +1409,17 @@ export function getRankingLabel(parsed: ParsedSummary): string | null {
  * 두 화면이 각자 필터링하면 또 갈리므로 술어를 여기 하나로 둔다.
  */
 export function getSignalExitLabels(
-  parsed: Pick<ParsedSummary, "exit_signals"> | null | undefined,
+  parsed: Pick<ParsedSummary, "exit_signals" | "exit_fundamental_filters"> | null | undefined,
 ): string[] {
-  return (parsed?.exit_signals ?? []).map((signal) => getSignalLabel(signal, "exit"));
+  return [
+    ...(parsed?.exit_signals ?? []).map((signal) => getSignalLabel(signal, "exit")),
+    // 재무 지표 매도 조건(엔진 v16.51)도 조건이 만드는 매도 규칙이다.
+    ...(parsed?.exit_fundamental_filters ?? []).map(formatFundamentalFilter),
+  ];
 }
 
 export function getDisplayExitLabels(parsed: ParsedSummary): string[] {
-  const labels: string[] = [];
-
-  for (const signal of parsed.exit_signals) {
-    labels.push(getSignalLabel(signal, "exit"));
-  }
+  const labels = getSignalExitLabels(parsed);
 
   const takeProfitPct = formatPercent(parsed.take_profit_pct);
   const stopLossPct = formatDownsidePercent(parsed.stop_loss_pct);
@@ -1680,6 +1682,7 @@ export function buildStrategySummaryFromRequest(
     fundamental_filters: [],
     entry_signals: [],
     exit_signals: conditionsToExitSignals(req.exit?.conditions),
+    exit_fundamental_filters: conditionsToExitFundamentalFilters(req.exit?.conditions),
     max_positions: maxPositions ?? 0,
     hold_period_days: maxHoldingDays,
     rebalancing_period: rebalancingPeriod,
@@ -1896,10 +1899,29 @@ function conditionToEntryLabel(condition: CompiledCondition): string | null {
   return getSignalLabel(signal, "entry");
 }
 
+// 컴파일러는 기술 신호에만 signalType을 넣는다 — 재무 지표 매도 조건(엔진 v16.51)은 이 표식 없이
+// 재무 라벨 사전의 id로 온다(거래대금처럼 두 사전에 다 있는 id도 이 표식으로 가른다).
+function isExitFundamentalCondition(condition: CompiledCondition): boolean {
+  return (
+    Boolean(condition.id) &&
+    typeof condition.params?.signalType !== "string" &&
+    Boolean(METRIC_LABELS[condition.id as string])
+  );
+}
+
 function conditionsToExitSignals(conditions: CompiledCondition[] | null | undefined) {
   return (conditions ?? [])
     .filter((condition): condition is CompiledCondition & { id: string } => Boolean(condition.id))
+    .filter((condition) => !isExitFundamentalCondition(condition))
     .map(conditionToSignal);
+}
+
+function conditionsToExitFundamentalFilters(conditions: CompiledCondition[] | null | undefined) {
+  return (conditions ?? []).flatMap((condition) => {
+    const value = paramNumber(condition.params, "value");
+    if (!isExitFundamentalCondition(condition) || value == null) return [];
+    return [{ metric: condition.id as string, operator: String(condition.params?.operator ?? ">"), value }];
+  });
 }
 
 // 서술형 텍스트(프롬프트/설명)에서 유니버스 라벨을 추론한다. 키워드가 없으면 null.
@@ -2018,6 +2040,7 @@ export function buildStrategySummaryFromDsl(strategy: StrategyDSL | null | undef
     fundamental_filters: [],
     entry_signals: [],
     exit_signals: exitSignalBlocks,
+    exit_fundamental_filters: conditionsToExitFundamentalFilters(strategy.exit?.conditions),
     max_positions: maxPositions ?? 0,
     hold_period_days: maxHoldingDays ?? null,
     rebalancing_period: rebalancingPeriod ?? "none",

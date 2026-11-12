@@ -90,6 +90,11 @@ def build_cases() -> list[dict]:
               explicit=[f for f in ALL_EXPLICIT if f != "rebalancing"]),
         _case("매도=보유기간", patch={"exit_signals": [], "hold_period_days": 20}),
         _case("매도=정기 리밸런싱", patch={"exit_signals": []}),
+        # 재무 청산(엔진 v16.51) — "PER 15 초과면 매도"만으로 매도 규칙이 선다.
+        _case("매도=재무 조건", patch={
+            "exit_signals": [], "rebalancing_period": "none",
+            "exit_fundamental_filters": [{"metric": "per", "operator": ">", "value": 15}],
+        }, explicit=[f for f in ALL_EXPLICIT if f != "rebalancing"]),
         # 익절류도 매도 규칙(2026-09-28 사용자 결정) — 리밸런싱·보유 기간 없이 익절 쪽 규칙만 있는 전략.
         _case("매도=익절만", patch={"exit_signals": [], "rebalancing_period": "none"},
               explicit=[f for f in ALL_EXPLICIT if f != "rebalancing"]),

@@ -261,6 +261,10 @@ def _validation_payload(parsed_strategy: Dict[str, Any]) -> Dict[str, Any]:
         if entry_rule:
             payload["entry_rule"] = entry_rule
 
+    if not payload.get("exit_rule") and not payload.get("exit_signals") and payload.get("exit_fundamental_filters"):
+        # 재무 지표 매도 조건(엔진 v16.51)도 매도 규칙이다 — 빠지면 '매도 규칙 없음'으로 막힌다.
+        payload["exit_rule"] = payload["exit_fundamental_filters"]
+
     if not payload.get("exit_rule") and not payload.get("exit_signals") and not payload.get("hold_period_days"):
         risk_exits = [
             {"id": field, "value": payload[field]}

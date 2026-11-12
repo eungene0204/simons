@@ -27,6 +27,12 @@ const NO_THRESHOLD = (): DetailRow => row(t("기준값"), t("해당 없음"));
 const unitSuffix = (unit: string | null | undefined): string =>
   unit === "point" || unit === "event" ? "" : unitText(unit) ?? "";
 
+// Fundamental conditions arrive as entry filters (type "filter") or, since engine v16.51, as exit
+// conditions without signalType — the compiler puts signalType on technical signals only.
+function isFundamentalShape(cond: EngineCondition): boolean {
+  return cond.type === "filter" || typeof (cond.params ?? {}).signalType !== "string";
+}
+
 export function resolveLeafId(cond: EngineCondition, meta: GraphMeta | null): string | null {
   const id = cond.id ?? "";
   if (!meta || !id) return null;
@@ -35,7 +41,7 @@ export function resolveLeafId(cond: EngineCondition, meta: GraphMeta | null): st
     const pattern = text(params.pattern);
     return pattern ? meta.bindings[`technical_signal:candle_${pattern}`] ?? null : null;
   }
-  if (cond.type === "filter") {
+  if (isFundamentalShape(cond)) {
     const fundamental = meta.bindings[`fundamental_filter:${id}`];
     if (fundamental) return fundamental;
   }
@@ -143,7 +149,7 @@ export function describeCondition(cond: EngineCondition, meta: GraphMeta | null)
   const sell = p.signalType === "sell";
   const base = { name, leafId };
 
-  if (cond.type === "filter" && (meta?.bindings[`fundamental_filter:${id}`] || METRIC_LABELS[id])) {
+  if (isFundamentalShape(cond) && (meta?.bindings[`fundamental_filter:${id}`] || METRIC_LABELS[id])) {
     const cmp = comparison(name, null, p, leaf);
     const period = text(p.period);
     return { ...base, ...cmp, rows: period ? [row(t("기준 기간"), period), ...cmp.rows] : cmp.rows };

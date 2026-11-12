@@ -593,22 +593,58 @@ def test_distinct_same_direction_cross_exits_are_both_kept():
     assert len(validated.strategy.exit_conditions) == 2
 
 
-def test_sourced_fundamental_exit_reports_error_not_silent():
-    """사용자가 실제로 말한 재무 지표 청산("PER 20 이상이면 매도")은 조용히 버리지 않는다 —
-    청산 역할 에러로 보고하고, 부분 컴파일이 그 조건만 제외해 안내가 붙는다."""
+def test_sourced_fundamental_exit_compiles_to_exit_fundamental_filters():
+    """재무 지표 청산(엔진 v16.51): "PER 10 이하·ROE 10% 이상 매수, PER 15 초과 또는 ROE 10% 미만이면
+    매도"(2026-11-12 사용자 예시) — 종전엔 "청산 신호로 쓸 수 없습니다 (기술적 신호만 가능)" 안내와
+    함께 두 매도 조건이 빠졌다. 이제 둘 다 재무 청산으로 컴파일되고 안내가 없다."""
     data = _full_intent_dict(
-        entry_conditions=[{"factor": "fundamental.per", "operator": "<=", "value": 10,
-                           "source_text": "PER 10 이하"}],
-        exit_conditions=[{"factor": "fundamental.per", "operator": ">=", "value": 20,
-                          "source_text": "PER 20 이상이면 매도"}],
+        entry_conditions=[
+            {"factor": "fundamental.per", "operator": "<=", "value": 10, "source_text": "PER 10 이하"},
+            {"factor": "fundamental.roe_or_gpa", "operator": ">=", "value": 10,
+             "source_text": "ROE 10% 이상"},
+        ],
+        exit_conditions=[
+            {"factor": "fundamental.per", "operator": ">", "value": 15,
+             "source_text": "PER이 15를 초과하거나"},
+            {"factor": "fundamental.roe_or_gpa", "operator": "<", "value": 10,
+             "source_text": "ROE가 10% 미만으로 하락하는 경우"},
+        ],
     )
     validated, report = run_validation(StrategyIntent.model_validate(data))
-    assert any("청산 신호로 쓸 수 없습니다" in e for e in report.errors)
-    assert not report.is_valid
-    parsed, dropped, _pending = compile_partial(validated, report, "원문")
-    assert len(parsed.fundamental_filters) == 1
+    assert not any("청산 신호로 쓸 수 없습니다" in e for e in report.errors)
+    assert report.is_valid, report.errors
+    parsed = compile_strategy(validated, report, "원문")
+    assert [(f.metric, f.operator, f.value) for f in parsed.fundamental_filters] == [
+        ("per", "<=", 10), ("roe_or_gpa", ">=", 10)]
+    assert [(f.metric, f.operator, f.value) for f in parsed.exit_fundamental_filters] == [
+        ("per", ">", 15), ("roe_or_gpa", "<", 10)]
     assert parsed.exit_signals == []
-    assert any("PER" in d for d in dropped)              # 제외 사실을 안내 채널에 명시
+
+
+def test_confirmed_fundamental_exit_survives_modify_round_trip():
+    """수정 턴은 이전 전략을 디컴파일해 다시 검증한다 — 디컴파일된 조건엔 원문 인용이 없다.
+    진입과 같은 팩터의 재무 청산(ROE ≥ 10 매수 / ROE < 10 매도)을 '근거 없는 미러'로 보고 지우면
+    사용자가 확정한 매도 조건이 수정 턴마다 조용히 사라진다."""
+    from strategy_conversation.compiler.strategy_decompiler import decompile_strategy
+
+    data = _full_intent_dict(
+        entry_conditions=[{"factor": "fundamental.roe_or_gpa", "operator": ">=", "value": 10,
+                           "source_text": "ROE 10% 이상"}],
+        exit_conditions=[{"factor": "fundamental.roe_or_gpa", "operator": "<", "value": 10,
+                          "source_text": "ROE가 10% 미만이면 매도"}],
+    )
+    validated, report = run_validation(StrategyIntent.model_validate(data))
+    parsed = compile_strategy(validated, report, "원문")
+
+    spec = decompile_strategy(parsed)
+    assert [(c.factor, c.operator, c.value) for c in spec.exit_conditions] == [
+        ("fundamental.roe_or_gpa", "<", 10)]
+    again = StrategyIntent.model_validate({**data, "strategy": spec.model_dump()})
+    validated2, report2 = run_validation(again)
+    assert report2.is_valid, report2.errors
+    parsed2 = compile_strategy(validated2, report2, "원문")
+    assert [(f.metric, f.operator, f.value) for f in parsed2.exit_fundamental_filters] == [
+        ("roe_or_gpa", "<", 10)]
 
 
 def test_modify_without_draft_coerced_to_create():

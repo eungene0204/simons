@@ -15,7 +15,7 @@ import re
 from pathlib import Path
 from typing import Any, List, Optional
 
-from engine.nl_parser import MacroFilter, ParsedStrategy, TechnicalSignal
+from engine.nl_parser import FundamentalFilter, MacroFilter, ParsedStrategy, TechnicalSignal
 from engine.selection_scope import SelectionScope, selection_scope
 
 logger = logging.getLogger(__name__)
@@ -228,6 +228,15 @@ def _canonical_sort_key(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def _canonicalize_fundamental_filter(item: FundamentalFilter) -> dict:
+    return {
+        "metric": item.metric,
+        "operator": item.operator,
+        "value": item.value,
+        "period": item.period,
+    }
+
+
 def _canonicalize_technical_signal(sig: TechnicalSignal) -> dict:
     return _drop_none({
         "indicator": sig.indicator,
@@ -281,15 +290,7 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
         "listing_from": strategy.listing_from,
         "listing_to": strategy.listing_to,
         "fundamental_filters": sorted(
-            [
-                {
-                    "metric": item.metric,
-                    "operator": item.operator,
-                    "value": item.value,
-                    "period": item.period,
-                }
-                for item in strategy.fundamental_filters
-            ],
+            [_canonicalize_fundamental_filter(item) for item in strategy.fundamental_filters],
             key=_canonical_sort_key,
         ),
         "entry_signals": sorted(
@@ -304,6 +305,11 @@ def to_canonical_strategy_dsl(strategy: ParsedStrategy) -> dict:
             [_canonicalize_technical_signal(sig) for sig in strategy.entry_filters],
             key=_canonical_sort_key,
         ),
+        # 재무 지표 청산(v16.51) — 비어 있으면 None이라 _drop_none이 제거 → 기존 전략 해시 불변.
+        "exit_fundamental_filters": sorted(
+            [_canonicalize_fundamental_filter(item) for item in strategy.exit_fundamental_filters],
+            key=_canonical_sort_key,
+        ) or None,
         # 신호가 2개 이상일 때만 결합 방식이 실행 결과를 바꾸므로, 그 경우에만 해시에
         # 반영한다 — 신호 0~1개인 기존 전략의 strategy_id를 불필요하게 바꾸지 않는다.
         "entry_logic": strategy.entry_logic if len(strategy.entry_signals) > 1 else None,
@@ -432,6 +438,17 @@ def _percent_to_rate(value: float | None) -> float | None:
 
 
 # ─── 기술 신호 → Condition dict 변환 ─────────────────────────────────────────
+
+def _fundamental_to_condition(f: FundamentalFilter, cond_type: str) -> dict:
+    """FundamentalFilter → SignalEngine Condition dict. 엔진은 id(=parquet 컬럼명)로 평가한다.
+
+    signalType을 싣지 않는 것이 재무 조건의 표식이다(프론트 배지가 이것으로 기술 신호와 가른다).
+    """
+    params = {"operator": f.operator, "value": f.value}
+    if f.period is not None:
+        params["period"] = f.period
+    return {"type": cond_type, "id": f.metric, "params": params, "weight": 1.0}
+
 
 def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
     """TechnicalSignal → SignalEngine이 이해하는 Condition dict"""
@@ -594,15 +611,7 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
 
     # 재무 필터 → type="filter" 조건
     for f in strategy.fundamental_filters:
-        params = {"operator": f.operator, "value": f.value}
-        if f.period is not None:
-            params["period"] = f.period
-        entry_conditions.append({
-            "type": "filter",
-            "id": f.metric,
-            "params": params,
-            "weight": 1.0,
-        })
+        entry_conditions.append(_fundamental_to_condition(f, "filter"))
 
     # 기술적 진입 신호 → type="indicator" 조건
     for sig in strategy.entry_signals:
@@ -616,6 +625,11 @@ def to_backtest_request(strategy: ParsedStrategy, resolve_symbols: bool = True) 
 
     # 3. 청산 조건 구성
     exit_conditions = [_tech_signal_to_condition(sig) for sig in strategy.exit_signals]
+    # 재무 청산(v16.51)은 type="indicator"로 싣는다 — 청산 그룹에서 type="filter"는 다른 청산
+    # 신호 전체에 AND로 걸리는 게이트가 되므로, 기술적 청산과 같은 OR 신호 자리에 둔다.
+    exit_conditions += [
+        _fundamental_to_condition(f, "indicator") for f in strategy.exit_fundamental_filters
+    ]
 
     # 4. 리스크 관리 설정
     position_size_pct = round(100.0 / strategy.max_positions, 2)

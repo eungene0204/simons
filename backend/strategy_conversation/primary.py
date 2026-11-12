@@ -77,6 +77,7 @@ def _prune_clarifications_filled_by_overrides(
     rebal = getattr(parsed, "rebalancing_period", None)
     has_exit = bool(
         getattr(parsed, "exit_signals", None)
+        or getattr(parsed, "exit_fundamental_filters", None)
         or getattr(parsed, "hold_period_days", None)
         or (rebal and rebal != "none")
         or getattr(parsed, "stop_loss_pct", None)

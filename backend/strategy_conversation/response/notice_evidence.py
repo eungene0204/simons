@@ -5,7 +5,7 @@ from hashlib import sha256
 import json
 
 _SCOPES = {
-    "single_asset_adjustments": ("target_symbols", "exit_signals", "hold_period_days", "rebalancing_period"),
+    "single_asset_adjustments": ("target_symbols", "exit_signals", "exit_fundamental_filters", "hold_period_days", "rebalancing_period"),
     "single_asset_review": ("target_symbols", "entry_signals", "exit_signals", "fundamental_filters", "backtest_period"),
     "minimums": ("initial_capital", "hold_period_days", "max_positions", "backtest_period", "stop_loss_pct", "take_profit_pct"),
     "renamed_symbols": ("target_symbols",),

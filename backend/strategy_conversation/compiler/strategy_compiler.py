@@ -259,9 +259,12 @@ def _compile_condition(cond: StrategyCondition, role: str):
         if kind == "technical_signal":
             return "entry_signals", _compile_technical(cond, engine_key, "buy")
         raise StrategyCompileError(f"진입 조건으로 쓸 수 없는 지표입니다: {cond.factor}")
+    if kind == "fundamental_filter":
+        # 재무 지표 청산(엔진 v16.51) — 보유 종목의 재무 값이 기준을 넘으면 매도한다.
+        return "exit_fundamental_filters", _compile_fundamental(cond, engine_key)
     if kind != "technical_signal":
         raise StrategyCompileError(
-            f"'{cond.factor}'은(는) 청산 신호로 쓸 수 없습니다 (기술적 신호만 가능)"
+            f"'{cond.factor}'은(는) 청산 신호로 쓸 수 없습니다 (기술적·재무 조건만 가능)"
         )
     return "exit_signals", _compile_technical(cond, engine_key, "sell")
 
@@ -294,6 +297,7 @@ def compile_strategy(
         "fundamental_filters": fundamental_filters,
         "entry_signals": entry_signals,
         "exit_signals": exit_signals,
+        "exit_fundamental_filters": [],
         "contribution_rules": [],
     }
 
@@ -390,7 +394,7 @@ def compile_partial(
             pending.add((m.group(1), int(m.group(2))))
 
     buckets = {"fundamental_filters": [], "entry_signals": [], "exit_signals": [],
-               "contribution_rules": []}
+               "exit_fundamental_filters": [], "contribution_rules": []}
     dropped: List[str] = []
     pending_conditions: List[Dict[str, Optional[str]]] = []
     for path, role, conditions in (
@@ -779,6 +783,7 @@ def _build_parsed(strategy, buckets: dict, user_input: str) -> ParsedStrategy:
         fundamental_filters=buckets["fundamental_filters"],
         entry_signals=buckets["entry_signals"],
         exit_signals=buckets["exit_signals"],
+        exit_fundamental_filters=list(buckets.get("exit_fundamental_filters") or []),
         entry_logic=strategy.entry_logic,
         ranking_metric=ranking_metric,
         ranking_lookback_days=ranking_lookback,
