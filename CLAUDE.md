@@ -411,6 +411,9 @@ agent 파이프라인(전략 해석·플래너·분류기·빌더·수정·검�
 - **세션 격리**: 다른 세션과 겹칠 작업(특히 `backend/` 편집 — 남의 `--reload`를 끊는다)은 `scripts/worktree.sh new <slug>`로 `../simons-wt/<slug>`에서 한다. 데이터·의존성·`.env`·`backend/logs`는 원본 링크라 공유된다(데이터를 쓰면 원본도 바뀐다). 끝나면 `scripts/worktree.sh rm <slug>`.
 - 반복 실패를 고정 장치로 승격할 때(훅·스킬·테스트·계측) `trace-triage` 스킬 4절과 `triage_traces.py`의 `SIGNALS`를 함께 갱신한다.
 
+### 버그 수정·새 기능은 자유게시판 업데이트 소식으로 (2026-11-13 상시 승인)
+사용자에게 보이는 버그 수정·새 기능을 커밋하면 `board-release-note` 스킬로 대기 초안을 만들고, 배포(CI deploy 성공)를 확인하면 건마다 묻지 않고 자유게시판에 게시한다. 배포 전에는 게시하지 않는다.
+
 ### 계획서 완료 표시 자동 업데이트
 작업 완료 시 `docs/PROJECT_PLAN.md`의 해당 항목을 자동으로 `✅ 완료`로 업데이트한다.
 
