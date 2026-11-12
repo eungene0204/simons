@@ -90,7 +90,7 @@ describe("research notes", () => {
 
   it("keeps every myth-series summary consistent with its result table", () => {
     const myths = NOTES.filter((note) => note.slug.startsWith("myth-"));
-    expect(myths).toHaveLength(44);
+    expect(myths).toHaveLength(45);
     for (const note of myths) {
       const rows = note.sections.flatMap((s) => s.table?.rows ?? []);
       const ret = rows.find((row) => row[0] === "투자 수익률")?.[1];
