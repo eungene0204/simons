@@ -1515,7 +1515,7 @@ function BuilderStrategyOverview({
              조건이 여러 개인 행(매수·매도)은 조건마다 같은 라벨의 칩을 따로 둔다. */
           <ul className="mt-2 flex flex-wrap gap-2" data-testid="builder-strategy-chips">
             {summaryItems.flatMap((item) => {
-              const chip = "inline-flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-full border border-[var(--chat-hairline)] bg-white/[0.06] px-3 py-1.5 text-xs font-bold leading-snug";
+              const chip = "inline-flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl border border-[var(--chat-hairline)] bg-white/[0.06] px-3 py-1.5 text-xs font-bold leading-snug";
               const label = <span className="shrink-0 text-[var(--text-label)]">{t(item.label)}</span>;
               if (item.values) {
                 return item.values.map((part, i) => (
