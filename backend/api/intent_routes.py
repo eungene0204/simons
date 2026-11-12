@@ -15,6 +15,7 @@ LLM이 없으면 결정적 템플릿/폴백으로 동작한다(기능 항상 보
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 import sys
@@ -28,6 +29,7 @@ import llm_backend
 import llm_progress
 import ui_language
 from intent.classifier import classify, format_history_context
+from intent.interpreter import extract_json_object
 from intent.schemas import ChatTurn, IntentRequest, IntentResult
 from intent import platform_defaults, strategy_builder
 from observability import span
@@ -111,12 +113,30 @@ _CLASSIFY_OPENROUTER_ATTEMPT_TIMEOUT_S = 40
 
 
 def _classify_llm(system_prompt: str, user_msg: str) -> str:
-    """의도 분류용 — greedy 구조화 출력, 짧은 시도 상한, 호출 실패는 올린다(서버 장애 보고)."""
+    """의도 분류용 — greedy 구조화 출력, 짧은 시도 상한, 호출 실패는 올린다(서버 장애 보고).
+
+    상류 장애 중에는 모델이 정상 종료(finish=stop)로 1~3토큰짜리 빈 답을 낸다(2026-11-12 실측:
+    주 모델 408 쿨다운 동안 예비 모델 6회 중 5회) — 오류가 아니라 HTTP 계층 폴백이 못 본다.
+    답에 JSON 객체가 없으면 그 모델을 쿨다운에 넣고 다음 경로(다음 모델 → 다 막히면 Ollama)로
+    한 번 더 보낸다. 판정 입력은 LLM 출력의 형식뿐이다."""
     with llm_backend.openrouter_attempt_timeout_for_this_request(_CLASSIFY_OPENROUTER_ATTEMPT_TIMEOUT_S):
-        return _chat(
+        raw = _chat(
             system_prompt, user_msg,
             max_tokens=400, temperature=0.0, top_p=1.0, raise_errors=True,
         )
+        if not llm_backend.is_openrouter() or extract_json_object(raw) is not None:
+            return raw
+        model = llm_backend.openrouter_model()
+        llm_backend.mark_model_unavailable(model)
+        exhausted = all(llm_backend.model_is_cooling_down(m) for m in llm_backend.openrouter_model_chain())
+        logger.warning("의도 분류 — %s가 JSON 없는 답(%d자)을 냄 → %s로 다시 보낸다",
+                       model, len(raw), "Ollama 레인" if exhausted else "다음 모델")
+        lane = llm_backend.ollama_lane_for_this_request() if exhausted else contextlib.nullcontext()
+        with lane:
+            return _chat(
+                system_prompt, user_msg,
+                max_tokens=400, temperature=0.0, top_p=1.0, raise_errors=True,
+            )
 
 
 def _mlx_llm_prose(system_prompt: str, user_msg: str, *, max_tokens: int = 400) -> str:

@@ -7941,3 +7941,15 @@ def test_modify_holding_day_check_fails_open(verdict):
 
     assert checked is intent
     assert checked.patches[0].value == 21
+
+
+def test_one_day_roc_passes_parameter_validation():
+    # "하루 만에 5% 이상 하락" = ROC period=1 — 최솟값 2가 진입 조건을 통째로 지웠다(11-13 triage).
+    from strategy_conversation.validation.parameter_validator import validate_parameters
+
+    data = _full_intent_dict()
+    data["strategy"]["entry_conditions"] = [{
+        "factor": "technical.roc", "operator": "<=", "value": -5.0, "parameters": {"period": 1},
+    }]
+    errors = validate_parameters(StrategyIntent.model_validate(data))
+    assert not any("ROC" in e for e in errors), errors

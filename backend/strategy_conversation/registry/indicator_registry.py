@@ -434,7 +434,7 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                {"period": ParamSpec(default=14, minimum=2, maximum=_MAX_LOOKBACK_DAYS)},
                value_range=(0, 100), recommended=20),
     _technical("roc", "ROC(변화율/모멘텀)", "percent", _COMPARISON_OPS,
-               {"period": ParamSpec(default=20, minimum=2, maximum=_MAX_LOOKBACK_DAYS)},
+               {"period": ParamSpec(default=20, minimum=1, maximum=_MAX_LOOKBACK_DAYS)},
                value_range=(-100, 1000), recommended=0,
                notes="종목 자체의 N거래일 수익률(%) = 종가 ÷ N거래일 전 종가 − 1(시장 지수와 비교하지 않음). "
                      "'최근 N일 동안 X% 이상 하락한'·'N일 수익률 -X% 이하'는 period=N, <=, -X"),

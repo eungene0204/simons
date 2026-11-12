@@ -153,3 +153,50 @@ def test_classify_llm_failure_is_503_not_interpretation_failure(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         asyncio.run(intent_routes.classify_query(IntentRequest(query="KOSPI 5거래일 연속 상승 매수")))
     assert exc.value.status_code == 503
+
+
+def _junk_then(reply_after, monkeypatch, *, openrouter=True, chain="primary-m,fallback-m"):
+    """첫 답은 정상 종료된 빈 답('{'), 다음 답은 reply_after — 호출마다 (모델, Ollama 고정 여부) 기록."""
+    import llm_backend
+
+    primary, fallback = chain.split(",")
+    monkeypatch.setenv("OPENROUTER_MODEL", primary)
+    monkeypatch.setenv("OPENROUTER_FALLBACK_MODELS", fallback)
+    monkeypatch.setattr(llm_backend, "is_openrouter",
+                        lambda: openrouter and not llm_backend.request_forced_to_ollama())
+    llm_backend.reset_model_cooldowns()
+    monkeypatch.setattr(llm_backend, "_model_dead_until", {})
+    seen = []
+
+    class _Rec:
+        def chat(self, system_prompt, user_msg, *, max_tokens, temperature, top_p):
+            seen.append((llm_backend.openrouter_model(), llm_backend.request_forced_to_ollama()))
+            return "{" if len(seen) == 1 else reply_after
+
+    stub = type("Main", (), {"_active_nl_parser": staticmethod(lambda: _Rec()),
+                             "_mlx_inference_lock": _Lock()})
+    monkeypatch.setattr(intent_routes, "_main_module", lambda: stub)
+    return seen
+
+
+def test_classify_empty_stop_answer_goes_to_next_model(monkeypatch):
+    """2026-11-12: 상류 장애 중 모델이 finish=stop으로 1~3토큰 빈 답을 내 분류 15건이 UNKNOWN이 됐다."""
+    seen = _junk_then('{"intent": "STRATEGY_STATUS"}', monkeypatch)
+    assert intent_routes._classify_llm("sys", "user") == '{"intent": "STRATEGY_STATUS"}'
+    assert seen == [("primary-m", False), ("fallback-m", False)]
+
+
+def test_classify_empty_answer_on_last_model_goes_to_ollama(monkeypatch):
+    import llm_backend
+
+    seen = _junk_then('{"intent": "STRATEGY_STATUS"}', monkeypatch)
+    llm_backend.mark_model_unavailable("primary-m")
+    intent_routes._classify_llm("sys", "user")
+    assert seen[0] == ("fallback-m", False)
+    assert seen[1][1] is True
+
+
+def test_classify_empty_answer_outside_openrouter_is_not_resent(monkeypatch):
+    seen = _junk_then('{"intent": "STRATEGY_STATUS"}', monkeypatch, openrouter=False)
+    assert intent_routes._classify_llm("sys", "user") == "{"
+    assert len(seen) == 1
