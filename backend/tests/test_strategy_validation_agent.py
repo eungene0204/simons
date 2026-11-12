@@ -343,3 +343,20 @@ def test_declined_risk_slots_are_not_reported_missing():
 
     assert {"MISSING_STOP_LOSS", "MISSING_TAKE_PROFIT"} <= _codes(undecided)
     assert not {"MISSING_STOP_LOSS", "MISSING_TAKE_PROFIT"} & _codes(declined)
+
+
+def test_fundamental_exit_counts_as_exit_rule():
+    """재무 지표 매도 조건(엔진 v16.51)만 있는 전략을 검증 패널이 '매도 규칙 없음'으로 막지 않는다 —
+    검증 페이로드가 exit_signals만 매도 규칙으로 보면 "PER 15 초과면 매도"가 누락으로 보고된다."""
+    from ai.strategy_validation_agent import StrategyValidationAgent
+    from api.coach_routes import _validation_payload
+    from engine.nl_parser import FundamentalFilter, ParsedStrategy
+
+    parsed = ParsedStrategy(
+        description="저평가 우량주", universe=["KOSPI"],
+        fundamental_filters=[FundamentalFilter(metric="per", operator="<=", value=10)],
+        exit_fundamental_filters=[FundamentalFilter(metric="per", operator=">", value=15)],
+    )
+    issues = StrategyValidationAgent().validate(_validation_payload(parsed.model_dump()))["issues"]
+    assert not any(i["code"] == "MISSING_EXIT_RULE" for i in issues), issues
+    assert not any(i.get("field") == "exit_rule" for i in issues), issues

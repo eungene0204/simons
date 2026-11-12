@@ -87,6 +87,14 @@ export function listStrategyItems(parsed: ParsedSummary | null | undefined): Str
       value: getSignalLabel(signal, "exit"),
     });
   });
+  (parsed.exit_fundamental_filters ?? []).forEach((filter, i) => {
+    items.push({
+      id: `exit_fundamental.${i}`,
+      slot: "exit",
+      label: t("매도 조건"),
+      value: formatFundamentalFilter(filter),
+    });
+  });
 
   if ((parsed.max_positions ?? 0) > 0) {
     items.push({
@@ -210,6 +218,10 @@ export function clearStrategyItems(
     ParsedSummary["entry_signals"];
   next.exit_signals = dropIndexed("exit", parsed.exit_signals) as
     ParsedSummary["exit_signals"];
+  if (parsed.exit_fundamental_filters) {
+    next.exit_fundamental_filters = dropIndexed("exit_fundamental", parsed.exit_fundamental_filters) as
+      ParsedSummary["exit_fundamental_filters"];
+  }
 
   if (drop.has("hold_period")) next.hold_period_days = null;
   if (drop.has("stop_loss")) next.stop_loss_pct = null;

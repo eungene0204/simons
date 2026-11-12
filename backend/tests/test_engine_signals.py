@@ -696,3 +696,19 @@ def test_ma_state_and_price_cross_reasons_carry_periods(signal_engine):
         "종가가 60일선 위 유지"
     assert reason({"shortMA": 20, "longMA": 60, "mode": "below", "signalType": "buy"}) == \
         "20일선이 60일선 아래 유지"
+
+
+def test_fundamental_exit_condition_ors_with_technical_exit(signal_engine):
+    """재무 청산(v16.51): 청산 그룹의 재무 조건은 기술적 청산과 OR — 어느 하나만 성립해도 매도.
+    재무 값이 비면(NaN) 그 조건은 성립하지 않는다(엔진 공통 fail-closed)."""
+    df = pl.DataFrame({
+        "per": [12.0, 16.0, 14.0, None],
+        "rsi_14": [50.0, 50.0, 75.0, 50.0],
+    })
+    group = {"conditions": [
+        {"type": "indicator", "id": "rsi", "params": {"period": 14, "operator": ">", "value": 70, "signalType": "sell"}},
+        {"type": "indicator", "id": "per", "params": {"operator": ">", "value": 15}},
+    ]}
+    sig, reasons = signal_engine.generate_signals(df, group)
+    assert sig.tolist() == [False, True, True, False]
+    assert reasons[1] is not None

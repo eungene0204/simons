@@ -53,6 +53,7 @@ _FIELD_LABELS: Dict[str, str] = {
     "fundamental_filters": "재무 조건(PER·PBR·ROE 등)",
     "entry_signals": "매수 신호",
     "exit_signals": "매도 신호",
+    "exit_fundamental_filters": "매도 재무 조건(PER·ROE 등)",
     "entry_filters": "매수 필터",
     "ranking_metric": "랭킹 기준",
     "ranking_lookback_days": "랭킹 산정 기간",

@@ -381,7 +381,7 @@ _QUESTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
     # 대응을 넣지 못한 매수 칩 3종:
     #   · 거래량 배수 — 매수 칩의 반대(거래량 감소 시 매도)는 2026-10-22 결정 범위 밖이라 두지 않는다.
     #   · 모멘텀 상위 — 랭킹 전략의 청산은 매도 신호가 아니라 리밸런싱 편출이다(FR-BT-015b).
-    #   · PER·ROE — 재무 지표는 청산 조건이 될 수 없다(역할 검증, FR-STR-019t ②).
+    #   · PER·ROE — 재무 청산은 v16.51부터 표현되지만(FR-BT-094) 매도 칩 결속은 이번 범위 밖이다.
     EXIT: (
         "이제 언제 매도할지 정해볼까요?",
         ("데드크로스(5일/20일) 발생 시 매도", "RSI 70 이상에서 매도",
@@ -857,7 +857,8 @@ def _has_value(parsed: Any, field: str) -> bool:
         # 익절류(익절·분할 익절·트레일링 스탑)도 매도 규칙이다 — 2026-09-28 사용자 결정으로 07-22
         # '청산은 손절·익절과 별개' 규칙을 개정했다(분할 익절 +100% 전량 매도까지 말한 전략에 매도
         # 조건을 다시 묻던 사고). 손절만으로는 수익 쪽 청산이 없어 계속 묻는다.
-        return (_nonempty(g("exit_signals")) or _positive(g("hold_period_days")) or has_rebalancing
+        return (_nonempty(g("exit_signals")) or _nonempty(g("exit_fundamental_filters"))
+                or _positive(g("hold_period_days")) or has_rebalancing
                 or _positive(g("take_profit_pct")) or _positive(g("trailing_stop_pct"))
                 or _nonempty(g("partial_take_profits")))
     if field == MAX_POSITIONS:

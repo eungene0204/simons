@@ -285,3 +285,36 @@ def test_to_backtest_request_carries_sell_tax_only_when_spoken():
     silent = to_backtest_request(make_strategy(), resolve_symbols=False)
     assert "sell_tax_rate" not in silent["options"]
     assert silent["canonical_strategy_dsl"].get("sell_tax_rate") is None
+
+
+def test_exit_fundamental_filters_become_or_exit_conditions():
+    """재무 청산(v16.51)은 청산 그룹의 OR 신호(type=indicator)로 싣는다 — type=filter면 다른 청산
+    신호 전체에 AND 게이트가 된다. signalType이 없는 것이 재무 조건 표식(프론트 배지 판별)."""
+    strategy = make_strategy(
+        fundamental_filters=[FundamentalFilter(metric="per", operator="<=", value=10)],
+        exit_signals=[TechnicalSignal(indicator="rsi", signal_type="sell", operator=">", value=70)],
+        exit_fundamental_filters=[
+            FundamentalFilter(metric="per", operator=">", value=15),
+            FundamentalFilter(metric="roe_or_gpa", operator="<", value=10),
+        ],
+    )
+    req = to_backtest_request(strategy, resolve_symbols=False)
+    exits = req["exit"]["conditions"]
+    assert "logic" not in req["exit"]                      # 엔진 기본 OR
+    fundamental = [c for c in exits if c["id"] in ("per", "roe_or_gpa")]
+    assert fundamental == [
+        {"type": "indicator", "id": "per", "params": {"operator": ">", "value": 15}, "weight": 1.0},
+        {"type": "indicator", "id": "roe_or_gpa", "params": {"operator": "<", "value": 10}, "weight": 1.0},
+    ]
+    assert [c["type"] for c in req["entry"]["conditions"]] == ["filter"]
+
+
+def test_exit_fundamental_filters_hash_only_when_present():
+    """재무 청산이 없는 기존 전략의 strategy_id는 그대로이고, 있으면 다른 전략으로 갈린다."""
+    base = make_strategy(fundamental_filters=[FundamentalFilter(metric="per", operator="<=", value=10)])
+    assert "exit_fundamental_filters" not in to_canonical_strategy_dsl(base)
+    with_exit = make_strategy(
+        fundamental_filters=[FundamentalFilter(metric="per", operator="<=", value=10)],
+        exit_fundamental_filters=[FundamentalFilter(metric="per", operator=">", value=15)],
+    )
+    assert compute_strategy_id(base) != compute_strategy_id(with_exit)

@@ -413,29 +413,30 @@ def validate_capability(intent: StrategyIntent, universe_findings=None) -> Tuple
                 continue
             if role == "청산" and spec.engine_binding is not None \
                     and spec.engine_binding[0] != "technical_signal":
-                # 컴파일러의 청산 역할 규칙(technical_signal만)을 검증 단계에서 미리 지적한다.
-                # 여기서 에러가 없으면 report READY→전량 컴파일이 StrategyCompileError로
-                # 전략 전체를 던져 "해석 실패"로 강등된다(2026-08-05 사고: 9B가 손절을
-                # 재무 팩터 청산 조건으로 미러링). 에러면 부분 컴파일이 이 조건만 제외하고
-                # 나머지 전략을 살린 뒤 '반영하지 못했어요' 안내가 붙는다.
                 mirrors_entry = any(
                     c.factor == spec.id for c in strategy.entry_conditions
                 )
-                if mirrors_entry and not (cond.source_text or "").strip():
+                if (mirrors_entry and not (cond.source_text or "").strip()
+                        and cond.value_source != "USER_CONFIRMED"):
                     # 진입에 이미 있는 팩터를 원문 근거(source_text) 없이 복제한 청산은
-                    # 9B 미러 드리프트다 — 청산 역할로는 어차피 컴파일 불가이고 새 정보도
-                    # 없으므로 안내 없이 정규화로 제거한다. 안내를 내면 진입에 정상 반영된
-                    # 같은 지표가 "반영하지 못했어요"로 읽힌다(2026-08-05 실측 혼란: ROE
-                    # 진입은 적용됐는데 미러 드롭 안내가 ROE 전체 미반영처럼 보였다).
+                    # 9B 미러 드리프트다(2026-08-05 사고: 손절 -8%를 roe_or_gpa<=-100 청산으로
+                    # 미러링) — 새 정보가 없으므로 안내 없이 정규화로 제거한다. 안내를 내면 진입에
+                    # 정상 반영된 같은 지표가 "반영하지 못했어요"로 읽힌다(같은 날 실측 혼란).
+                    # 이전 턴에서 확정돼 되돌아온 조건(디컴파일 = USER_CONFIRMED)은 인용이 없어도
+                    # 사용자가 확정한 청산이다 — 지우면 수정 턴마다 재무 청산이 조용히 사라진다.
                     kept.pop()
                     continue
-                # 원문 근거가 있거나 진입에 없는 팩터 = 사용자가 실제로 말한 청산 조건일 수
-                # 있다 — 조용히 버리지 않고 에러로 남겨 부분 컴파일 제외+안내로 흐르게 한다.
-                errors.append(
-                    f"청산 조건 '{spec.display_name}'은(는) 청산 신호로 쓸 수 없습니다 "
-                    "(기술적 신호만 가능)"
-                )
-                continue
+                if spec.engine_binding[0] != "fundamental_filter":
+                    # 컴파일러의 청산 역할 규칙(기술적·재무 조건만, v16.51)을 검증 단계에서 미리
+                    # 지적한다. 에러가 없으면 READY→전량 컴파일이 StrategyCompileError로 전략
+                    # 전체를 던져 "해석 실패"로 강등된다 — 에러면 부분 컴파일이 이 조건만 제외하고
+                    # 나머지 전략을 살린 뒤 '반영하지 못했어요' 안내가 붙는다.
+                    errors.append(
+                        f"청산 조건 '{spec.display_name}'은(는) 청산 신호로 쓸 수 없습니다 "
+                        "(기술적·재무 조건만 가능)"
+                    )
+                    continue
+                # 재무 지표 청산(엔진 v16.51)은 아래 일반 검증(값·단위·유니버스 호환)을 그대로 탄다.
             # PARTIALLY_SUPPORTED(재무 지표 전반)에 대한 사전 커버리지 경고는 내지 않는다 —
             # 모든 재무 전략에 매번 붙는 블랭킷 노이즈였고(사고 2026-07-17), 실측 커버리지는
             # 백테스트 시점의 데이터 커버리지 로그(engine/data_coverage.py, FR-BT-016)가 정본.

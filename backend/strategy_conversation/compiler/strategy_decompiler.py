@@ -140,6 +140,15 @@ def _decompile_technical(sig: TechnicalSignal) -> StrategyCondition:
 
 
 
+def _decompile_fundamental(f) -> StrategyCondition:
+    return StrategyCondition(
+        factor=f"fundamental.{f.metric}", operator=f.operator, value=f.value,
+        # 거래대금 평균 기간(v16.14)도 왕복한다 — 빠지면 수정 턴마다 20일로 되돌아간다.
+        parameters={"period": float(f.period)} if f.period is not None else {},
+        value_source="USER_CONFIRMED",
+    )
+
+
 def _canonical_ranking_id(engine_metric: str) -> str:
     """엔진 랭킹 키 → 온톨로지 정본 id. 'return'/'volatility'는 가격 산출 랭킹(ranking.*),
     나머지는 재무 팩터(fundamental.*). 컴파일러 engine_binding의 역방향."""
@@ -155,13 +164,7 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
         sectors = [sectors]
 
     entry_conditions = [
-        StrategyCondition(
-            factor=f"fundamental.{f.metric}", operator=f.operator, value=f.value,
-            # 거래대금 평균 기간(v16.14)도 왕복한다 — 빠지면 수정 턴마다 20일로 되돌아간다.
-            parameters={"period": float(f.period)} if f.period is not None else {},
-            value_source="USER_CONFIRMED",
-        )
-        for f in parsed.fundamental_filters
+        _decompile_fundamental(f) for f in parsed.fundamental_filters
     ] + [_decompile_technical(sig) for sig in parsed.entry_signals]
     # 조건부 납입액 규칙(v16.21)은 금액 꼬리표가 붙은 진입 조건으로 되돌린다(컴파일러의 역방향) —
     # 빠지면 수정 턴마다 규칙이 사라진다.
@@ -169,7 +172,9 @@ def decompile_strategy(parsed: ParsedStrategy) -> StrategySpec:
         cond = _decompile_technical(rule.signal)
         cond.buy_amount, cond.buy_amount_mode = rule.amount, rule.mode
         entry_conditions.append(cond)
-    exit_conditions = [_decompile_technical(sig) for sig in parsed.exit_signals]
+    exit_conditions = [_decompile_technical(sig) for sig in parsed.exit_signals] + [
+        _decompile_fundamental(f) for f in parsed.exit_fundamental_filters
+    ]
 
     ranking = []
     if parsed.ranking_metric == "composite" and parsed.ranking_components:

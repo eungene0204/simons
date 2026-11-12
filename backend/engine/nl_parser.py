@@ -1216,6 +1216,12 @@ class ParsedStrategy(BaseModel):
         default_factory=list,
         description="매도 청산 기술 조건. 보유기간 청산이면 빈 배열 []"
     )
+    # 재무 지표 청산(엔진 v16.51) — "PER이 15를 넘으면 매도"처럼 보유 종목의 재무 값이 기준을
+    # 넘으면 판다. 엔진은 기술적 청산 신호와 OR로 결합한다(어느 하나라도 성립하면 매도).
+    exit_fundamental_filters: List[FundamentalFilter] = Field(
+        default_factory=list,
+        description="매도 청산 재무 조건(OR). 없으면 []"
+    )
     # 진입 신호와 AND로 결합되는 게이트(추세 필터·RSI 결합·거래대금 필터). 엔진은 type='filter'로
     # 항상 AND 결합한다. 빌더 전용 채널이며 LLM은 출력하지 않는다(기본 빈 배열, 하위호환).
     entry_filters: List[TechnicalSignal] = Field(
@@ -6191,6 +6197,7 @@ def apply_single_asset_adjustments(parsed: ParsedStrategy) -> tuple[ParsedStrate
     notices: list[str] = []
     has_exit = bool(
         parsed.exit_signals
+        or parsed.exit_fundamental_filters
         or parsed.hold_period_days
         or parsed.stop_loss_pct is not None
         or parsed.take_profit_pct is not None
@@ -6771,6 +6778,7 @@ def validate_parsed_strategy(
     has_entry = bool(parsed.fundamental_filters or parsed.entry_signals)
     has_exit  = bool(
         parsed.exit_signals or
+        parsed.exit_fundamental_filters or
         parsed.hold_period_days or
         parsed.stop_loss_pct is not None or
         parsed.take_profit_pct is not None or
