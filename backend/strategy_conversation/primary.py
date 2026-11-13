@@ -6410,7 +6410,15 @@ def run_primary_modification(
     # 슬롯이 플래너 눈에 여전히 빈 칸이라 같은 질문을 다시 낸다(2026-09-07 실측: 백테스트
     # 기간을 "2016년부터 2026년까지"로 정확히 답해도 재질문). 칩 확정 레인(run_chip_answer)
     # 이 재계획 전에 명시 필드를 합치는 것과 같은 순서다.
-    turn_explicit_fields = _modify_explicit_fields(cued_patches, previous_explicit_fields)
+    # 값이 초안과 같은 패치(무변경)는 사용자가 그 값을 정했다는 근거가 못 된다 — "백테스트 돌려"에
+    # 기간 5년을 다시 적은 패치가 기간을 명시로 올려 기간 질문이 생략됐다(2026-11-13). 방금 물어본
+    # 칸에 대한 답이면 같은 값이어도 확정이다(§ 7 CONFIRM이 topic으로 대상을 정하는 것과 같다).
+    asked_field = strategy_slots.slot_for_topic((pending_ask or {}).get("topic"))
+    restated = {id(intent.patches[i]) for i in unchanged}
+    turn_explicit_fields = _modify_explicit_fields(
+        [p for p in cued_patches if id(p) not in restated
+         or asked_field in _modify_explicit_fields([p], None)],
+        previous_explicit_fields)
     # 수정 턴의 '안 함' 신고(declined 패치)도 생성 턴과 같은 채널로 나른다 — 빠지면 LLM이 거부를
     # 해석했는데도 게이트가 같은 슬롯을 다시 묻는다(2026-11-12 '익절 안 함' 반복 질문).
     turn_declined = list(getattr(validated.strategy, "declined", None) or []) \

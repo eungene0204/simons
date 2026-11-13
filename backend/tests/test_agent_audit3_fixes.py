@@ -366,3 +366,40 @@ def test_unbacked_changed_value_still_asks_held_change(monkeypatch):
 
     assert result["parsed"].fundamental_filters[0].value == 10.0
     assert "보류한 변경" in (result["clarification_question"] or "")
+
+
+def _restated_period_result(monkeypatch, pending_ask):
+    monkeypatch.setenv("STRATEGY_MODIFY_INTERPRETER_MODE", "llm_first")
+    _stub(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [
+            {"op": "replace", "path": "/portfolio/rebalance_frequency", "value": "quarterly",
+             "source_text": "분기마다 하자"},
+            {"op": "replace", "path": "/backtest/period", "value": "5y",
+             "source_text": "백테스트 돌려"},
+        ],
+    })
+    return primary.run_primary_modification(
+        "분기마다 하자. 백테스트 돌려", _kospi_per_strategy().model_dump(),
+        pending_ask=pending_ask)
+
+
+def test_restated_existing_period_is_not_marked_explicit(monkeypatch):
+    """값이 초안과 같은 패치는 '사용자가 정함'의 근거가 아니다 — 기간을 말하지 않았는데
+    "백테스트 돌려"에 5년을 다시 적은 패치가 기간 질문을 생략시켰다(가상 사용자 SU04)."""
+    result = _restated_period_result(monkeypatch, None)
+
+    assert "rebalancing" in result["explicit_fields"]
+    assert "backtest_period" not in result["explicit_fields"]
+
+
+def test_same_value_answer_to_asked_field_is_marked_explicit(monkeypatch):
+    """방금 물어본 칸에 지금 값과 같은 값으로 답하면 확정이다 — 빼면 같은 질문이 반복된다."""
+    from engine import strategy_slots
+
+    topic = next(t for t in ("백테스트 기간", "기간", "backtest_period")
+                 if strategy_slots.slot_for_topic(t) == "backtest_period")
+    result = _restated_period_result(
+        monkeypatch, {"question": "백테스트 기간은 얼마로 할까요?", "topic": topic, "chips": []})
+
+    assert "backtest_period" in result["explicit_fields"]
