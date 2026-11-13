@@ -151,6 +151,26 @@ def _promote_patches_on_absent_condition(doc: Any, patches: List[PatchOp]) -> Li
     return [p for p in patches if id(p) not in absorbed] + promoted
 
 
+def unchanged_replace_indices(strategy: StrategySpec, patches: List[PatchOp]) -> set[int]:
+    """값이 초안의 현재 값과 같은 replace 패치의 인덱스 — 적용해도 전략이 달라지지 않는다.
+
+    입력은 LLM 패치와 초안뿐인 구조화 값 비교다(§ 3-2). 경로를 풀 수 없는 패치는 세지 않는다.
+    """
+    doc = scale_in_view(copy.deepcopy(strategy.model_dump()))
+    unchanged: set[int] = set()
+    for index, patch in enumerate(patches):
+        if patch.op != "replace":
+            continue
+        try:
+            parent, last = _resolve_parent(doc, patch.path)
+            current = parent[int(last)] if isinstance(parent, list) else parent[last]
+        except (PatchError, ValueError, IndexError, KeyError, TypeError):
+            continue
+        if current == patch.value:
+            unchanged.add(index)
+    return unchanged
+
+
 def apply_patches(strategy: StrategySpec, patches: List[PatchOp]) -> StrategySpec:
     """패치를 적용한 새 StrategySpec을 반환한다(원본 불변). 실패 시 PatchError."""
     _reject_state_ops(patches)

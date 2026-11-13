@@ -329,3 +329,40 @@ def test_nl_parse_response_exposes_field_states():
     from main import NLParseResponse
 
     assert "field_states" in NLParseResponse.model_fields
+
+
+# ── 2026-11-13 가상 사용자 SU02·SU04: 이미 정한 값을 다시 말하면 엉뚱한 되묻기 ──
+
+def _restated_value_result(monkeypatch, restated_value):
+    monkeypatch.setenv("STRATEGY_MODIFY_INTERPRETER_MODE", "llm_first")
+    _stub(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "status": "READY", "confidence": 0.9,
+        "patches": [
+            {"op": "replace", "path": "/portfolio/rebalance_frequency", "value": "quarterly",
+             "source_text": "분기마다 하자"},
+            {"op": "replace", "path": "/entry_conditions/0/value", "value": restated_value,
+             "source_text": "PER"},
+        ],
+    })
+    return primary.run_primary_modification(
+        "분기마다 하자. 글고 아까 말한 PER 적용해줘", _kospi_per_strategy().model_dump())
+
+
+def test_restated_existing_value_does_not_ask_held_change(monkeypatch):
+    """값이 초안과 같은 패치(무변경)는 수치 출처 대조·보류 질문 대상이 아니다.
+    "보류한 변경의 수량과 단위를 다시 알려주시겠어요?"가 바꾼 것 없는 사용자에게 나갔다."""
+    result = _restated_value_result(monkeypatch, 10)
+
+    assert result is not None
+    assert result["parsed"].rebalancing_period == "quarterly"
+    assert result["parsed"].fundamental_filters[0].value == 10.0
+    assert "보류한 변경" not in (result["clarification_question"] or "")
+    assert result.get("clarification_priority") != "modify_unapplied"
+
+
+def test_unbacked_changed_value_still_asks_held_change(monkeypatch):
+    """대조군: 값이 실제로 바뀌는 근거 없는 수치 패치는 여전히 보류하고 묻는다."""
+    result = _restated_value_result(monkeypatch, 7)
+
+    assert result["parsed"].fundamental_filters[0].value == 10.0
+    assert "보류한 변경" in (result["clarification_question"] or "")
