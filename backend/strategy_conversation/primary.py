@@ -5554,10 +5554,14 @@ def run_primary_modification(
             ))
         for i in idxs:
             verdicts[i] = True
+    # 이미 정한 값을 다시 적은 패치(무변경)는 보류할 변경이 아니다 — 수치 대조에 올리면 바꾼 것
+    # 없는 사용자에게 "보류한 변경의 수량과 단위"를 묻는다(2026-11-13 가상 사용자 SU02·SU04).
+    from strategy_conversation.conversation.patch_applier import unchanged_replace_indices
+    unchanged = unchanged_replace_indices(draft_spec, intent.patches)
     numeric_candidates = [
         (i, p) for i, p in enumerate(intent.patches)
         if not verdicts[i] and p.op in ("add", "replace") and p.source_text
-        and not checks.blocked(p)
+        and i not in unchanged and not checks.blocked(p)
         and isinstance(p.value, (int, float)) and not isinstance(p.value, bool)
     ]
     checks.plan("numeric", [p for _, p in numeric_candidates])
