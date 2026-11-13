@@ -50,6 +50,7 @@ from strategy_conversation.interpreter.output_repair import (
     ungrounded_quote_fields,
     salvage_unsupported_features,
     extract_json_object,
+    expand_settings_form,
     salvage_clarification_questions,
     whole_input_quote_error,
     whole_input_quote_fields,
@@ -348,6 +349,7 @@ class StrategyInterpreter:
         except (TypeError, ValueError):
             self._chat_accepts_chunks = False
         self._system_prompt = build_system_prompt()
+        self._settings_prompt: Optional[str] = None
 
     def interpret(
         self, user_input: str, draft: Optional[dict] = None,
@@ -396,7 +398,41 @@ class StrategyInterpreter:
         on_stage: Optional[Callable[[str], None]] = None,
         previous_coach_text: Optional[str] = None,
     ) -> InterpreterResult:
+        # 설정 옮겨 적기 형태(생성 턴 한정, 기본 off) — 출력이 요청 분량에 비례하게 한다.
+        # 형식 위반(차림표 밖 경로·요청에 없는 인용)이나 해석 실패는 전체 형태로 한 번 다시 받는다.
+        if draft is None and config.settings_form_enabled():
+            violations: list = []
+            try:
+                result = self._run(user_input, None, pending_question, on_stage,
+                                   previous_coach_text, violations)
+                if not violations:
+                    # 같은 PROMPT_VERSION으로 찍히면 Trace에서 두 형태를 가를 수 없다.
+                    result.prompt_version = f"{PROMPT_VERSION}+settings"
+                    return result
+            except InterpreterError as exc:
+                violations.append(str(exc)[:120])
+            _log_llm("↩ 전체 형태 재요청", "; ".join(violations)[:300])
+        return self._run(user_input, draft, pending_question, on_stage, previous_coach_text)
+
+    def _run(
+        self, user_input: str, draft: Optional[dict] = None,
+        pending_question: Optional[str] = None,
+        on_stage: Optional[Callable[[str], None]] = None,
+        previous_coach_text: Optional[str] = None,
+        form_violations: Optional[list] = None,
+    ) -> InterpreterResult:
         started = time.perf_counter()
+        system_prompt, chat = self._system_prompt, self._chat
+        if form_violations is not None:
+            if self._settings_prompt is None:
+                self._settings_prompt = build_system_prompt(compact=True)
+            system_prompt = self._settings_prompt
+
+            def chat(system, user, **kwargs):
+                text, bad = expand_settings_form(self._chat(system, user, **kwargs), user_input)
+                form_violations.extend(bad)
+                return text
+
         user_prompt = build_user_prompt(user_input, draft, pending_question, previous_coach_text)
         # UI 언어가 영어면 자유 서술(clarification 질문 등)을 영어로 쓰라는 지시를 **사용자
         # 프롬프트 끝**에 붙인다 — 시스템 프롬프트(프리픽스 캐시)는 언어와 무관하게 고정.
@@ -415,9 +451,9 @@ class StrategyInterpreter:
                     on_stage(stage)
 
         if on_chunk is not None:
-            raw = self._chat(self._system_prompt, user_prompt, on_chunk=on_chunk)
+            raw = chat(system_prompt, user_prompt, on_chunk=on_chunk)
         else:
-            raw = self._chat(self._system_prompt, user_prompt)
+            raw = chat(system_prompt, user_prompt)
         _log_llm("◀ 원본 응답", raw.strip())
 
         attempts = 0
@@ -516,8 +552,8 @@ class StrategyInterpreter:
                     attempts += 1
                     error_message = whole_input_quote_error(format_violations)
                     _log_llm(f"⟳ 형식 재생성 요청({attempts}회차)", error_message)
-                    current_raw = self._chat(
-                        self._system_prompt,
+                    current_raw = chat(
+                        system_prompt,
                         build_repair_prompt(user_input, current_raw, error_message, draft),
                     )
                     _log_llm(f"◀ 형식 재생성 응답({attempts}회차)", current_raw.strip())
@@ -535,8 +571,8 @@ class StrategyInterpreter:
                     attempts += 1
                     error_message = bare_unsupported_request_error()
                     _log_llm(f"⟳ 빈 라벨 재생성 요청({attempts}회차)", error_message)
-                    current_raw = self._chat(
-                        self._system_prompt,
+                    current_raw = chat(
+                        system_prompt,
                         build_repair_prompt(user_input, current_raw, error_message, draft),
                     )
                     _log_llm(f"◀ 빈 라벨 재생성 응답({attempts}회차)", current_raw.strip())
@@ -551,8 +587,8 @@ class StrategyInterpreter:
                     attempts += 1
                     error_message = draftless_patch_error()
                     _log_llm(f"⟳ 초안 없는 패치 재생성 요청({attempts}회차)", error_message)
-                    current_raw = self._chat(
-                        self._system_prompt,
+                    current_raw = chat(
+                        system_prompt,
                         build_repair_prompt(user_input, current_raw, error_message, draft),
                     )
                     _log_llm(f"◀ 초안 없는 패치 재생성 응답({attempts}회차)", current_raw.strip())
@@ -572,8 +608,8 @@ class StrategyInterpreter:
                     attempts += 1
                     error_message = misfiled_trading_value_error(misfiled)
                     _log_llm(f"⟳ 지표 어긋남 재생성 요청({attempts}회차)", error_message)
-                    current_raw = self._chat(
-                        self._system_prompt,
+                    current_raw = chat(
+                        system_prompt,
                         build_repair_prompt(user_input, current_raw, error_message, draft),
                     )
                     _log_llm(f"◀ 지표 어긋남 재생성 응답({attempts}회차)", current_raw.strip())
@@ -590,8 +626,8 @@ class StrategyInterpreter:
                     attempts += 1
                     error_message = split_bollinger_recovery_error(split_bb)
                     _log_llm(f"⟳ 볼린저 차례 신호 재생성 요청({attempts}회차)", error_message)
-                    current_raw = self._chat(
-                        self._system_prompt,
+                    current_raw = chat(
+                        system_prompt,
                         build_repair_prompt(user_input, current_raw, error_message, draft),
                     )
                     _log_llm(f"◀ 볼린저 차례 신호 재생성 응답({attempts}회차)", current_raw.strip())
@@ -608,8 +644,8 @@ class StrategyInterpreter:
                     attempts += 1
                     error_message = cross_role_duplicate_error(cross_dup)
                     _log_llm(f"⟳ 매수·매도 중복 재생성 요청({attempts}회차)", error_message)
-                    current_raw = self._chat(
-                        self._system_prompt,
+                    current_raw = chat(
+                        system_prompt,
                         build_repair_prompt(user_input, current_raw, error_message, draft),
                     )
                     _log_llm(f"◀ 매수·매도 중복 재생성 응답({attempts}회차)", current_raw.strip())
@@ -627,8 +663,8 @@ class StrategyInterpreter:
                     attempts += 1
                     error_message = ungrounded_quote_error(ungrounded)
                     _log_llm(f"⟳ 인용 오기 재생성 요청({attempts}회차)", error_message)
-                    current_raw = self._chat(
-                        self._system_prompt,
+                    current_raw = chat(
+                        system_prompt,
                         build_repair_prompt(user_input, current_raw, error_message, draft),
                     )
                     _log_llm(f"◀ 인용 오기 재생성 응답({attempts}회차)", current_raw.strip())
@@ -709,7 +745,7 @@ class StrategyInterpreter:
                 _log_llm(f"⟳ 복구 요청({attempts}회차)", f"검증 오류: {str(exc)[:300]}")
                 schema_bad_raw = current_raw
                 repair_prompt = build_repair_prompt(user_input, current_raw, str(exc), draft)
-                current_raw = self._chat(self._system_prompt, repair_prompt)
+                current_raw = chat(system_prompt, repair_prompt)
                 _log_llm(f"◀ 복구 응답({attempts}회차)", current_raw.strip())
 
         _log_llm("✗ 해석 실패", f"{attempts}회 복구 후에도 스키마 불만족: {str(last_error)[:200]}")

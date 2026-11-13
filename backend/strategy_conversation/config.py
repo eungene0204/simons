@@ -144,6 +144,13 @@ def verify_agent_max_steps() -> int:
     return max(1, min(8, int(_env_float("STRATEGY_VERIFY_AGENT_MAX_STEPS", 5))))
 
 
+# ── 인터프리터 설정 옮겨 적기 형태 — 생성 턴 출력을 요청 분량에 비례하게 한다 ──────
+# off(기본). 설정 칸의 null 뼈대 대신 말한 설정만 {path,value,source_text}로 받아 결정론으로
+# 전체 형태로 편다(prompts._compact_shape). 형식 위반·실패는 전체 형태로 한 번 다시 받는다.
+def settings_form_enabled() -> bool:
+    return os.environ.get("STRATEGY_INTERPRETER_SETTINGS_FORM", "off").strip().lower() == "on"
+
+
 def call_reduction_enabled() -> bool:
     """Rollback switch for auxiliary batching and conditional planner scheduling."""
     return os.environ.get("STRATEGY_CALL_REDUCTION", "on").strip().lower() != "off"

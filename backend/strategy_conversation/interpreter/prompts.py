@@ -127,10 +127,52 @@ _OUTPUT_SHAPE = {
 }
 
 
-def build_system_prompt() -> str:
+# 설정 옮겨 적기 형태 — 출력 토큰이 해석 시간의 대부분인데(2026-11-13 실측: 8글자 요청도
+# 624토큰) 그 태반이 설정 칸의 null 뼈대다. 뼈대를 지우면 모델이 그 칸을 잊는다(09-17 빈 키
+# 생략 기각, 11-13 작은 형태 탐침: 수수료 소실 2/2·국면 필터 오배치 2/2). 그래서 칸 목록은
+# 형태 안에 차림표로 남기고, 출력은 **말한 설정만** 한 항목씩 옮겨 적게 한다.
+_SETTING_SECTIONS = ("universe", "portfolio", "risk_management", "backtest")
+_CORE_UNIVERSE_KEYS = ("markets", "sectors", "symbols", "etf_theme")
+_SETTING_TOP_KEYS = ("market_filter", "seasonality", "volatility_target", "taa", "macro_filters",
+                     "declined")
+
+
+def setting_paths() -> list:
+    full = _OUTPUT_SHAPE["strategy"]
+    return [f"{section}.{key}" for section in _SETTING_SECTIONS for key in full[section]
+            if not (section == "universe" and key in _CORE_UNIVERSE_KEYS)] + list(_SETTING_TOP_KEYS)
+
+
+def _compact_shape() -> dict:
+    full = _OUTPUT_SHAPE["strategy"]
+    return {
+        "intent": _OUTPUT_SHAPE["intent"],
+        "strategy": {
+            "universe": {key: full["universe"][key] for key in _CORE_UNIVERSE_KEYS},
+            "entry_conditions": full["entry_conditions"],
+            "exit_conditions": [],
+            "entry_logic": "AND",
+            "ranking": [],
+            "settings": [
+                # 인용은 목록이다 — 같은 설정을 다른 말로 또 말한 구절은 새 줄이 아니라 그 줄의 인용에
+                # 붙는다. 줄마다 인용이 하나면 둘째 구절이 갈 곳을 못 찾아 옆 칸으로 샌다(2026-11-13
+                # 실측: '최대 보유 종목 수는 10개'가 종목당 비중 상한 10으로. 같은 path를 두 줄 적는
+                # 견본으로는 5/5 그대로였다).
+                {"path": "risk_management.stop_loss", "value": 10,
+                 "source_texts": ["손절 10%", "10% 빠지면 정리"]},
+                {"path": "<" + " | ".join(setting_paths()) + ">", "value": "<값>",
+                 "source_texts": ["<요청 구절>"]},
+            ],
+        },
+        "unsupported_features": [],
+        "clarification_questions": _OUTPUT_SHAPE["clarification_questions"],
+    }
+
+
+def build_system_prompt(compact: bool = False) -> str:
     factor_list = "\n".join(ontology_prompt_sections())
     concept_list = "\n".join(concept_prompt_lines())
-    shape = json.dumps(_OUTPUT_SHAPE, ensure_ascii=False)
+    shape = json.dumps(_compact_shape() if compact else _OUTPUT_SHAPE, ensure_ascii=False)
     return f"""당신은 한국 주식 퀀트 전략 요청을 구조화된 JSON(StrategyIntent)으로 변환하는 해석기입니다.
 사용자 입력에는 오타·구어체·비정형 표현이 섞일 수 있습니다. 글자가 아니라 의미로 해석하세요.
 반드시 JSON 하나만 출력하고 다른 설명은 쓰지 마세요.

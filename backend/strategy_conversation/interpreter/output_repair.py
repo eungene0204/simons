@@ -583,3 +583,55 @@ def build_repair_prompt(
     parts.append(f"\n## 잘못된 출력\n{bad_output[:2000]}")
     parts.append(f"\n## 검증 오류\n{error_message[:2000]}")
     return "\n".join(parts)
+
+
+def expand_settings_form(raw_text: str, user_input: str) -> tuple:
+    """설정 옮겨 적기 형태(prompts._compact_shape)의 출력을 전체 형태 JSON으로 편다.
+
+    형식 변환(결정론)이며 의미 해석이 아니다 — 입력은 LLM 출력이고, 경로는 형태의 차림표와
+    표기 대조만, 인용은 요청 문장에 실재하는지만 본다. (펴진 텍스트, 형식 위반 목록)을 돌려준다.
+    위반이 있으면 호출부가 전체 형태로 다시 받는다(여기서 고치지 않는다). JSON으로 읽히지
+    않으면 원문 그대로 돌려 기존 스키마 복구 경로가 맡게 한다.
+    """
+    from strategy_conversation.interpreter.prompts import setting_paths
+
+    try:
+        doc = json.loads(extract_json_object(raw_text))
+    except ValueError:
+        return raw_text, []
+    strategy = doc.get("strategy") if isinstance(doc, dict) else None
+    if not isinstance(strategy, dict):
+        return raw_text, []
+    # 괄호가 늦게 닫혀 strategy 안으로 밀린 최상위 칸을 제자리로 올린다(실측 2026-11-13).
+    for key in ("unsupported_features", "clarification_questions"):
+        if key in strategy and key not in doc:
+            doc[key] = strategy.pop(key)
+    settings = strategy.pop("settings", [])
+    if not isinstance(settings, list):
+        return raw_text, ["settings가 목록이 아닙니다"]
+    allowed = set(setting_paths())
+    compact_input = "".join(user_input.split())
+    violations = []
+    stated: dict = {}  # 같은 설정을 다시 말한 줄은 같은 값이어야 한다
+    for item in settings:
+        if not isinstance(item, dict):
+            violations.append("settings 항목이 객체가 아닙니다")
+            continue
+        path, value, quotes = item.get("path"), item.get("value"), item.get("source_texts")
+        if value is None:
+            continue  # 전체 형태의 null 칸과 같다 — 말하지 않은 값
+        if path not in allowed:
+            violations.append(f"차림표에 없는 경로: {path!r}")
+        elif not (isinstance(quotes, list) and quotes and all(
+                isinstance(q, str) and "".join(q.split()) in compact_input for q in quotes)):
+            violations.append(f"요청에 없는 인용: {path}")
+        elif stated.setdefault(path, value) != value:
+            violations.append(f"같은 경로에 다른 값: {path}")
+        else:
+            section, _, key = path.partition(".")
+            if key:
+                strategy.setdefault(section, {})[key] = value
+            else:
+                strategy[section] = value
+    return json.dumps(doc, ensure_ascii=False), violations
+
