@@ -171,6 +171,33 @@ def unchanged_replace_indices(strategy: StrategySpec, patches: List[PatchOp]) ->
     return unchanged
 
 
+# 거부가 성립하는 설정(DeclinableField)의 패치 경로.
+_DECLINABLE_PATHS = {
+    "/risk_management/stop_loss": "stop_loss",
+    "/risk_management/take_profit": "take_profit",
+    "/portfolio/rebalance_frequency": "rebalancing",
+}
+
+
+def _record_null_declines(doc: dict, patches: List[PatchOp]) -> None:
+    """거부 가능 설정을 인용과 함께 비운 패치를 '안 함'(declined)으로 기록한다(2026-11-13 사용자 결정).
+
+    수정 LLM은 '익절 안 함'을 /declined 패치 대신 take_profit=null로만 내기도 한다 — 그러면 값도
+    거부도 없어 게이트가 같은 질문을 반복했다(가상 사용자 QA: 최대 6회). LLM 출력의 구조만 본다.
+    """
+    declined = doc.get("declined")
+    if not isinstance(declined, list):
+        return
+    for patch in patches:
+        field = _DECLINABLE_PATHS.get(patch.path)
+        if (field is None or not str(patch.source_text or "").strip()
+                or not (patch.op == "remove" or (patch.op == "replace" and patch.value is None))):
+            continue
+        parent, last = _resolve_parent(doc, patch.path)
+        if isinstance(parent, dict) and parent.get(last) is None and field not in declined:
+            declined.append(field)
+
+
 def apply_patches(strategy: StrategySpec, patches: List[PatchOp]) -> StrategySpec:
     """패치를 적용한 새 StrategySpec을 반환한다(원본 불변). 실패 시 PatchError."""
     _reject_state_ops(patches)
@@ -212,6 +239,7 @@ def apply_patches(strategy: StrategySpec, patches: List[PatchOp]) -> StrategySpe
             raise PatchError(f"경로가 컨테이너를 가리키지 않습니다: {patch.path!r}")
 
     _drop_stale_parameters(doc, _changed_factor_conditions(before, doc, patches))
+    _record_null_declines(doc, patches)
 
     try:
         return StrategySpec.model_validate(doc)

@@ -171,6 +171,10 @@ SKILL.md 2단계 표의 기호별 상세. 각 절은 **식별 신호 → 실제 
   백엔드 질문을 삼킨다. 골격이 다 찬 뒤에는 백엔드를 아예 부르지 않는다(트레이스에 1턴만 남음). 골격 밖의 값 대기는
   백엔드 main 게이트와 프론트 `getNextMissingBacktestCondition` 양쪽에 넣고, 문구는 `export_slot_prompts.py` 픽스처로 공유한다.
 - **새 검증 규칙이 정당한 답을 거부**: '합 ≤ 100%' 규칙이 '100% 사자'를 거부해 같은 질문이 조용히 반복됐다.
+- **'안 함'을 비움으로만 낸 수정 패치**: 수정 LLM이 '익절 안 함'을 `/declined` 패치 없이 `replace take_profit=null`로만
+  내면 값도 거부도 없어 같은 질문이 반복됐다(가상 사용자 QA 11-13, 최대 6회). 통한 수리: `patch_applier._record_null_declines`
+  — 거부 가능 칸을 인용과 함께 비운 패치를 declined로 기록(사용자 결정, 결정론은 경로·값 형태만). 재표본은 `model` 접미사로
+  캐시를 피한다(같은 대화 3회 중 2회가 캐시 적중이었다).
 - **질문 큐 상한**: 한 턴에 `MAX_QUESTIONS_PER_TURN=3`개까지다. 넘치는 질문은 다음 턴으로 가는 것이 설계다(결함 아님).
   (project_tranche_ladder_v16_36.md)
 

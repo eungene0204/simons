@@ -7989,3 +7989,38 @@ def test_one_day_roc_passes_parameter_validation():
     }]
     errors = validate_parameters(StrategyIntent.model_validate(data))
     assert not any("ROC" in e for e in errors), errors
+
+
+def test_null_take_profit_patch_records_decline():
+    """'익절 안 함'을 /declined 없이 take_profit=null로만 낸 수정 패치도 거부로 기록한다
+    (2026-11-13 가상 사용자 QA — 값도 거부도 없어 같은 익절 질문이 최대 6회 반복). 수정 LLM 원출력 형태."""
+    from engine.nl_parser import ParsedStrategy
+    from strategy_conversation.compiler.strategy_decompiler import decompile_strategy
+    from strategy_conversation.interpreter.models import PatchOp
+
+    draft = decompile_strategy(ParsedStrategy(description="저PBR", stop_loss_pct=5.0))
+    patched = apply_patches(draft, [
+        PatchOp(op="replace", path="/risk_management/take_profit", value=None,
+                source_text="익절은 따로 설정 안 할게"),
+        PatchOp(op="replace", path="/risk_management/stop_loss", value=5,
+                source_text="SL 5%"),
+    ])
+    assert patched.declined == ["take_profit"]
+    assert patched.risk_management.stop_loss == 5
+
+
+def test_null_patch_without_quote_or_later_value_is_not_decline():
+    """인용 없는 비움, 같은 턴에 값을 다시 넣은 비움은 거부가 아니다."""
+    from engine.nl_parser import ParsedStrategy
+    from strategy_conversation.compiler.strategy_decompiler import decompile_strategy
+    from strategy_conversation.interpreter.models import PatchOp
+
+    draft = decompile_strategy(ParsedStrategy(description="저PBR", stop_loss_pct=5.0))
+    patched = apply_patches(draft, [
+        PatchOp(op="replace", path="/risk_management/take_profit", value=None),
+        PatchOp(op="replace", path="/risk_management/stop_loss", value=None,
+                source_text="손절 바꿀게"),
+        PatchOp(op="replace", path="/risk_management/stop_loss", value=7,
+                source_text="7%로"),
+    ])
+    assert patched.declined == []
