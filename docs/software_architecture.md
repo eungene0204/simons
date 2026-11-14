@@ -1342,6 +1342,20 @@ null 값은 '말하지 않음'. 위반은 고치지 않고 보고하며 `Strateg
 예시 게이트(`qa_template_detect.py`, 하류 포함)·화면 전수 조사·되묻기 하니스(`qa_free_input.py`)는 미실행이다.
 이 형태로 받은 해석은 Trace의 `prompt_version`에 `+settings`가 붙는다.
 
+#### 총괄 에이전트·대화 기억·실행 가능성 점검 (2026-11-14, 로컬 dev)
+
+`STRATEGY_ORCHESTRATOR_MODE=primary`(기본 off)이면 `/strategy/parse`의 한 턴을
+`planner/orchestrator.orchestrate`가 진행한다(`main._run_nl_parse_orchestrated`). LLM은 매 턴
+JSON 행동 하나를 고른다 — `recall`(대화 기억 조회)·`interpret`(고정 파이프라인 전체, 한 번)·
+`check_feasibility`(남은 질문이 없는 전략의 실제 백테스트 거래 수)·`finish`. 지금 부를 수 있는
+행동 목록을 상태에 실어 주고, 목록 밖 출력은 즉시 종료하며, 고를 것이 하나뿐이면 LLM을 부르지
+않는다. 해석을 돌리지 못한 채 끝나면 호출부가 고정 파이프라인을 돈다. 네이티브 도구 호출은
+이 레인 모델에서 10회 중 4회가 빈 응답이어서 쓰지 않는다(JSON 행동 출력).
+대화 기억은 `conversation/memory.py`가 앱 DB 테이블 `StrategyConversationTurn`에 초안
+(`draft_id`)별로 남긴다 — 참고 기록이지 전략 상태의 정본이 아니다(정본은 에코된 ParsedStrategy와
+RevisionLedger). 발화 원문은 3일 보관. 점검 결과는 상태 해시로 재사용한다. 거래 0건 안내는
+정해진 사실 문장(`orchestrator.NO_TRADE_NOTICE`)이고 전략은 바꾸지 않는다.
+
 ### 4.2.3 관찰 계층 (backend/observability/ — LangSmith + 로컬 Trace)
 
 Agent 실행 과정을 Trace로 남기는 **관찰 전용** 계층. 실행 경로·분기·되묻기

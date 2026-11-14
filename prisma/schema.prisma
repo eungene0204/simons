@@ -256,6 +256,21 @@ model StrategyVersion {
   @@index([userId, createdAt])
 }
 
+// 전략 대화의 서버 쪽 기억(2026-11-14) — 초안(draftId)별 턴 기록. 발화 원문은 3일만 보관한다.
+model StrategyConversationTurn {
+  id          String   @id
+  draftId     String
+  turn        Int
+  utterance   String
+  question    String?
+  stateHash   String
+  feasibility String?
+  createdAt   DateTime @default(now())
+
+  @@index([draftId, turn])
+  @@index([createdAt])
+}
+
 model BacktestRun {
   id                   String   @id @default(cuid())
   strategyId           String

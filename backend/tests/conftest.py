@@ -140,6 +140,8 @@ def _pin_dag_planner_off(monkeypatch):
     monkeypatch.setenv("STRATEGY_VERIFY_AGENT_MODE", "off")
     # 인터프리터 설정 옮겨 적기 형태도 같다(test_settings_form.py가 명시 오버라이드).
     monkeypatch.setenv("STRATEGY_INTERPRETER_SETTINGS_FORM", "off")
+    # 총괄 에이전트도 같다(test_orchestrator.py가 명시 오버라이드).
+    monkeypatch.setenv("STRATEGY_ORCHESTRATOR_MODE", "off")
 
 
 @pytest.fixture(autouse=True)

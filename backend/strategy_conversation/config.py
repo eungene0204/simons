@@ -144,6 +144,25 @@ def verify_agent_max_steps() -> int:
     return max(1, min(8, int(_env_float("STRATEGY_VERIFY_AGENT_MAX_STEPS", 5))))
 
 
+# ── 총괄 에이전트 — 한 턴의 진행(기억 조회·해석·실행 가능성 점검)을 LLM이 고른다 ──────
+# off(기본, prod) / primary(로컬 dev — 2026-11-13 사용자 결정). 한국 레인 한정. 에이전트가
+# 해석을 돌리지 못하면 고정 파이프라인이 그대로 돈다(planner/orchestrator.py).
+def orchestrator_mode() -> str:
+    mode = os.environ.get("STRATEGY_ORCHESTRATOR_MODE", "off").strip().lower()
+    return mode if mode in ("off", "primary") else "off"
+
+
+# 총괄 에이전트 LLM 턴 예산. 상한 6으로 클램프. 기본 4 — 기억 조회→해석→점검→종료.
+def orchestrator_max_steps() -> int:
+    return max(1, min(6, int(_env_float("STRATEGY_ORCHESTRATOR_MAX_STEPS", 4))))
+
+
+# 실행 가능성 점검 백테스트의 벽시계 상한(초). 점검은 부가 기능이라 백테스트 기본 상한(600초)을
+# 쓰지 않는다 — 넘기면 '점검 못 함'으로 끝나고 턴은 그대로 응답한다.
+def feasibility_timeout_s() -> float:
+    return max(5.0, _env_float("STRATEGY_FEASIBILITY_TIMEOUT_S", 60))
+
+
 # ── 인터프리터 설정 옮겨 적기 형태 — 생성 턴 출력을 요청 분량에 비례하게 한다 ──────
 # off(기본). 설정 칸의 null 뼈대 대신 말한 설정만 {path,value,source_text}로 받아 결정론으로
 # 전체 형태로 편다(prompts._compact_shape). 형식 위반·실패는 전체 형태로 한 번 다시 받는다.

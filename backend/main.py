@@ -3897,6 +3897,57 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
         raise HTTPException(status_code=503, detail="전략 버전을 보관하지 못했어요. 변경을 반영하지 않았습니다.") from exc
 
 
+def _run_nl_parse_orchestrated(request: NLParseRequest, on_stage, defer_holder, draft_id):
+    """총괄 에이전트가 켜져 있으면 한 턴의 진행을 에이전트가 고른다(로컬 dev, 한국 레인).
+
+    에이전트의 도구는 기존 고정 파이프라인(interpret)·대화 기억(recall)·실행 가능성 점검이다.
+    에이전트가 해석을 돌리지 못하면 고정 파이프라인을 그대로 돈다 — 응답 계약은 같다.
+    반환: (결과, 이번 턴을 기억에 남기는 함수|None) — 기록은 호출부가 commit 뒤에 한다.
+    """
+    from strategy_conversation import config as _config
+
+    def interpret():
+        return _run_nl_parse_traced(request, on_stage=on_stage, defer_holder=defer_holder)
+
+    if draft_id is None or _config.orchestrator_mode() != "primary":
+        return interpret(), None
+    from strategy_conversation import primary as _primary
+    from strategy_conversation.conversation import memory
+    from strategy_conversation.conversation.versioning import state_hash
+    from strategy_conversation.interpreter.llm_strategy_interpreter import StrategyInterpreter
+    from strategy_conversation.planner import orchestrator
+
+    turns: list = []
+
+    def recall():
+        turns[:] = memory.recall(draft_id)
+        return turns
+
+    def check_feasibility(parsed_result):
+        known = memory.remembered_feasibility(turns or recall(), state_hash(parsed_result["parsed"]))
+        if known is not None:
+            return known
+        return orchestrator.run_feasibility(
+            parsed_result["backtest_request"],
+            lambda req: watchdog_run_with_timeout(lambda: backtest_executor.run(
+                engine, BacktestRequest.model_validate(req).model_dump()),
+                _config.feasibility_timeout_s()))
+
+    turn = orchestrator.orchestrate(
+        request.prompt, has_strategy=request.previous_parsed is not None,
+        pending_question=request.pending_question or (request.pending_ask or {}).get("question"),
+        chat_fn=getattr(_primary._get_interpreter(StrategyInterpreter), "_chat", None),
+        interpret=interpret, recall=recall, check_feasibility=check_feasibility)
+    result = turn["result"] if turn["result"] is not None else interpret()
+    notice = orchestrator.feasibility_notice(turn["feasibility"])
+    if notice and notice not in (result.get("notices") or []):
+        result = {**result, "notices": [*(result.get("notices") or []), notice]}
+    # 기억 기록은 버전 원장 commit 뒤로 미룬다 — 취소·충돌로 반영되지 않은 턴을 기억하지 않는다.
+    return result, lambda: memory.remember(
+        draft_id, request.prompt, result.get("clarification_question"),
+        state_hash(result.get("parsed")), turn["feasibility"])
+
+
 def _run_nl_parse_observed(request: NLParseRequest, on_stage=None, defer_holder: dict | None = None, version_ticket=None):
     """파싱 코어 로직 — 사용자 요청 하나당 Trace 하나의 루트.
 
@@ -3935,13 +3986,16 @@ def _run_nl_parse_observed(request: NLParseRequest, on_stage=None, defer_holder:
                     versions=replay_versions())
             except Exception:
                 logger.debug("replay request evidence failed", exc_info=True)
-        result = _run_nl_parse_traced(request, on_stage=on_stage, defer_holder=defer_holder)
+        result, remember_turn = _run_nl_parse_orchestrated(
+            request, on_stage, defer_holder, version_ticket[1] if version_ticket else None)
         if version_ticket is not None:
             from copy import deepcopy
             result = deepcopy(result)
             cancellation.raise_if_cancelled()
             ledger, draft_id, ticket = version_ticket
             result["strategy_version"] = ledger.commit(draft_id, ticket, result["parsed"])
+        if remember_turn is not None:
+            remember_turn()
         trace.local_evidence(api_response=result)
         # 후행 검증(SSE)은 응답을 내보낸 뒤 다른 스레드에서 돈다 — 부모를 실어 보내야
         # 같은 Trace에 붙는다(안 그러면 고아 Trace가 하나 더 생긴다).

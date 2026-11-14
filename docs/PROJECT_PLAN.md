@@ -2635,6 +2635,17 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 - 같은 triage의 '의미 정합 보정 384토큰 절단'(6건)은 전부 11-10 11:29~11:44 기록으로, 같은 날 17:42 커밋(92477ac6)의 완성 항목 건지기(`salvage_complete_objects`)·회귀 `test_correction_survives_truncation_after_invented_ids`가 이미 고쳤다 — 그 뒤 3일간 재발 0. 추가 수리 없음.
 - ✅ 주 모델이 느려지면 대화가 '해석하지 못했어요'가 됨(같은 날, 사용자 결정 '빈 답이면 다음 경로로'): triage의 분류 실패 15건은 전부 11-12 06:04~06:09 — 주 모델 408 쿨다운 중 예비 모델(nemotron-3-ultra-550b)이 finish=stop으로 1~3토큰 빈 답을 냈다(6회 중 5회). 11-13 재측정에서 예비 모델은 분류를 정상으로 해냈다(단발 1·동시 6, 전부 올바른 JSON) — 모델 능력이 아니라 같은 Nvidia 상류 장애였고, 빈 답은 HTTP 오류가 아니라 모델 체인 폴백이 못 봤다. `api/intent_routes._classify_llm`이 답에 JSON 객체가 없으면 그 모델을 5분 쿨다운(`mark_model_unavailable`)에 넣고 같은 요청을 다음 모델로, 체인이 다 막혔으면 Ollama 레인으로 한 번 더 보낸다(판정은 LLM 출력 형식만). 회귀 `test_llm_adapter_split.py` 3건. 실서버 재현은 상류가 정상이라 못 함.
 
+### 기능 — 2026-11-14 총괄 에이전트 · 서버 쪽 대화 기억 · 실행 가능성 점검 (로컬 dev) ✅ 완료(구현) · 미병합
+
+- ✅ 사용자 결정 4건(11-13): 총괄 에이전트가 기존 단계를 도구로 사용(플래그·로컬·실패 시 고정 파이프라인) / nemotron 유지·직접 짠 루프 / 기억=서버 쪽 대화 상태(DB) / 실행 도구=실행 가능성 점검만(전략은 고치지 않고 알림).
+- 루프 방식 실측(nemotron, 5사례×2회): 네이티브 도구 호출은 `tool_choice=required`에서도 10회 중 4회가 도구 호출 없이 끝났다(채울 것이 둘인 사례 2/2 포함) — 같은 사례를 JSON 행동 출력 루프는 2/2 채웠다. 네이티브 도구 호출에 기대는 SDK 대신 JSON 행동 루프로 간다.
+- ✅ `planner/orchestrator.py` — 행동 4개(recall·interpret·check_feasibility·finish). interpret는 고정 파이프라인 전체(`_run_nl_parse_traced`)이고 한 턴에 한 번. 매 턴 '지금 부를 수 있는 행동' 목록을 주며(규칙 문장만으로는 해석 뒤 interpret 반복 3/3), 고를 것이 하나뿐이면 LLM을 부르지 않는다. 배선은 `main._run_nl_parse_orchestrated`(`STRATEGY_ORCHESTRATOR_MODE=primary`, 기본 off, 한국 레인).
+- ✅ `conversation/memory.py` + 테이블 `StrategyConversationTurn`(마이그레이션 `20261114000000_add_strategy_conversation_turn`, additive) — 초안별 턴 기록(발화·질문·상태 해시·점검 결과). 발화 원문은 3일 보관(쓸 때 지난 행 삭제). DB 장애·테이블 부재는 기억 없음으로 강등.
+- ✅ 실행 가능성 점검 — 남은 질문이 없는 전략을 실제 백테스트(워치독 안)로 돌려 거래 수를 센다. 0건이면 사실 문장 하나를 안내에 더한다(전략 불변·행동 제안 없음). 같은 상태 해시의 점검 결과는 기억에서 재사용.
+- ✅ 회귀 `backend/tests/test_orchestrator.py` 17건(관문·폴백·기억 왕복·보관 기한·배선), 운영 콘솔 흐름도 반영.
+- 실측(실 LLM nemotron, 로컬 테스트 DB): 생성 턴 해석→점검→종료(거래 0건 안내 표시, 코스피 5년 점검 약 15초), 미완성 전략은 점검 없이 종료, "아까 …" 발화는 기억 조회 후 해석, 설명 질문 턴은 점검 생략.
+- ⬜ 미실행·미결: 운영 DB(Supabase — 로컬 `.env`도 같은 DB)에 마이그레이션 미적용(적용 전에는 기억이 비활성으로 강등), 예시 게이트·되묻기 하니스, 스트리밍 진행 표시에 점검 단계 없음, 점검이 확정 뒤 프론트의 백테스트와 같은 계산을 한 번 더 한다.
+
 ### 버그 수정 — 2026-11-13 이미 정한 값을 다시 말하면 "보류한 변경의 수량과 단위" 되묻기 ✅ 완료(구현) · 미커밋
 
 - ✅ 가상 사용자 점검(SU02·SU04, nemotron) 발견. 되묻기 답에 "아까 말한 거 다 적용해줘"·"백테스트 돌려"를 덧붙이면 인터프리터가 초안과 값이 같은 `replace` 패치를 내고, 수치 패치 출처 대조가 그것을 보류해 바꾼 것 없는 사용자에게 `modify_unapplied` 질문이 나갔다. 값이 초안과 같은 패치(`patch_applier.unchanged_replace_indices`, 구조화 값 비교)는 수치 대조·보류 질문 대상에서 뺀다(`primary.run_primary_modification`). 프롬프트 불변.
