@@ -32,76 +32,11 @@ function sseEvent(data: object | string): string {
   return `data: ${payload}\n\n`;
 }
 
-function compactPrompt(prompt: string): string {
-  return prompt.toLowerCase().replace(/\s+/g, "");
-}
-
 function previousUniverse(body: ParseStreamBody): string[] | null {
   const universe = body.previous_parsed?.universe;
   if (!Array.isArray(universe)) return null;
   const normalized = universe.filter((item): item is string => typeof item === "string" && item.length > 0);
   return normalized.length > 0 ? normalized : null;
-}
-
-function inferUniverse(prompt: string, body?: ParseStreamBody): string[] {
-  const compact = compactPrompt(prompt);
-  if (compact.includes("코스피200") || compact.includes("kospi200")) return ["KOSPI200"];
-  if (
-    compact.includes("전체시장") ||
-    compact.includes("코스피+코스닥") ||
-    compact.includes("kospi+kosdaq")
-  ) {
-    return ["KOSPI", "KOSDAQ"];
-  }
-  if (compact.includes("코스닥") || compact.includes("kosdaq")) return ["KOSDAQ"];
-  if (compact.includes("코스피") || compact.includes("kospi")) return ["KOSPI"];
-  const inherited = body ? previousUniverse(body) : null;
-  if (inherited) return inherited;
-  return ["KOSPI200"];
-}
-
-function inferMaxPositions(prompt: string): number | null {
-  const match = compactPrompt(prompt).match(/(?:최대|상위)?(\d+)(?:개|종목)/);
-  if (!match) return null;
-  const parsed = Number(match[1]);
-  return Number.isFinite(parsed) ? Math.max(1, Math.min(100, parsed)) : null;
-}
-
-function inferRecognizedTerms(prompt: string): string[] {
-  const compact = compactPrompt(prompt);
-  const terms: Array<[string, string[]]> = [
-    ["pbr", ["pbr"]],
-    ["per", ["per"]],
-    ["roe", ["roe", "gpa"]],
-    ["ma_crossover", ["골든크로스", "데드크로스", "이동평균", "이평선"]],
-    ["rsi", ["rsi"]],
-    ["macd", ["macd"]],
-    ["bollinger_bands", ["볼린저", "bollinger"]],
-    ["breakout", ["신고가", "브레이크아웃", "breakout"]],
-    ["stop_loss", ["손절", "손실", "하락"]],
-    ["take_profit", ["익절", "수익"]],
-    ["hold_period", ["보유", "리밸런싱"]],
-  ];
-
-  return terms
-    .filter(([, keywords]) => keywords.some((keyword) => compact.includes(keyword)))
-    .map(([term]) => term);
-}
-
-function buildSkeleton(body: ParseStreamBody) {
-  const prompt = String(body.prompt ?? "");
-  const recognizedTerms = inferRecognizedTerms(prompt);
-
-  return {
-    type: "skeleton",
-    data: {
-      description: prompt,
-      universe: inferUniverse(prompt, body),
-      max_positions: inferMaxPositions(prompt),
-      recognized_terms: recognizedTerms,
-      confidence: recognizedTerms.length > 0 ? "partial" : "low",
-    },
-  };
 }
 
 function streamHeaders() {
