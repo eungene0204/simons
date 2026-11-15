@@ -19,6 +19,8 @@ export const en: Record<string, string> = {
   "제목 120자 · 닉네임 24자 · 본문 10,000자(댓글 2,000자) · 비밀번호 4~64자, UTF-8 72바이트 이내": "Title: 120 characters; nickname: 24; body: 10,000 (comments: 2,000); password: 4–64 characters, up to 72 UTF-8 bytes.",
   "비밀번호는 4~64자, UTF-8 72바이트 이내로 입력해 주세요.": "Keep the password within 4–64 characters and 72 UTF-8 bytes.",
   "자유게시판": "Community",
+  "가이드": "Guide",
+  "퀀트 연구소": "Quant Lab",
   "게시글과 댓글은 저장 직후 공개됩니다. 운영 원칙을 위반하는 콘텐츠는 저장되지 않습니다.": "Posts and comments are published as soon as they are saved. Content that violates the posting rules will be rejected.",
   "{0} 페이지": "Page {0}",
   "공지": "Notice",

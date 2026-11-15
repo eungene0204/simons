@@ -32,6 +32,9 @@ import {
   X,
   Receipt,
   Funnel,
+  BookOpen,
+  Notebook,
+  ChatsCircle,
 } from "phosphor-react";
 import {
   formatBacktestResetIn,
@@ -67,6 +70,8 @@ type MenuItem = {
   // 페이지는 전체를 미리 받아 즉시 전환한다. 대시보드·요금제는 서버 데이터를 보여주므로
   // 기본값을 유지한다(prefetch=true는 5분 캐시라 갱신된 플랜·잔고가 늦게 보일 수 있다).
   prefetch?: true;
+  // 한국어 전용 공개 페이지(가이드·연구노트·게시판) — 로그인 없이 열고, /us 경로가 없어 미국 지역에서는 숨긴다.
+  publicKoPage?: true;
 };
 
 const menuItems: MenuItem[] = [
@@ -119,6 +124,27 @@ const menuItems: MenuItem[] = [
   //   id: "strategy-share",
   //   Icon: ShareNetwork,
   // },
+  {
+    label: "가이드",
+    href: "/guide",
+    id: "guide",
+    Icon: BookOpen,
+    publicKoPage: true,
+  },
+  {
+    label: "퀀트 연구소",
+    href: "/notes",
+    id: "notes",
+    Icon: Notebook,
+    publicKoPage: true,
+  },
+  {
+    label: "자유게시판",
+    href: "/board",
+    id: "board",
+    Icon: ChatsCircle,
+    publicKoPage: true,
+  },
   {
     label: "요금제",
     href: "/pricing",
@@ -206,6 +232,10 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
   const pathname = usePathname();
   const region = useRegion();
   const regionHref = useRegionHref();
+  const visibleMenuItems = useMemo(
+    () => menuItems.filter((item) => !item.publicKoPage || region === "kr"),
+    [region],
+  );
   const searchParams = useSearchParams();
   const router = useRouter();
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
@@ -541,7 +571,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
   ) => {
     setIsMobileMenuOpen(false);
 
-    if (authState === "anonymous" && item.id !== "analytics") {
+    if (authState === "anonymous" && item.id !== "analytics" && !item.publicKoPage) {
       e.preventDefault();
       setIsLoginModalOpen(true);
       return;
@@ -672,7 +702,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
           className="flex flex-shrink-0 items-center justify-center gap-0.5 2xl:gap-1"
           data-testid="top-navigation-menu"
         >
-          {menuItems.map((item) => {
+          {visibleMenuItems.map((item) => {
             const isActive = activeMenuItemId === item.id;
             const IconComponent = item.Icon;
 
@@ -801,7 +831,7 @@ function TopNavigationComponent({ userName }: { userName?: string }) {
 
             <div className="flex-1 overflow-y-auto px-3 py-4">
               <div className="space-y-1">
-                {menuItems.map((item) => {
+                {visibleMenuItems.map((item) => {
                   const isActive = activeMenuItemId === item.id;
                   const IconComponent = item.Icon;
 

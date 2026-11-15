@@ -327,6 +327,29 @@ describe("TopNavigation quick search", () => {
     );
   });
 
+  it("한국 지역 탑메뉴는 요금제 왼쪽에 가이드·퀀트 연구소·자유게시판을 두고, 비로그인도 바로 연다", async () => {
+    renderWithQueryClient(<TopNavigation />);
+    await screen.findByRole("button", { name: "로그인" });
+
+    const menu = screen.getByTestId("top-navigation-menu");
+    const labels = within(menu).getAllByRole("link").map((link) => link.textContent);
+    expect(labels.slice(-4)).toEqual(["가이드", "퀀트 연구소", "자유게시판", "요금제"]);
+
+    fireEvent.click(within(menu).getByRole("link", { name: "퀀트 연구소" }));
+    expect(pushMock).toHaveBeenCalledWith("/notes");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("미국 지역 탑메뉴에는 한국어 전용 페이지(가이드·퀀트 연구소·자유게시판)를 두지 않는다", async () => {
+    pathnameMock.current = "/us/analytics";
+    renderWithQueryClient(<TopNavigation />);
+
+    const menu = await screen.findByTestId("top-navigation-menu");
+    for (const name of ["가이드", "퀀트 연구소", "자유게시판"]) {
+      expect(within(menu).queryByRole("link", { name })).not.toBeInTheDocument();
+    }
+  });
+
   it("모바일 메뉴를 열고 메뉴 항목을 선택하면 Drawer를 닫고 이동한다", async () => {
     renderWithQueryClient(<TopNavigation />);
 
