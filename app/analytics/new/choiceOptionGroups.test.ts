@@ -46,6 +46,7 @@ describe("선택 칩 묶음", () => {
         "볼린저밴드 상단 터치 시 매도",
         "20일 저점 이탈 시 매도",
         "20일 보유 후 청산",
+        "매도 조건 없이 보유",
         FREE_INPUT,
       ],
       FREE_INPUT,
@@ -53,8 +54,9 @@ describe("선택 칩 묶음", () => {
     expect(grouped?.groups.map((group) => group.title)).toEqual([
       "매도 시점 신호",
       "기간으로 청산",
+      "사용 안 함",
     ]);
-    expect(grouped?.groups.at(-1)?.options).toEqual(["20일 보유 후 청산"]);
+    expect(grouped?.groups.at(-1)?.options).toEqual(["매도 조건 없이 보유"]);
     expect(grouped?.placeholder).toBe("원하는 매도 조건을 직접 적어 주세요");
   });
 

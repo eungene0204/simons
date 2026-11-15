@@ -341,6 +341,13 @@ describe("손절·익절 '안 함' 거부", () => {
     ).toMatchObject({ field: "take_profit" });
   });
 
+  it("매도 조건도 거부하면 더 묻지 않는다('매도 조건 없이 보유', 2026-11-15)", () => {
+    const noExit = { ...readyExceptRisk, exit_signals: [], rebalancing_period: "none", stop_loss_pct: 7 };
+    const noExitOptions = { ...options, allowNoRebalancing: true };
+    expect(isSlotFilled("exit", noExit, noExitOptions)).toBe(false);
+    expect(isSlotFilled("exit", noExit, { ...noExitOptions, declinedFields: ["exit"] })).toBe(true);
+  });
+
   it("거부 뒤에 값이 들어오면 값이 이긴다(백엔드와 같은 순서)", () => {
     const withStopLoss = { ...readyExceptRisk, stop_loss_pct: 10 };
     expect(

@@ -232,6 +232,10 @@ export function applyDeterministicConditionChoice({
     if (choice === "20일 보유 후 청산") {
       return { parsed: { ...parsed, hold_period_days: 20 } };
     }
+    // 거부 칩(백엔드 DECLINE_CHIP_FIELDS와 짝) — 값을 넣지 않고 매도 조건 칸을 거부로 확정한다.
+    if (choice.trim() === "매도 조건 없이 보유") {
+      return { parsed, declinedField: "exit" };
+    }
     return null;
   }
 

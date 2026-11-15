@@ -172,14 +172,15 @@ def unchanged_replace_indices(strategy: StrategySpec, patches: List[PatchOp]) ->
 
 
 # 거부가 성립하는 설정(DeclinableField)의 패치 경로.
-_DECLINABLE_PATHS = {
+DECLINABLE_PATHS = {
     "/risk_management/stop_loss": "stop_loss",
     "/risk_management/take_profit": "take_profit",
     "/portfolio/rebalance_frequency": "rebalancing",
+    "/exit_conditions": "exit",
 }
 
 
-def _record_null_declines(doc: dict, patches: List[PatchOp]) -> None:
+def _record_null_declines(doc: dict, before: dict, patches: List[PatchOp]) -> None:
     """거부 가능 설정을 인용과 함께 비운 패치를 '안 함'(declined)으로 기록한다(2026-11-13 사용자 결정).
 
     수정 LLM은 '익절 안 함'을 /declined 패치 대신 take_profit=null로만 내기도 한다 — 그러면 값도
@@ -189,20 +190,58 @@ def _record_null_declines(doc: dict, patches: List[PatchOp]) -> None:
     if not isinstance(declined, list):
         return
     for patch in patches:
-        field = _DECLINABLE_PATHS.get(patch.path)
-        if (field is None or not str(patch.source_text or "").strip()
-                or not (patch.op == "remove" or (patch.op == "replace" and patch.value is None))):
+        field = DECLINABLE_PATHS.get(patch.path)
+        if field is None or not str(patch.source_text or "").strip() or not _is_clear(patch):
+            continue
+        # 있던 매도 조건을 지우는 것은 '안 함'이 아니라 삭제다 — 비어 있던 칸을 비운 것만 거부로 읽는다.
+        if field == "exit" and before.get("exit_conditions"):
             continue
         parent, last = _resolve_parent(doc, patch.path)
-        if isinstance(parent, dict) and parent.get(last) is None and field not in declined:
+        if isinstance(parent, dict) and parent.get(last) in (None, []) and field not in declined:
             declined.append(field)
+
+
+def _is_clear(patch: PatchOp) -> bool:
+    return patch.op == "remove" or (patch.op == "replace" and patch.value in (None, [], {}))
+
+
+def _relocate_declined_patches(patches: List[PatchOp]) -> List[PatchOp]:
+    """다른 칸 아래에 쓴 declined 패치(/risk_management/declined)를 제자리(/declined)로 옮긴다.
+
+    declined는 전략 최상위에만 있는 이름이라 옮길 자리가 하나뿐이다 — 값은 건드리지 않는 경로 정규화다.
+    옮기지 않으면 '존재하지 않는 필드'로 수정 전체가 "해석하지 못했어요"로 끝난다(2026-11-13 실측).
+    """
+    out: List[PatchOp] = []
+    for patch in patches:
+        tokens = patch.path.split("/")[1:]
+        tail = tokens[-2:] if tokens[-1:] == ["-"] else tokens[-1:]
+        if tail[:1] == ["declined"] and len(tokens) > len(tail):
+            patch = patch.model_copy(update={"path": "/" + "/".join(tail)})
+        out.append(patch)
+    return out
+
+
+def patch_document(strategy: StrategySpec) -> dict:
+    """패치 경로가 가리키는 문서 — 사다리 단계는 수정 LLM이 보는 초안과 같은 모양(scale_in_buys)이다."""
+    return scale_in_view(copy.deepcopy(strategy.model_dump()))
+
+
+def is_noop_clear(doc: dict, patch: PatchOp) -> bool:
+    """이미 비어 있거나 없는 설정을 다시 비우는 패치인가(경로·값 형태만 본다)."""
+    if not _is_clear(patch):
+        return False
+    try:
+        parent, last = _resolve_parent(doc, patch.path)
+    except PatchError:
+        return False
+    return isinstance(parent, dict) and parent.get(last) in (None, [], {})
 
 
 def apply_patches(strategy: StrategySpec, patches: List[PatchOp]) -> StrategySpec:
     """패치를 적용한 새 StrategySpec을 반환한다(원본 불변). 실패 시 PatchError."""
     _reject_state_ops(patches)
-    # 사다리 단계는 수정 LLM이 보는 초안과 같은 모양(scale_in_buys)으로 둔다 — 경로가 맞아야 한다.
-    doc = scale_in_view(copy.deepcopy(strategy.model_dump()))
+    doc = patch_document(strategy)
+    patches = _relocate_declined_patches(patches)
     patches = _promote_patches_on_absent_condition(doc, patches)
     before = copy.deepcopy(doc)
     for patch in patches:
@@ -229,6 +268,8 @@ def apply_patches(strategy: StrategySpec, patches: List[PatchOp]) -> StrategySpe
                 del parent[index]
         elif isinstance(parent, dict):
             if patch.op in ("replace", "remove") and last not in parent:
+                if _is_clear(patch):
+                    continue          # 없는 설정을 비우는 패치 — 바뀌는 것이 없다
                 raise PatchError(f"존재하지 않는 필드입니다: {patch.path!r}")
             if patch.op == "remove":
                 # 스키마 필드 삭제는 null 초기화로 해석한다(필드 자체는 계약상 존재)
@@ -239,7 +280,7 @@ def apply_patches(strategy: StrategySpec, patches: List[PatchOp]) -> StrategySpe
             raise PatchError(f"경로가 컨테이너를 가리키지 않습니다: {patch.path!r}")
 
     _drop_stale_parameters(doc, _changed_factor_conditions(before, doc, patches))
-    _record_null_declines(doc, patches)
+    _record_null_declines(doc, before, patches)
 
     try:
         return StrategySpec.model_validate(doc)

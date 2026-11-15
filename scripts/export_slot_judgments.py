@@ -129,6 +129,10 @@ def build_cases() -> list[dict]:
               declined_fields=["stop_loss", "take_profit"]),
         # 거부 뒤에 값이 들어오면 값이 이긴다(백엔드·프론트 같은 순서).
         _case("익절 안 함이지만 값이 있음", declined_fields=["take_profit"]),
+        # 매도 조건 거부(2026-11-15) — 손절만 있는 전략도 '매도 조건 없이 보유'면 매도 칸이 끝난다.
+        _case("매도 조건 없이 보유", patch={
+            "exit_signals": [], "rebalancing_period": "none", "take_profit_pct": None,
+        }, explicit=[f for f in ALL_EXPLICIT if f != "rebalancing"], declined_fields=["exit"]),
         _case("트레일링만 있음", patch={"stop_loss_pct": None, "trailing_stop_pct": 10.0}),
         _case("기간 미언급", explicit=[f for f in ALL_EXPLICIT if f != "backtest_period"]),
         _case("초기 자본 미언급", explicit=[f for f in ALL_EXPLICIT if f != "initial_capital"]),

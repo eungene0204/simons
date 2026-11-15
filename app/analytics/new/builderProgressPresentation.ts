@@ -458,6 +458,10 @@ export function buildBuilderTurnPresentation({
     ...(hasValue(holdPeriod) ? [t("최대 {0}일 보유 후 매도", holdPeriod)] : []),
     ...(rebalanceShown ? [t("리밸런싱 시 편출 종목 매도")] : []),
   ];
+  // '매도 조건 없이 보유'도 사용자가 정한 결과다 — 행이 없으면 진행률 체크의 근거가 안 보인다(손절·익절 '안 함'과 같다).
+  if (exitLabels.length === 0 && (declinedFields ?? []).includes("exit")) {
+    exitLabels.push(t("매도 조건 없이 보유"));
+  }
   const riskLabel = buildRiskLabel(state, parsed, declinedFields);
   const holdingCountFromState = hasValue(state.holding_count);
   const holdingCount = holdingCountFromState ? state.holding_count : parsed?.max_positions;

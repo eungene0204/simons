@@ -175,6 +175,17 @@ SKILL.md 2단계 표의 기호별 상세. 각 절은 **식별 신호 → 실제 
   내면 값도 거부도 없어 같은 질문이 반복됐다(가상 사용자 QA 11-13, 최대 6회). 통한 수리: `patch_applier._record_null_declines`
   — 거부 가능 칸을 인용과 함께 비운 패치를 declined로 기록(사용자 결정, 결정론은 경로·값 형태만). 재표본은 `model` 접미사로
   캐시를 피한다(같은 대화 3회 중 2회가 캐시 적중이었다).
+- **수정 턴 전체가 "해석하지 못했어요" = 패치 하나의 경로·값 오류일 수 있다**: 패치 적용(`apply_patches`)은 하나라도
+  틀리면 수정 전체를 버린다(`↩ 폴백 패치 거부`). 11-15 실측 원인 2종 — ① '안 함' 신고를 `/risk_management/declined`
+  (없는 자리)에 씀 → 경로 정규화로 수리 ② 패치 객체 하나에 `"value"` 키가 두 번(`operator`·`value` 패치를 합침) →
+  연산자 칸에 숫자가 들어가 스키마 위반 → `output_repair.duplicate_key_patch_paths`(원출력 JSON의 키 중복만 본다) +
+  오류를 되돌려 1회 재생성으로 수리. 처음엔 "위험 관리 칸을 너무 많이 비워서"로
+  오진했다 — 과잉 비움은 해제 판정(`risk_clear_scope_verdict`)이 이미 걸러낸다. 추측 전에 트레이스의 LLM 응답을
+  스텁으로 물려 `run_primary_modification`을 재생하고 `_log_llm`의 `↩ 폴백` 줄을 읽는다(LLM 0회).
+- **매도 조건 거부**(11-15, 사용자 결정): 거부 가능 칸은 손절·익절·리밸런싱·매도 조건(`exit`)이다. 새 거부 칸을 더할 때
+  접점 — `DeclinableField`·`_coerce_declined`, `strategy_slots`(DECLINABLE_FIELDS·DECLINE_CHIP_FIELDS·칩 목록·`_decided`),
+  프롬프트 7-3, `patch_applier.DECLINABLE_PATHS`, 완결성 검증, 검증 패널, 프론트 `backtestReadiness.ts`·
+  `deterministicConditionFlow.ts`·`page.tsx` declineLabel·칩 묶음/도움말·진행 카드·en.ts, 픽스처 3종 재생성.
 - **질문 큐 상한**: 한 턴에 `MAX_QUESTIONS_PER_TURN=3`개까지다. 넘치는 질문은 다음 턴으로 가는 것이 설계다(결함 아님).
   (project_tranche_ladder_v16_36.md)
 

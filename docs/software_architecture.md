@@ -1165,7 +1165,10 @@ sector_unresolved 우선순위 질문은 불가침)하고 `clarification_priorit
 `_replan_next_question`)이 전부 그 교체 함수로 수렴한다. 정본 칩의 필드는 topic 라벨로
 고르되, 라벨을 공유하는 리스크 슬롯(손절·익절)은 `strategy_slots.ask_field_for_topic`이 State
 (parsed·`declined_fields`)에서 아직 비어 있는 첫 필드를 고른다(2026-09-14 — 손절을 말한 뒤 익절
-질문에 손절 칩이 붙던 결함). 그래서 system 프롬프트에서 칩
+질문에 손절 칩이 붙던 결함). 거부 가능 칸은 손절·익절·리밸런싱·매도 조건(`exit`, 2026-11-15)이며,
+수정 패치 적용(`patch_applier`)은 잘못된 경로의 '안 함' 신고를 `/declined`로 옮기고 인용과 함께 비운
+거부 가능 칸을 declined로 기록한다. 같은 키를 두 번 쓴 패치 객체는 `output_repair`가 JSON 구조로
+판별해 LLM에 되돌려 1회 재생성한다. 그래서 system 프롬프트에서 칩
 생성 요구를 **뺐다** — 출력 계약·예시·유니버스별 디테일 전부. `DagNode.chips` 필드는
 유지한다(변칙 출력 호환, 버리는 판단은 하류 결정론 게이트 소유).
 

@@ -152,7 +152,9 @@ CONFIRMABLE_FIELDS: tuple[str, ...] = (
 # 거부 목록(declined_fields)이 나른다(리밸런싱의 rebalancing_declined와 같은 축).
 # 값으로 표현하지 않는 이유: 0은 enforce_strategy_minimums가 "0%보다 커야 한다"로 이미
 # 거부하는 값이라, 센티널로 쓰면 그 가드를 무력화해야 한다(2026-08-10).
-DECLINABLE_FIELDS: frozenset[str] = frozenset({REBALANCING, STOP_LOSS, TAKE_PROFIT})
+# 매도 조건(EXIT)도 거부할 수 있다(2026-11-15 사용자 결정) — 매도 신호 없이 손절·익절·리밸런싱(있으면)이나
+# 백테스트 종료까지 보유한다. 값이 없는 것이 미답변인지 결정인지는 손절·익절과 같이 거부 목록이 나른다.
+DECLINABLE_FIELDS: frozenset[str] = frozenset({REBALANCING, STOP_LOSS, TAKE_PROFIT, EXIT})
 
 # 거부 칩(정본 표기) → 필드. 칩=값 결속 계약에서 이 칩들은 **값을 바꾸지 않으므로**
 # _apply_prompt_overrides로는 결속되지 않는다(무변경 = 노출 제외). 확정 칩(chip_confirms)과
@@ -163,6 +165,7 @@ DECLINE_CHIP_FIELDS: dict[str, str] = {
     "리밸런싱 안 함": REBALANCING,
     "손절 안 함": STOP_LOSS,
     "익절 안 함": TAKE_PROFIT,
+    "매도 조건 없이 보유": EXIT,
 }
 
 
@@ -386,7 +389,7 @@ _QUESTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
         "이제 언제 매도할지 정해볼까요?",
         ("데드크로스(5일/20일) 발생 시 매도", "RSI 70 이상에서 매도",
          "MACD 데드크로스 매도", "볼린저밴드 상단 터치 시 매도",
-         "20일 저점 이탈 시 매도", "20일 보유 후 청산"),
+         "20일 저점 이탈 시 매도", "20일 보유 후 청산", "매도 조건 없이 보유"),
     ),
     MAX_POSITIONS: (
         "포트폴리오에 최대 몇 종목을 담을까요?",
@@ -964,7 +967,7 @@ def _decided(parsed: Any, field: str, declined: frozenset[str]) -> Optional[_Dec
     ① 구성상 무의미한 질문(단독 종목의 리밸런싱) → NOT_APPLICABLE(파생 축).
        값이 없는 것이 정상이며, 진행률의 분모에서도 빠져야 한다. **값 축에는 아무
        주장도 하지 않는다** — 물을 대상이 아닌 것과 값이 확정된 것은 다르다.
-    ② 사용자가 명시적으로 거부한 설정(리밸런싱 안 함·손절 안 함·익절 안 함) → CONFIRMED.
+    ② 사용자가 명시적으로 거부한 설정(리밸런싱 안 함·손절 안 함·익절 안 함·매도 조건 없이 보유) → CONFIRMED.
        사용자가 '안 함'을 결정한 것이므로 확정값이다. 스펙에서 null이라 미언급과
        구분되지 않으므로 호출자가 `declined_fields`로 전달한다 — 이 판정을 provenance 쪽에
        두면 require_explicit=False인 레인에서 무시돼 같은 질문이 무한 반복된다.
@@ -1005,7 +1008,7 @@ def _decided(parsed: Any, field: str, declined: frozenset[str]) -> Optional[_Dec
         # 값이 아니라 포트폴리오 운영 규칙이라, 미국 전략도 같은 질문을 받는다. 초기 자본이
         # 시장별 변형(달러 칩)을 갖는 것과 다른 축이다.
         return None
-    if field in (STOP_LOSS, TAKE_PROFIT) and field in declined:
+    if field in (STOP_LOSS, TAKE_PROFIT, EXIT) and field in declined:
         # 값이 있는데 거부가 함께 오면 값이 이긴다 — 사용자가 값을 준 뒤 마음을 바꾼
         # 경우는 거부가 먼저 지워져야 한다(호출자가 목록에서 뺀다). 여기서 값을
         # 무시하면 화면에 보이는 값과 판정이 어긋난다.

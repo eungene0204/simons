@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "8.21"  # 8.21: VWAP을 미지원 목록에서 빼고 어휘에 technical.vwap(엔진 v16.48) 노출. # 8.20: 밴드폭·스퀴즈·이평선 기울기·52주 고가 비율·갭 지표 어휘(v16.50). # 8.19: backtest.volatility_breakout_k 칸 추가(변동성 돌파 거짓 미지원 수리). # 8.18: 어휘의 technical.roc에 "종목 자체 N거래일 수익률" 설명 추가(설명이 있는 시장 대비 초과수익률·랭킹으로 가던 오배정). 8.17: 오실레이터 임계 비교 목록에 technical.disparity(이격도) 추가. 8.16: 배수 없는 거래량 급증=volume_ratio(value=null, 되묻기), volume_spike(OBV)는 OBV 명시 때만. 8.15: "N거래일 지나면 매도"=hold_period_days(최소 보유로 읽던 오배정). 8.14: EMA 한 선 이탈 청산 예시(진입 EMA 쌍 복사 방지). 8.13: 코치의 직전 질문을 수정 턴 문맥으로 전달
+PROMPT_VERSION = "8.22"  # 8.22: declined에 exit(매도 조건 없이 보유) 추가. # 8.21: VWAP을 미지원 목록에서 빼고 어휘에 technical.vwap(엔진 v16.48) 노출. # 8.20: 밴드폭·스퀴즈·이평선 기울기·52주 고가 비율·갭 지표 어휘(v16.50). # 8.19: backtest.volatility_breakout_k 칸 추가(변동성 돌파 거짓 미지원 수리). # 8.18: 어휘의 technical.roc에 "종목 자체 N거래일 수익률" 설명 추가(설명이 있는 시장 대비 초과수익률·랭킹으로 가던 오배정). 8.17: 오실레이터 임계 비교 목록에 technical.disparity(이격도) 추가. 8.16: 배수 없는 거래량 급증=volume_ratio(value=null, 되묻기), volume_spike(OBV)는 OBV 명시 때만. 8.15: "N거래일 지나면 매도"=hold_period_days(최소 보유로 읽던 오배정). 8.14: EMA 한 선 이탈 청산 예시(진입 EMA 쌍 복사 방지). 8.13: 코치의 직전 질문을 수정 턴 문맥으로 전달
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가
@@ -620,8 +620,8 @@ NON_STRATEGY_REQUEST(전략과 무관)
     {{"series":"환율","role":"exit","mode":"change","operator":"crosses_below","period":20,"value":0,"source_text":"20일 수익률이 음수로 전환되면 청산"}}].
    단순 비중 축소는 기존대로 role=null입니다. 진입 OR·청산 AND·복수의 독립 국면은 아직 지원하지 않으므로 그 결합을 미지원으로 알리세요.
    진입 또는 청산만 말했으면 없는 쪽을 만들어내지 않습니다(시스템이 되묻습니다). 수정도 /macro_filters 패치로 역할·연산자를 보존합니다.
-7-3. '손절매는 적용하지 않는다'·'익절 없음'·'리밸런싱 안 함'처럼 **쓰지 않겠다고 말한 설정**은 strategy.declined에
-   {{"field":"stop_loss"|"take_profit"|"rebalancing","source_text":"그 설정을 안 쓴다고 말한 원문 조각"}}으로 넣으세요 —
+7-3. '손절매는 적용하지 않는다'·'익절 없음'·'리밸런싱 안 함'·'매도 조건 없이 보유'처럼 **쓰지 않겠다고 말한 설정**은 strategy.declined에
+   {{"field":"stop_loss"|"take_profit"|"rebalancing"|"exit"(매도 조건),"source_text":"그 설정을 안 쓴다고 말한 원문 조각"}}으로 넣으세요 —
    항목마다 그 설정 이름이 나오는 원문을 옮겨 적습니다(원문에 없는 설정은 넣지 않음). 미지원이 아니므로
    unsupported_features에 넣지 마세요.
 7-4. **계절 필터**: '11월부터 4월까지만 투자하고 5~10월은 현금'·'할로윈 전략'·'여름엔 쉰다'처럼 **달력의 달로**

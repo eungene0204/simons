@@ -2112,6 +2112,12 @@ describe("deterministic condition selection", () => {
       });
       expect(result, `칩 "${choice}"이 결정적으로 적용되지 않음`).not.toBeNull();
       const next = result!.parsed;
+      // 거부 칩('매도 조건 없이 보유')은 값을 넣지 않고 매도 조건 칸을 거부로 확정한다.
+      if (result!.declinedField) {
+        expect(result!.declinedField).toBe("exit");
+        expect(next).toEqual(parsed);
+        continue;
+      }
       // 매도 조건은 청산 신호이거나 보유 기간이다 — 어느 칩이든 정확히 하나가 생겨야 한다.
       expect(
         (next.exit_signals?.length ?? 0) + ((next.hold_period_days ?? 0) > 0 ? 1 : 0),
