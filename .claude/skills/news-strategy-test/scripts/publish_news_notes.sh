@@ -67,8 +67,15 @@ for _ in $(seq 1 20); do
   [ -n "$RUN" ] && break; sleep 15
 done
 [ -n "$RUN" ] || fail "CI 실행을 찾지 못했다($SHA) — 시드하지 않았다"
-gh run watch "$RUN" --exit-status --interval 60 >/dev/null \
-  || fail "CI/배포 실패(run $RUN) — 시드하지 않았다. 커밋은 main에 남아 있다"
+# watch가 끝나면 결과는 run 조회로 판정한다 — 2026-11-10 watch가 연결 끊김(connection reset)으로 끝난 것을
+# 실패로 읽어 시드를 건너뛰었고(실제 CI·배포는 성공), 다음 날부터 dry-run 수 불일치로 사흘 게시가 막혔다.
+CONCLUSION=""
+for _ in $(seq 1 10); do
+  gh run watch "$RUN" --interval 60 >/dev/null 2>&1 || true
+  CONCLUSION=$(gh run view "$RUN" --json status,conclusion -q 'select(.status=="completed") | .conclusion' 2>/dev/null || true)
+  [ -n "$CONCLUSION" ] && break; sleep 30
+done
+[ "$CONCLUSION" = success ] || fail "CI/배포 실패(run $RUN, 결과 ${CONCLUSION:-확인 못 함}) — 시드하지 않았다. 커밋은 main에 남아 있다"
 
 # create-only라 다시 돌려도 안전하다 — 2026-11-08 첫 게시에서 CI 대기 뒤 한 번 실패하고 다시 돌리자 통과했다.
 APPLIED=$(npx ts-node --project tsconfig.scripts.json scripts/seed-research-notes.ts --slug-prefix=news- --apply 2>&1) \
