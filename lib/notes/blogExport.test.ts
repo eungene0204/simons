@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { GuideArticle } from "@/lib/guide/articles";
 import { SITE_SUMMARY_KO } from "@/lib/seo/site";
-import { BLOG_SOURCE_LINE, blogTags, buildBlogExport } from "./blogExport";
+import { BLOG_COMMENT_LINE, BLOG_SOURCE_LINE, blogTags, buildBlogExport } from "./blogExport";
+import { BLOG_HOOKS } from "./blogHooks";
 import { NOTES_DISCLAIMER, SEED_NOTES } from "./notes";
 
 const NOTE: GuideArticle = {
@@ -95,6 +96,28 @@ describe("buildBlogExport", () => {
     expect(blocks.length).toBeGreaterThan(8);
     for (const block of blocks) expect(block).not.toMatch(/<\/(p|h2|h3|table)></);
     expect(text).toContain("■ 결과 해석\n\n해석 문단");
+  });
+
+  // 2026-11-15 — 블로그 홈피드용으로 말하듯 쓴 제목과 결론 한 문장을 맨 앞에, 댓글을 청하는 한 줄을 끝에 둔다.
+  it("opens a note in the hook table with its blog title and lead, before the source line", () => {
+    const note = SEED_NOTES.find((item) => item.slug === "myth-25-disparity-rebound")!;
+    const hook = BLOG_HOOKS[note.slug];
+    const { html, text } = buildBlogExport(note, "https://example.test");
+    expect(text.startsWith(`${hook.title}\n\n${hook.lead}\n\n${BLOG_SOURCE_LINE}`)).toBe(true);
+    expect(text).toContain(note.summary);
+    expect(html).not.toContain(`>${note.title}</h2>`);
+  });
+
+  it("keeps the note title when no hook is written", () => {
+    const { text } = buildBlogExport(NOTE, "https://example.test");
+    expect(text.startsWith(`${NOTE.title}\n\n${BLOG_SOURCE_LINE}`)).toBe(true);
+  });
+
+  it("asks for comments after the FAQ, before the closing link", () => {
+    const { html, text } = buildBlogExport(NOTE, "https://example.test");
+    expect(text.indexOf("■ 자주 묻는 질문")).toBeLessThan(text.indexOf(BLOG_COMMENT_LINE));
+    expect(text.indexOf(BLOG_COMMENT_LINE)).toBeLessThan(text.indexOf("관련 기록과 같은 문장으로"));
+    expect(html).toContain(BLOG_COMMENT_LINE);
   });
 
   it("escapes markup in note text", () => {

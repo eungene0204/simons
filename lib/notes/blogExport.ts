@@ -7,13 +7,19 @@
 // 서식은 전부 인라인 스타일로 쓰고, 서식을 못 받는 곳을 위해 같은 내용의 일반 텍스트도 함께 만든다.
 // 노트 요약에는 '널스탁'이 없어서(64편 중 0편, 2026-11-06 실측) 답변 엔진이 앞부분만 발췌하면 출처가 끊긴다 —
 // 제목 바로 아래에 출처 한 줄을, 끝에 사이트 공통 소개 문장(SITE_SUMMARY_KO)을 고정으로 붙인다.
+// 2026-11-15 — 블로그 홈피드는 클릭(제목)·머문 시간(본문)으로 노출되므로, 표(blogHooks.ts)에 있는 노트는 말하듯 쓴
+// 제목과 결론 한 문장으로 시작하고, 모든 노트가 댓글을 청하는 한 줄로 끝난다.
 
 import type { GuideArticle, GuideFaq, GuideSection } from "@/lib/guide/articles";
 import { DEFAULT_SITE_URL, SITE_SUMMARY_KO } from "@/lib/seo/site";
+import { BLOG_HOOKS } from "./blogHooks";
 import { notePath } from "./notes";
 
 /** 제목 바로 아래 출처 한 줄 — 요약을 발췌해도 계산 주체가 같이 읽히도록 요약 앞에 둔다. */
 export const BLOG_SOURCE_LINE = "널스탁 퀀트 연구노트의 기록을 옮긴 글입니다. 아래 수치는 널스탁 백테스트 엔진으로 과거 데이터를 계산한 결과입니다.";
+
+/** 본문 끝 댓글 청하는 한 줄 — 다음 글 소재를 묻는 형태로, 수익을 전제하는 표현은 쓰지 않는다. */
+export const BLOG_COMMENT_LINE = "궁금한 지표나 다시 계산해 보고 싶은 조건이 있으면 댓글로 알려 주세요.";
 
 export type BlogExport = { html: string; text: string };
 
@@ -99,27 +105,33 @@ export function buildBlogExport(note: GuideArticle, base: string = DEFAULT_SITE_
   const link = `<a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`;
 
   const faq = note.faq ?? [];
+  const hook = BLOG_HOOKS[note.slug];
+  const title = hook?.title ?? note.title;
   const closing = "관련 기록과 같은 문장으로 다시 계산하는 링크는 원문에 있습니다";
 
   const html = [
-    `<h2 style="margin:16px 0 12px;font-size:22px;font-weight:bold;">${escapeHtml(note.title)}</h2>`,
+    `<h2 style="margin:16px 0 12px;font-size:22px;font-weight:bold;">${escapeHtml(title)}</h2>`,
+    ...(hook ? [`<p style="${P}font-weight:bold;">${escapeHtml(hook.lead)}</p>`] : []),
     `<p style="${P}">${escapeHtml(BLOG_SOURCE_LINE)}</p>`,
-    `<p style="${P}font-weight:bold;">${escapeHtml(note.summary)}</p>`,
+    `<p style="${P}${hook ? "" : "font-weight:bold;"}">${escapeHtml(note.summary)}</p>`,
     `<p style="${P}">원문: ${link}</p>`,
     ...sections.map((section) => sectionHtml(section, base)),
     ...(faq.length > 0 ? [faqHtml(faq)] : []),
+    `<p style="margin:24px 0 12px;line-height:1.8;font-weight:bold;">${escapeHtml(BLOG_COMMENT_LINE)}</p>`,
     `<p style="margin:24px 0 12px;line-height:1.8;">${closing}: ${link}</p>`,
     `<p style="${P}">${escapeHtml(SITE_SUMMARY_KO)}</p>`,
     `<p style="${P}">${escapeHtml(tags)}</p>`,
   ].join(BLANK);
 
   const text = [
-    note.title,
+    title,
+    ...(hook ? [hook.lead] : []),
     BLOG_SOURCE_LINE,
     note.summary,
     `원문: ${url}`,
     ...sections.map((section) => sectionText(section, base)),
     ...(faq.length > 0 ? [faqText(faq)] : []),
+    BLOG_COMMENT_LINE,
     `${closing}: ${url}`,
     SITE_SUMMARY_KO,
     tags,
