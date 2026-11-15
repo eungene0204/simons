@@ -2640,9 +2640,9 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 - ✅ 사용자 결정 4건(11-13): 총괄 에이전트가 기존 단계를 도구로 사용(플래그·로컬·실패 시 고정 파이프라인) / nemotron 유지·직접 짠 루프 / 기억=서버 쪽 대화 상태(DB) / 실행 도구=실행 가능성 점검만(전략은 고치지 않고 알림).
 - 루프 방식 실측(nemotron, 5사례×2회): 네이티브 도구 호출은 `tool_choice=required`에서도 10회 중 4회가 도구 호출 없이 끝났다(채울 것이 둘인 사례 2/2 포함) — 같은 사례를 JSON 행동 출력 루프는 2/2 채웠다. 네이티브 도구 호출에 기대는 SDK 대신 JSON 행동 루프로 간다.
 - ✅ `planner/orchestrator.py` — 행동 4개(recall·interpret·check_feasibility·finish). interpret는 고정 파이프라인 전체(`_run_nl_parse_traced`)이고 한 턴에 한 번. 매 턴 '지금 부를 수 있는 행동' 목록을 주며(규칙 문장만으로는 해석 뒤 interpret 반복 3/3), 고를 것이 하나뿐이면 LLM을 부르지 않는다. 배선은 `main._run_nl_parse_orchestrated`(`STRATEGY_ORCHESTRATOR_MODE=primary`, 기본 off, 한국 레인).
-- ✅ `conversation/memory.py` + 테이블 `StrategyConversationTurn`(마이그레이션 `20261114000000_add_strategy_conversation_turn`, additive) — 초안별 턴 기록(발화·질문·상태 해시·점검 결과). 발화 원문은 3일 보관(쓸 때 지난 행 삭제). DB 장애·테이블 부재는 기억 없음으로 강등.
-- ✅ 실행 가능성 점검 — 남은 질문이 없는 전략을 실제 백테스트(워치독 안)로 돌려 거래 수를 센다. 0건이면 사실 문장 하나를 안내에 더한다(전략 불변·행동 제안 없음). 같은 상태 해시의 점검 결과는 기억에서 재사용.
-- ✅ 회귀 `backend/tests/test_orchestrator.py` 17건(관문·폴백·기억 왕복·보관 기한·배선), 운영 콘솔 흐름도 반영.
+- ✅ `conversation/memory.py` + 테이블 `StrategyConversationTurn`(마이그레이션 `20261114000000_add_strategy_conversation_turn`, additive) — 초안별 턴 기록(발화·질문·상태 해시·점검 결과). 발화 원문은 3일 보관(읽고 쓸 때 지난 행 삭제). 소유자 칸(`userId`, 계정 삭제 시 함께 삭제) — Next 프록시가 세션 사용자 id를 `X-User-Id` 헤더로 싣고(`lib/server/ownerHeader.ts`) 같은 소유자의 기록만 읽는다(초안 ID만으로는 남의 발화를 읽지 못한다). 기록은 버전 commit 뒤에 한다. DB 장애·테이블 부재는 기억 없음으로 강등.
+- ✅ 실행 가능성 점검 — 남은 질문이 없는 전략을 실제 백테스트(워치독 안, 상한 60초 `STRATEGY_FEASIBILITY_TIMEOUT_S`)로 돌려 거래 수를 센다. 0건이면 사실 문장 하나를 안내에 더한다(전략 불변·행동 제안 없음). 같은 상태 해시의 점검 결과는 기억에서 재사용.
+- ✅ 회귀 `backend/tests/test_orchestrator.py` 19건(관문·폴백·기억 왕복·소유자 격리·보관 기한·배선) + `lib/server/ownerHeader.test.ts`, 운영 콘솔 흐름도 반영.
 - 실측(실 LLM nemotron, 로컬 테스트 DB): 생성 턴 해석→점검→종료(거래 0건 안내 표시, 코스피 5년 점검 약 15초), 미완성 전략은 점검 없이 종료, "아까 …" 발화는 기억 조회 후 해석, 설명 질문 턴은 점검 생략.
 - ⬜ 미실행·미결: 운영 DB(Supabase — 로컬 `.env`도 같은 DB)에 마이그레이션 미적용(적용 전에는 기억이 비활성으로 강등), 예시 게이트·되묻기 하니스, 스트리밍 진행 표시에 점검 단계 없음, 점검이 확정 뒤 프론트의 백테스트와 같은 계산을 한 번 더 한다.
 

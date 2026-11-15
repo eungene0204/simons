@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchBackend } from "@/lib/server/backend";
+import { ownerHeader } from "@/lib/server/ownerHeader";
 
 type ParseStreamBody = {
   prompt?: string;
@@ -126,6 +127,8 @@ export async function POST(req: NextRequest) {
   const upstream = new AbortController();
   req.signal?.addEventListener("abort", () => upstream.abort());
 
+  // 스트림을 열기 전에 푼다 — 백엔드 요청이 스트림 시작과 같은 박자에 나가야 한다.
+  const owner = await ownerHeader();
   const stream = new ReadableStream({
     cancel() {
       upstream.abort();
@@ -245,7 +248,7 @@ export async function POST(req: NextRequest) {
       try {
         const res = await fetchBackend("/strategy/parse-stream", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...owner },
           body: JSON.stringify(body),
           cache: "no-store",
           // 파스 한 턴은 LLM 3회로 약 800~1,000토큰을 **생성**한다 — 예산을 지배하는 건

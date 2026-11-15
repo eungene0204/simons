@@ -12,7 +12,7 @@ os.environ.setdefault("POLARS_MAX_THREADS", "1")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from schemas import (
@@ -3297,11 +3297,17 @@ def _is_llm_connection_error(exc: BaseException) -> bool:
     return False
 
 
+def _owner_id(x_user_id: Optional[str]) -> Optional[int]:
+    """Next 프록시가 세션에서 풀어 실어 보낸 사용자 id(비로그인·비정상 값은 None)."""
+    # 엔드포인트 함수를 직접 부르면(테스트·내부 호출) 기본값이 Header 객체로 온다 — 문자열만 본다.
+    return int(x_user_id) if isinstance(x_user_id, str) and x_user_id.isdigit() else None
+
+
 @app.post("/strategy/parse", response_model=NLParseResponse)
-def parse_nl_strategy(request: NLParseRequest):
+def parse_nl_strategy(request: NLParseRequest, x_user_id: Optional[str] = Header(default=None)):
     """자연어 전략 설명을 ParsedStrategy + BacktestRequest로 변환"""
     with ui_language.bind(request.language or ui_language.get_ui_language()):
-        return _run_nl_parse(request)
+        return _run_nl_parse(request, owner_id=_owner_id(x_user_id))
 
 
 def _finalize_parse_result(result: dict, request: NLParseRequest) -> dict:
@@ -3875,7 +3881,8 @@ def _interpretation_failure_result(request: NLParseRequest, backend: str, reques
     return _finalize_parse_result(result, request)
 
 
-def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | None = None):
+def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | None = None,
+                  owner_id: Optional[int] = None):
     if (request.language or ui_language.get_ui_language()) == "en":
         return _run_nl_parse_observed(request, on_stage, defer_holder)
     from copy import deepcopy
@@ -3889,7 +3896,7 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
     ledger = RevisionLedger()
     try:
         ticket = ledger.begin(draft_id, revision, request.expected_state_hash, request.previous_parsed)
-        return _run_nl_parse_observed(request, on_stage, defer_holder, (ledger, draft_id, ticket))
+        return _run_nl_parse_observed(request, on_stage, defer_holder, (ledger, draft_id, ticket), owner_id)
     except RevisionConflict as exc:
         raise HTTPException(status_code=409, detail={"code": "STALE_STRATEGY", "message": str(exc),
                             "strategy_version": exc.current}) from exc
@@ -3897,7 +3904,7 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
         raise HTTPException(status_code=503, detail="전략 버전을 보관하지 못했어요. 변경을 반영하지 않았습니다.") from exc
 
 
-def _run_nl_parse_orchestrated(request: NLParseRequest, on_stage, defer_holder, draft_id):
+def _run_nl_parse_orchestrated(request: NLParseRequest, on_stage, defer_holder, draft_id, owner_id=None):
     """총괄 에이전트가 켜져 있으면 한 턴의 진행을 에이전트가 고른다(로컬 dev, 한국 레인).
 
     에이전트의 도구는 기존 고정 파이프라인(interpret)·대화 기억(recall)·실행 가능성 점검이다.
@@ -3920,7 +3927,7 @@ def _run_nl_parse_orchestrated(request: NLParseRequest, on_stage, defer_holder, 
     turns: list = []
 
     def recall():
-        turns[:] = memory.recall(draft_id)
+        turns[:] = memory.recall(draft_id, owner_id)
         return turns
 
     def check_feasibility(parsed_result):
@@ -3944,11 +3951,12 @@ def _run_nl_parse_orchestrated(request: NLParseRequest, on_stage, defer_holder, 
         result = {**result, "notices": [*(result.get("notices") or []), notice]}
     # 기억 기록은 버전 원장 commit 뒤로 미룬다 — 취소·충돌로 반영되지 않은 턴을 기억하지 않는다.
     return result, lambda: memory.remember(
-        draft_id, request.prompt, result.get("clarification_question"),
+        draft_id, owner_id, request.prompt, result.get("clarification_question"),
         state_hash(result.get("parsed")), turn["feasibility"])
 
 
-def _run_nl_parse_observed(request: NLParseRequest, on_stage=None, defer_holder: dict | None = None, version_ticket=None):
+def _run_nl_parse_observed(request: NLParseRequest, on_stage=None, defer_holder: dict | None = None, version_ticket=None,
+                           owner_id: Optional[int] = None):
     """파싱 코어 로직 — 사용자 요청 하나당 Trace 하나의 루트.
 
     본체는 _run_nl_parse_traced다. 이 함수는 관찰 span만 연다(LangSmith와 로컬
@@ -3987,7 +3995,7 @@ def _run_nl_parse_observed(request: NLParseRequest, on_stage=None, defer_holder:
             except Exception:
                 logger.debug("replay request evidence failed", exc_info=True)
         result, remember_turn = _run_nl_parse_orchestrated(
-            request, on_stage, defer_holder, version_ticket[1] if version_ticket else None)
+            request, on_stage, defer_holder, version_ticket[1] if version_ticket else None, owner_id)
         if version_ticket is not None:
             from copy import deepcopy
             result = deepcopy(result)
@@ -4305,7 +4313,7 @@ _DEFERRED_VALIDATION_MAX_WAIT_S = 90.0
 
 
 @app.post("/strategy/parse-stream")
-async def parse_nl_strategy_stream(request: NLParseRequest):
+async def parse_nl_strategy_stream(request: NLParseRequest, x_user_id: Optional[str] = Header(default=None)):
     """NL 파싱 진행 상황을 SSE로 스트리밍 — parsing(규칙 기반)→thinking(LLM 폴백) 단계 표시.
 
     파싱은 동기 함수라 별도 스레드에서 돌리고, on_stage 콜백이 단계 전환을 기록한다.
@@ -4337,7 +4345,8 @@ async def parse_nl_strategy_stream(request: NLParseRequest):
         with cancellation.bind(cancel_token), ui_language.bind(request_language), \
                 llm_progress.bind(stage_holder):
             try:
-                result_holder["data"] = _run_nl_parse(request, on_stage=on_stage, defer_holder=defer_holder)
+                result_holder["data"] = _run_nl_parse(request, on_stage=on_stage, defer_holder=defer_holder,
+                                                      owner_id=_owner_id(x_user_id))
             except cancellation.OperationCancelled:
                 print(f"[NL-PARSE] 취소됨(클라이언트 연결 종료) prompt='{request.prompt}'", flush=True)
             except HTTPException as exc:

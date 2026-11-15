@@ -259,6 +259,7 @@ model StrategyVersion {
 // 전략 대화의 서버 쪽 기억(2026-11-14) — 초안(draftId)별 턴 기록. 발화 원문은 3일만 보관한다.
 model StrategyConversationTurn {
   id          String   @id
+  userId      Int?
   draftId     String
   turn        Int
   utterance   String
@@ -266,6 +267,7 @@ model StrategyConversationTurn {
   stateHash   String
   feasibility String?
   createdAt   DateTime @default(now())
+  User        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([draftId, turn])
   @@index([createdAt])
@@ -485,6 +487,7 @@ model User {
   StrategyChatLog StrategyChatLog[]
   StrategyVersion StrategyVersion[]
   PaymentOrder   PaymentOrder[]
+  StrategyConversationTurn StrategyConversationTurn[]
 }
 
 // 결제 주문 — 결제 승인 시 서버에 저장된 금액과 대조(금액 위변조 검증)하기 위한 기록.

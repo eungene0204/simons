@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchBackend } from "@/lib/server/backend";
+import { ownerHeader } from "@/lib/server/ownerHeader";
 
 export async function POST(req: NextRequest) {
   let body: unknown;
@@ -13,7 +14,7 @@ export async function POST(req: NextRequest) {
   try {
     const res = await fetchBackend("/strategy/parse", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await ownerHeader()) },
       body: JSON.stringify(body),
       cache: "no-store",
       // 스트리밍 경로와 같은 백엔드 파스를 부른다 — 예산도 같이 간다(stream/route.ts 주석 참조).

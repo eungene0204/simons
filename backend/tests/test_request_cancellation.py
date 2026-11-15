@@ -377,7 +377,7 @@ def test_parse_stream_does_not_cancel_on_normal_completion(monkeypatch):
 
     tokens: dict = {}
 
-    def fake_parse(request, on_stage=None, defer_holder=None):  # noqa: ARG001
+    def fake_parse(request, on_stage=None, defer_holder=None, owner_id=None):  # noqa: ARG001
         tokens["token"] = cancellation.current()
         return {"parsed": {}}
 
@@ -428,7 +428,7 @@ def test_parse_stream_emits_retrying_stage_during_llm_retry(monkeypatch):
     import llm_progress
     import main
 
-    def fake_parse(request, on_stage=None, defer_holder=None):  # noqa: ARG001
+    def fake_parse(request, on_stage=None, defer_holder=None, owner_id=None):  # noqa: ARG001
         on_stage("thinking")
         time.sleep(0.25)
         with llm_progress.retrying():

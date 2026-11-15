@@ -1353,7 +1353,8 @@ JSON 행동 하나를 고른다 — `recall`(대화 기억 조회)·`interpret`(
 이 레인 모델에서 10회 중 4회가 빈 응답이어서 쓰지 않는다(JSON 행동 출력).
 대화 기억은 `conversation/memory.py`가 앱 DB 테이블 `StrategyConversationTurn`에 초안
 (`draft_id`)별로 남긴다 — 참고 기록이지 전략 상태의 정본이 아니다(정본은 에코된 ParsedStrategy와
-RevisionLedger). 발화 원문은 3일 보관. 점검 결과는 상태 해시로 재사용한다. 거래 0건 안내는
+RevisionLedger). 소유자(`userId`)는 Next 프록시의 `X-User-Id` 헤더로 받고 같은 소유자의
+기록만 읽는다. 발화 원문은 3일 보관. 점검 결과는 상태 해시로 재사용한다. 거래 0건 안내는
 정해진 사실 문장(`orchestrator.NO_TRADE_NOTICE`)이고 전략은 바꾸지 않는다.
 
 ### 4.2.3 관찰 계층 (backend/observability/ — LangSmith + 로컬 Trace)

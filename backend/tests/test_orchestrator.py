@@ -153,9 +153,9 @@ def test_notice_only_for_a_checked_zero_trade_strategy():
 # ── 대화 기억(앱 DB) ─────────────────────────────────────────────────────────
 
 def test_memory_round_trip_and_feasibility_reuse(app_db):
-    memory.remember("draft-000000000001", "PER 10 이하", "기간은요?", "a" * 64)
-    memory.remember("draft-000000000001", "5년", None, "b" * 64, {"checked": True, "trades": 0})
-    memory.remember("draft-000000000002", "다른 대화", None, "c" * 64)
+    memory.remember("draft-000000000001", None, "PER 10 이하", "기간은요?", "a" * 64)
+    memory.remember("draft-000000000001", None, "5년", None, "b" * 64, {"checked": True, "trades": 0})
+    memory.remember("draft-000000000002", None, "다른 대화", None, "c" * 64)
 
     turns = memory.recall("draft-000000000001")
     assert [(t["turn"], t["utterance"], t["question"]) for t in turns] == [
@@ -164,10 +164,29 @@ def test_memory_round_trip_and_feasibility_reuse(app_db):
     assert memory.remembered_feasibility(turns, "a" * 64) is None
 
 
+def test_memory_is_scoped_to_its_owner_and_dies_with_the_account(app_db):
+    import db
+
+    for user_id in (1, 2):
+        app_db.execute('INSERT INTO "User" (id, email, name, password, "updatedAt") VALUES (?, ?, ?, ?, ?)',
+                       (user_id, f"u{user_id}@example.com", "u", "x", db.now()))
+    app_db.commit()
+    memory.remember("draft-000000000001", 1, "내 발화", None, "a" * 64)
+
+    assert [t["utterance"] for t in memory.recall("draft-000000000001", 1)] == ["내 발화"]
+    # 초안 ID를 알아도 다른 계정·비로그인으로는 읽히지 않는다.
+    assert memory.recall("draft-000000000001", 2) == []
+    assert memory.recall("draft-000000000001", None) == []
+
+    app_db.execute('DELETE FROM "User" WHERE id = 1')
+    app_db.commit()
+    assert app_db.execute(f'SELECT COUNT(*) FROM "{memory.TABLE}"').fetchone()[0] == 0
+
+
 def test_memory_drops_turns_past_retention(app_db):
     import db
 
-    memory.remember("draft-000000000001", "오래된 발화", None, "a" * 64)
+    memory.remember("draft-000000000001", None, "오래된 발화", None, "a" * 64)
     app_db.execute(f'UPDATE "{memory.TABLE}" SET "createdAt" = ?',
                    (db.now() - memory.RETENTION - timedelta(hours=1),))
     app_db.commit()
@@ -175,7 +194,7 @@ def test_memory_drops_turns_past_retention(app_db):
     # 읽기만 해도 기한 지난 원문이 지워진다.
     assert app_db.execute(f'SELECT COUNT(*) FROM "{memory.TABLE}"').fetchone()[0] == 0
 
-    memory.remember("draft-000000000001", "새 발화", None, "b" * 64)
+    memory.remember("draft-000000000001", None, "새 발화", None, "b" * 64)
     rows = app_db.execute(f'SELECT "utterance" FROM "{memory.TABLE}"').fetchall()
     assert [r[0] for r in rows] == ["새 발화"]  # 기한 지난 원문은 지워진다
 
@@ -184,7 +203,7 @@ def test_memory_is_optional(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://nobody:x@127.0.0.1:1/none")
     assert memory.recall(None) == []
     assert memory.recall("draft-000000000001") == []          # 연결 실패 = 기억 없음
-    memory.remember("draft-000000000001", "x", None, "a" * 64)  # 예외 없이 지나간다
+    memory.remember("draft-000000000001", None, "x", None, "a" * 64)  # 예외 없이 지나간다
 
 
 # ── 배선(main._run_nl_parse_orchestrated) ────────────────────────────────────
@@ -210,7 +229,7 @@ def _wire(monkeypatch, mode, chat, parse_result):
     monkeypatch.setattr(main.BacktestRequest, "model_validate",
                         classmethod(lambda cls, req: type("R", (), {"model_dump": lambda self: req})()))
     monkeypatch.setattr(primary, "_interpreter_singleton", type("I", (), {"_chat": staticmethod(chat)})())
-    monkeypatch.setattr(memory, "recall", lambda draft_id, limit=memory.RECALL_LIMIT: [])
+    monkeypatch.setattr(memory, "recall", lambda draft_id, owner_id=None, limit=memory.RECALL_LIMIT: [])
     monkeypatch.setattr(memory, "remember", lambda *a: calls["remembered"].append(a))
     return main, calls
 
@@ -231,16 +250,17 @@ def test_wiring_off_runs_fixed_pipeline_only(monkeypatch):
 def test_wiring_adds_zero_trade_notice_and_remembers_the_turn(monkeypatch):
     chat = _Chat({"action": "interpret"}, {"action": "check_feasibility"}, {"action": "finish"})
     main, calls = _wire(monkeypatch, "primary", chat, _PARSED)
-    result, remember = main._run_nl_parse_orchestrated(main.NLParseRequest(prompt="PER 10 이하"), None, None, "d" * 16)
+    result, remember = main._run_nl_parse_orchestrated(
+        main.NLParseRequest(prompt="PER 10 이하"), None, None, "d" * 16, 7)
 
     assert calls["remembered"] == []  # 기록은 호출부가 버전 commit 뒤에 한다(취소·충돌 턴은 기억하지 않는다)
     remember()
     assert result["notices"] == [orchestrator.NO_TRADE_NOTICE]
     assert result["parsed"] == _PARSED["parsed"]  # 전략은 그대로다
     assert calls["parse"] == 1 and calls["backtest"] == 1
-    (draft_id, utterance, question, _hash, feasibility), = calls["remembered"]
-    assert (draft_id, utterance, question, feasibility) == (
-        "d" * 16, "PER 10 이하", None, {"checked": True, "trades": 0})
+    (draft_id, owner_id, utterance, question, _hash, feasibility), = calls["remembered"]
+    assert (draft_id, owner_id, utterance, question, feasibility) == (
+        "d" * 16, 7, "PER 10 이하", None, {"checked": True, "trades": 0})
 
 
 def test_wiring_falls_back_to_fixed_pipeline_when_agent_fails(monkeypatch):
@@ -249,3 +269,13 @@ def test_wiring_falls_back_to_fixed_pipeline_when_agent_fails(monkeypatch):
 
     assert result["parsed"] == _PARSED["parsed"] and result["notices"] == []
     assert calls["parse"] == 1 and calls["backtest"] == 0
+
+
+def test_owner_header_is_parsed_defensively():
+    import main
+
+    assert main._owner_id("42") == 42
+    assert main._owner_id(None) is None and main._owner_id("") is None
+    assert main._owner_id("1; DROP") is None and main._owner_id("-3") is None
+    # 엔드포인트를 직접 부를 때의 기본값(Header 객체)도 비로그인으로 본다.
+    assert main._owner_id(main.Header(default=None)) is None

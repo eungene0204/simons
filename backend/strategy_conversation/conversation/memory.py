@@ -24,8 +24,12 @@ RETENTION = timedelta(days=3)
 RECALL_LIMIT = 6
 
 
-def recall(draft_id: Optional[str], limit: int = RECALL_LIMIT) -> List[Dict[str, Any]]:
-    """초안의 최근 턴 기록(오래된 것부터). 기억이 없거나 읽지 못하면 빈 목록."""
+def recall(draft_id: Optional[str], owner_id: Optional[int] = None,
+           limit: int = RECALL_LIMIT) -> List[Dict[str, Any]]:
+    """초안의 최근 턴 기록(오래된 것부터). 기억이 없거나 읽지 못하면 빈 목록.
+
+    같은 소유자가 남긴 기록만 읽는다 — draft_id는 화면이 보내는 값이라 그것만으로는 남의
+    발화가 실릴 수 있다(비로그인 대화는 소유자 없는 기록끼리만 이어진다)."""
     if not draft_id:
         return []
     import db
@@ -37,8 +41,9 @@ def recall(draft_id: Optional[str], limit: int = RECALL_LIMIT) -> List[Dict[str,
                 conn.execute(f'DELETE FROM "{TABLE}" WHERE "createdAt" < ?', (db.now() - RETENTION,))
             rows = conn.execute(
                 f'SELECT "turn", "utterance", "question", "stateHash", "feasibility" FROM "{TABLE}" '
-                'WHERE "draftId" = ? AND "createdAt" >= ? ORDER BY "turn" DESC LIMIT ?',
-                (draft_id, db.now() - RETENTION, limit),
+                'WHERE "draftId" = ? AND "userId" IS NOT DISTINCT FROM ? AND "createdAt" >= ? '
+                'ORDER BY "turn" DESC LIMIT ?',
+                (draft_id, owner_id, db.now() - RETENTION, limit),
             ).fetchall()
         finally:
             conn.close()
@@ -54,8 +59,8 @@ def recall(draft_id: Optional[str], limit: int = RECALL_LIMIT) -> List[Dict[str,
 
 
 def remember(
-    draft_id: Optional[str], utterance: str, question: Optional[str], state_hash: str,
-    feasibility: Optional[Dict[str, Any]] = None,
+    draft_id: Optional[str], owner_id: Optional[int], utterance: str, question: Optional[str],
+    state_hash: str, feasibility: Optional[Dict[str, Any]] = None,
 ) -> None:
     """이번 턴을 기록하고 보관 기한이 지난 행을 지운다. 실패는 삼킨다."""
     if not draft_id:
@@ -72,9 +77,10 @@ def remember(
                     (draft_id,),
                 ).fetchone()[0]
                 conn.execute(
-                    f'INSERT INTO "{TABLE}" ("id", "draftId", "turn", "utterance", "question", '
-                    '"stateHash", "feasibility", "createdAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                    (uuid4().hex, draft_id, turn, utterance, question, state_hash,
+                    f'INSERT INTO "{TABLE}" ("id", "userId", "draftId", "turn", "utterance", '
+                    '"question", "stateHash", "feasibility", "createdAt") '
+                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    (uuid4().hex, owner_id, draft_id, turn, utterance, question, state_hash,
                      json.dumps(feasibility, ensure_ascii=False) if feasibility else None, db.now()),
                 )
         finally:
