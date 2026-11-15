@@ -92,6 +92,7 @@ describe("buildHomeJsonLd", () => {
       "@id": "https://www.nullstock.im/#organization",
       name: "널스탁",
       logo: "https://www.nullstock.im/nullStock.png",
+      sameAs: ["https://x.com/nullStockx", "https://blog.naver.com/nullstock"],
     });
     expect(graph[1]).toMatchObject({ url: "https://www.nullstock.im", inLanguage: "ko-KR" });
     expect(graph[2]).toMatchObject({

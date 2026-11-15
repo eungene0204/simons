@@ -112,6 +112,9 @@ export function siteVerification(
   };
 }
 
+/** 공식 채널(Organization.sameAs) — 검색엔진이 사이트와 같은 운영 주체의 계정으로 묶는다. */
+export const OFFICIAL_CHANNELS = ["https://x.com/nullStockx", "https://blog.naver.com/nullstock"] as const;
+
 const FEATURE_LIST: Record<Language, string[]> = {
   ko: [
     "자연어 퀀트 전략 설계",
@@ -144,6 +147,7 @@ export function buildHomeJsonLd(language: Language, base: string = siteUrl()): R
         alternateName: language === "en" ? "널스탁" : "NullStock",
         url: base,
         logo: `${base}/nullStock.png`,
+        sameAs: [...OFFICIAL_CHANNELS],
       },
       {
         "@type": "WebSite",
