@@ -152,6 +152,22 @@ def test_unlabelled_failure_keeps_the_general_message(monkeypatch):
     assert result["clarification_question"] == main._INTERPRETATION_FAILURE_MESSAGE
 
 
+def test_interpreter_error_without_model_output_is_not_called_a_format_failure(monkeypatch):
+    """모델 슬롯 미설정 같은 구성 오류도 InterpreterError다 — '출력 형식 오류' 안내를 붙이면 거짓이다
+    (CI 실패 2026-11-16: 로컬은 .env의 실제 모델이 있어 통과했다)."""
+    from strategy_conversation.interpreter.llm_strategy_interpreter import InterpreterError
+
+    class _Unconfigured:
+        def interpret(self, *_a, **_k):
+            raise InterpreterError("해석 모델 슬롯이 설정되지 않았습니다")
+
+    monkeypatch.setattr(primary, "_get_interpreter", lambda _cls: _Unconfigured())
+    assert primary.run_primary_modification("손절을 7%로", _previous()) is None
+    assert primary.take_failure() is None
+    result = _run_nl_parse(NLParseRequest(prompt="RSI 30 이하 매수"))
+    assert result["clarification_question"] == main._INTERPRETATION_FAILURE_CREATE_MESSAGE
+
+
 def test_failure_messages_pass_the_output_guard():
     from strategy_conversation.response.output_guard import guard_text
 

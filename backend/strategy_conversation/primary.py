@@ -2494,8 +2494,10 @@ def _run_primary_parse_once(
     except InterpreterError as exc:
         logger.warning("interpreter primary failed, reporting failure | err=%s",
                        str(exc)[:200])
-        # 이미 자가 복구로 받은 출력이 또 형식을 깨면 더 돌지 않는다.
-        _note_failure("FORMAT", exc, None if repair_from else getattr(exc, "raw_output", None))
+        # 형식 실패는 모델 출력이 실린 경우뿐이다 — 모델 슬롯 미설정 같은 구성 오류도 같은 예외로
+        # 오므로, 출력이 없으면 라벨을 달지 않는다(일반 안내). 자가 복구본이 또 깨지면 더 돌지 않는다.
+        if getattr(exc, "raw_output", None) is not None:
+            _note_failure("FORMAT", exc, None if repair_from else exc.raw_output)
         return None
     # 조건 인용 대조(LLM) — 이동평균·볼린저 조건마다 "인용이 이 조건을 말하나"를 묻는다(신고가
     # 오분류 교정·다른 설정 문구 가드의 판정 근거). 인터프리터 출력이 입력이라 동시 전송은
@@ -5522,7 +5524,8 @@ def _run_primary_modification_once(
             )
     except InterpreterError as exc:
         logger.warning("modify primary interpreter failed, falling back | err=%s", str(exc)[:200])
-        _note_failure("FORMAT", exc, None if repair_from else getattr(exc, "raw_output", None))
+        if getattr(exc, "raw_output", None) is not None:  # 구성 오류(출력 없음)는 형식 실패가 아니다
+            _note_failure("FORMAT", exc, None if repair_from else exc.raw_output)
         return None
     except Exception as exc:  # noqa: BLE001
         if config.modify_interpreter_mode() == "llm_first" and isinstance(exc, OSError):
