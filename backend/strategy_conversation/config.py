@@ -157,10 +157,12 @@ def orchestrator_max_steps() -> int:
     return max(1, min(6, int(_env_float("STRATEGY_ORCHESTRATOR_MAX_STEPS", 4))))
 
 
-# 실행 가능성 점검 백테스트의 벽시계 상한(초). 점검은 부가 기능이라 백테스트 기본 상한(600초)을
-# 쓰지 않는다 — 넘기면 '점검 못 함'으로 끝나고 턴은 그대로 응답한다.
+# 실행 가능성 점검 백테스트 한 번의 벽시계 상한(초). 점검은 부가 기능이라 백테스트 기본 상한(600초)을
+# 쓰지 않는다 — 넘기면 '점검 못 함'으로 끝나고 턴은 그대로 응답한다. 큰 유니버스는 표본을 먼저 보므로
+# (orchestrator.run_feasibility) 이 상한까지 가는 것은 표본에서 거래가 0건인 전 종목 전략뿐이다 —
+# 그 전체 점검이 로컬 실측 65~85초라 90초로 둔다(프록시 스트림 예산 240초 안).
 def feasibility_timeout_s() -> float:
-    return max(5.0, _env_float("STRATEGY_FEASIBILITY_TIMEOUT_S", 60))
+    return max(5.0, _env_float("STRATEGY_FEASIBILITY_TIMEOUT_S", 90))
 
 
 # ── 인터프리터 설정 옮겨 적기 형태 — 생성 턴 출력을 요청 분량에 비례하게 한다 ──────

@@ -619,6 +619,31 @@ def build_repair_prompt(
     return "\n".join(parts)
 
 
+def build_downstream_repair_prompt(
+    user_input: str,
+    bad_output: str,
+    error_message: str,
+    draft: Optional[dict] = None,
+) -> str:
+    """전략에 반영되지 못한 출력의 재생성 요청 — 하류(패치 적용·도메인 검증·컴파일)가 거부했거나
+    스키마 복구가 소진된 출력이다.
+
+    스키마 복구(build_repair_prompt)와 달리 내용을 고쳐야 한다 — 거부 사유를 그대로 돌려준다
+    (검증 실패는 후처리 코드가 고치지 않고 LLM에 전달해 재생성, 자연어 해석 계약).
+    """
+    parts = [
+        "직전 출력은 전략에 반영되지 못했습니다. 아래 사유를 읽고 같은 사용자 "
+        "입력을 다시 옮긴 완전한 JSON 하나만 출력하세요(설명 금지). 사용자 입력이 말한 변경만 "
+        "담으세요 — 말하지 않은 칸의 패치를 내지 말고, 출력을 짧게 유지하세요.",
+        f"\n## 원래 사용자 입력\n\"{user_input}\"",
+    ]
+    if draft:
+        parts.append(f"\n## 현재 전략 초안\n{json.dumps(draft, ensure_ascii=False)}")
+    parts.append(f"\n## 반영되지 못한 출력\n{bad_output[:2000]}")
+    parts.append(f"\n## 반영되지 못한 사유\n{error_message[:1000]}")
+    return "\n".join(parts)
+
+
 def expand_settings_form(raw_text: str, user_input: str) -> tuple:
     """설정 옮겨 적기 형태(prompts._compact_shape)의 출력을 전체 형태 JSON으로 편다.
 

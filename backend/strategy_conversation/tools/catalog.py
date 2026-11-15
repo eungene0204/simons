@@ -271,6 +271,12 @@ class LookupIndicatorIn(BaseModel):
 class LookupIndicatorOut(BaseModel):
     # [{"factor","name","operators","parameters"}] — 미지원·어휘 비공개 지표는 싣지 않는다
     indicators: List[dict] = []
+    # 빈 결과의 사유(정해진 문장) — 빈 목록만 주면 호출자가 같은 조회를 표현만 바꿔 되풀이한다
+    note: Optional[str] = None
+
+
+_LOOKUP_EMPTY_NOTE = ("이 표현으로 등록된 지표가 없습니다. 지표 이름 하나만 짧게 넣으세요. "
+                      "업종·테마·종목(유니버스)은 조회 대상이 아닙니다.")
 
 
 def _lookup_indicator(inp: LookupIndicatorIn) -> LookupIndicatorOut:
@@ -278,16 +284,22 @@ def _lookup_indicator(inp: LookupIndicatorIn) -> LookupIndicatorOut:
         REGISTRY,
         factor_ids_named_in,
         resolve,
+        with_same_name_variants,
     )
 
     exact = resolve(inp.term)
-    ids = ([exact.id] if exact is not None else []) + sorted(factor_ids_named_in(inp.term))
+    named = ([exact.id] if exact is not None else []) + sorted(factor_ids_named_in(inp.term))
+    # 이름 하나를 여러 지표가 나눠 쓴다('볼린저밴드' → 밴드별 지표) — 별칭이 가리키는 정본이
+    # 어휘 비공개면 변형 없이는 빈 결과가 된다(2026-11-15 실측: 볼린저 조회 3회 연속 빈손).
+    ids = named + sorted(with_same_name_variants(set(named)) - set(named))
     specs = [REGISTRY[i] for i in dict.fromkeys(ids)]
-    return LookupIndicatorOut(indicators=[
+    indicators = [
         {"factor": s.id, "name": s.display_name, "operators": list(s.allowed_operators),
          "parameters": sorted(s.parameters)}
         for s in specs if s.supported != "UNSUPPORTED" and not s.prompt_hidden
-    ][:6])
+    ][:10]
+    return LookupIndicatorOut(indicators=indicators,
+                              note=None if indicators else _LOOKUP_EMPTY_NOTE)
 
 
 # ── validate_intent — Schema 통과한 StrategyIntent의 Domain 검증 ────────────────

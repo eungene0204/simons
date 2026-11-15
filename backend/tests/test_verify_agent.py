@@ -58,20 +58,23 @@ def test_finish_without_changes_returns_none():
 def test_fills_missing_risk_field_and_exit_condition():
     result, chat, original = _run([
         _patch("손절은 7%로", {"op": "replace", "path": "/risk_management/stop_loss", "value": 7}),
-        json.dumps({"action": "lookup", "text": "RSI"}),
+        json.dumps({"action": "lookup", "terms": ["RSI"]}),
         _patch("RSI 70 이상이면 매도", {"op": "add", "path": "/exit_conditions/-", "value": {
             "factor": "technical.rsi", "operator": ">=", "value": 70}}),
         _FINISH,
     ])
-    intent, _ = result
+    intent = result.intent
+    assert result.filled == 2 and [p.path for p in result.patches] == [
+        "/risk_management/stop_loss", "/exit_conditions/-"]
     assert intent.strategy.risk_management.stop_loss == 7
     exit_condition, = intent.strategy.exit_conditions
     assert (exit_condition.factor, exit_condition.value) == ("technical.rsi", 70)
     # 추가된 조건의 인용은 관문을 통과한 quote다.
     assert exit_condition.source_text == "RSI 70 이상이면 매도"
     # 조회 관찰이 다음 턴 상태에 실린다.
-    lookup = chat.states[2]["steps"][1]["observation"]["indicators"]
-    assert "technical.rsi" in [i["factor"] for i in lookup]
+    lookup, = chat.states[2]["steps"][1]["observation"]["results"]
+    assert lookup["term"] == "RSI"
+    assert "technical.rsi" in [i["factor"] for i in lookup["indicators"]]
     # 원본은 그대로다.
     assert original.strategy.risk_management.stop_loss is None
 
@@ -120,9 +123,27 @@ def test_rejects_number_written_as_string(quote, patch):
 
 
 def test_lookup_rejects_sentence_length_input():
-    result, chat, _ = _run([json.dumps({"action": "lookup", "text": _UTTERANCE}), _FINISH])
+    result, chat, _ = _run([json.dumps({"action": "lookup", "terms": [_UTTERANCE]}), _FINISH])
     assert result is None
-    assert "rejected" in chat.states[1]["steps"][0]["observation"]
+    assert "rejected" in chat.states[1]["steps"][0]["observation"]["results"][0]
+
+
+def test_lookup_answers_each_term_separately():
+    """여러 지표를 한 표현에 묶으면 등록부 대조가 빈손이었다(2026-11-15 Trace) — 이름마다 따로 답한다."""
+    _, chat, _ = _run([
+        json.dumps({"action": "lookup", "terms": ["볼린저밴드 하단", "RSI", "소매유통 테마"]}),
+        _FINISH,
+    ])
+    bollinger, rsi, theme = chat.states[1]["steps"][0]["observation"]["results"]
+    assert "technical.bollinger_lower_touch" in [i["factor"] for i in bollinger["indicators"]]
+    assert [i["factor"] for i in rsi["indicators"]] == ["technical.rsi"]
+    # 빈 결과는 사유를 함께 준다 — 빈 목록만 주면 표현만 바꿔 같은 조회를 되풀이한다.
+    assert theme["indicators"] == [] and "유니버스" in theme["note"]
+
+
+def test_lookup_without_term_list_is_rejected_with_shape_hint():
+    _, chat, _ = _run([json.dumps({"action": "lookup", "text": "RSI"}), _FINISH])
+    assert "terms" in chat.states[1]["steps"][0]["observation"]["rejected"]
 
 
 def test_chat_failure_keeps_accepted_fills():
@@ -135,7 +156,7 @@ def test_chat_failure_keeps_accepted_fills():
         return responses.pop(0)
 
     result = verify_interpretation(intent, report, _UTTERANCE, chat)
-    assert result[0].strategy.risk_management.stop_loss == 7
+    assert result.intent.strategy.risk_management.stop_loss == 7
 
 
 def test_mode_defaults_off_for_unknown_value(monkeypatch):
@@ -176,14 +197,93 @@ def test_validation_failure_is_observed_then_repaired():
         _FINISH,
     ])
     assert "rejected" in chat.states[1]["steps"][0]["observation"]
-    assert result is not None and len(result[0].strategy.exit_conditions) == 1
+    assert result is not None and len(result.intent.strategy.exit_conditions) == 1
 
 
 def test_repeated_action_and_budget_keep_accepted_fills():
     fill = _patch("손절은 7%로", {"op": "replace", "path": "/risk_management/stop_loss", "value": 7})
-    result, chat, _ = _run([fill, fill, _FINISH])
-    assert result[0].strategy.risk_management.stop_loss == 7
-    assert len(chat.states) == 2  # 같은 액션 반복은 즉시 종료
+    result, chat, _ = _run([fill, fill, fill, _FINISH])
+    assert result.intent.strategy.risk_management.stop_loss == 7
+    # 같은 행동의 첫 반복은 사유를 돌려주고 잇고, 두 번째 반복에서 끝낸다(무한 반복 금지).
+    assert len(chat.states) == 3
+    assert "이미 한 행동" in chat.states[2]["steps"][1]["observation"]["rejected"]
+
+
+def test_repeated_lookup_gets_feedback_and_the_agent_can_still_finish():
+    """채울 것이 없는 턴이 같은 조회 반복으로 '규칙 위반' 종료되던 실측(2026-11-16 10턴 중 8턴)."""
+    lookup = json.dumps({"action": "lookup", "terms": ["RSI"]})
+    result, chat, _ = _run([lookup, lookup, _FINISH])
+    assert result is None and len(chat.states) == 3
+
+
+def test_patch_that_changes_nothing_is_not_a_fill():
+    result, chat, _ = _run([
+        _patch("RSI 30 이하면 매수", {"op": "add", "path": "/entry_conditions/0/value", "value": 30}),
+        _FINISH,
+    ])
+    assert result is None
+    assert "rejected" in chat.states[1]["steps"][0]["observation"]
+
+
+def test_field_cleared_by_this_turn_is_not_refilled():
+    """수정 턴: 사용자가 이번에 비운 칸을 '말했는데 빠진 것'으로 되채우면 삭제를 뒤집는다."""
+    intent, report = _validated()
+    chat = ScriptedChat([
+        _patch("손절은 7%로", {"op": "replace", "path": "/risk_management/stop_loss", "value": 7}),
+        _FINISH])
+    result = verify_interpretation(intent, report, _UTTERANCE, chat,
+                                   blocked_paths=frozenset({"/risk_management/stop_loss"}))
+    assert result is None
+    assert "비운 칸" in chat.states[1]["steps"][0]["observation"]["rejected"]
+
+
+# ── 값 확인 후보(corrections) ────────────────────────────────────────────────
+
+def _finish_with(*concerns):
+    return json.dumps({"action": "finish", "concerns": list(concerns)}, ensure_ascii=False)
+
+
+def test_wrong_number_becomes_a_correction_candidate_not_an_edit():
+    """틀려 보이는 값은 고치지 않는다 — 요청 문장의 값과 나란히 후보로 돌려주고 사용자가 고른다."""
+    result, _, _ = _run([_finish_with(
+        {"path": "/risk_management/stop_loss", "quote": "손절은 7%로", "value": 7, "reason": "5로 들어감"},
+    )], risk_management={"stop_loss": 5})
+    assert result.filled == 0
+    assert result.intent.strategy.risk_management.stop_loss == 5
+    assert result.corrections == [
+        {"path": "/risk_management/stop_loss", "quote": "손절은 7%로", "current": 5, "proposed": 7}]
+
+
+@pytest.mark.parametrize("concern", [
+    # 인용이 요청 문장에 없다
+    {"path": "/risk_management/stop_loss", "quote": "손절은 9%로", "value": 9},
+    # 제안값이 인용에 적힌 숫자가 아니다
+    {"path": "/risk_management/stop_loss", "quote": "손절은 7%로", "value": 8},
+    # 이름을 붙여 물을 수 없는 칸이다
+    {"path": "/universe/markets", "quote": "손절은 7%로", "value": 7},
+    # 인용에 지금 값도 함께 적혀 있어 어느 칸의 값인지 가릴 수 없다
+    {"path": "/entry_conditions/0/value", "quote": "RSI 30 이하면 매수하고 손절은 7%로", "value": 7},
+    # 값이 없는 후보
+    {"path": "/risk_management/stop_loss", "quote": "손절은 7%로"},
+])
+def test_ungrounded_concern_stays_out_of_corrections(concern):
+    result, _, _ = _run([_finish_with(concern)], risk_management={"stop_loss": 5})
+    assert result is None
+
+
+def test_condition_value_can_be_a_correction_candidate():
+    result, _, _ = _run([_finish_with(
+        {"path": "/exit_conditions/0/value", "quote": "RSI 70 이상이면 매도", "value": 70},
+    )], exit_conditions=[{"factor": "technical.rsi", "operator": ">=", "value": 60,
+                          "source_text": "RSI 70 이상이면 매도"}])
+    assert result.corrections[0]["current"] == 60 and result.corrections[0]["proposed"] == 70
+
+
+def test_pending_question_is_shown_to_the_agent():
+    intent, report = _validated()
+    chat = ScriptedChat([_FINISH])
+    verify_interpretation(intent, report, "7%", chat, pending_question="손절 기준을 몇 %로 할까요?")
+    assert chat.states[0]["pending_question"] == "손절 기준을 몇 %로 할까요?"
 
 
 def test_malformed_output_returns_none():
@@ -225,7 +325,7 @@ def _fill_stop_loss(monkeypatch, calls):
         intent = intent.model_copy(deep=True)
         intent.strategy.risk_management.stop_loss = 7
         out = call_tool("validate_intent", intent=intent)
-        return out.intent, out.report
+        return verify_agent.VerifyOutcome(intent=out.intent, report=out.report, filled=1)
 
     monkeypatch.setattr(verify_agent, "verify_interpretation", fake)
 

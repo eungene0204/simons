@@ -3847,6 +3847,31 @@ _INTERPRETATION_FAILURE_CREATE_MESSAGE = (
 )
 
 
+# 실패 사유 라벨(primary._note_failure) → 정해진 안내 문구. 라벨은 시스템이 남긴 구조 신호다 —
+# 무엇을 못 했는지 짚어 줘야 사용자가 같은 말을 되풀이하지 않는다(2026-11-13 가상 사용자 SU06:
+# 일반 문구에 같은 요청을 세 번 반복). 라벨이 없거나 표에 없으면 종전 일반 문구다.
+_FAILURE_REASON_MODIFY_MESSAGES = {
+    "FORMAT": ("요청을 전략 형식으로 옮기다가 AI 출력이 형식에 맞지 않았어요. 다시 시도했지만 해결되지 "
+               "않아 전략은 그대로 두었습니다. 바꿀 내용을 한두 가지씩 나눠서 보내 주세요."),
+    "NO_PATCHES": ("요청에서 지금 전략과 달라지는 부분을 찾지 못했어요. 전략은 그대로 두었습니다. "
+                   "바꾸거나 더할 항목과 값을 함께 알려주세요."),
+    "PATCH_INVALID": ("바꾸려는 항목을 지금 전략에서 찾지 못해 반영하지 못했어요. 전략은 그대로 "
+                      "두었습니다. 바꿀 항목을 하나씩 짚어서 알려주세요."),
+    "VALIDATION": ("요청대로 바꾼 전략이 검증을 통과하지 못해 반영하지 않았어요. 전략은 그대로 "
+                   "두었습니다. 바꿀 조건과 값을 조금 더 구체적으로 알려주세요."),
+    "COMPILE": ("요청대로 바꾼 전략을 실행 형식으로 만들지 못해 반영하지 않았어요. 전략은 그대로 "
+                "두었습니다. 바꿀 내용을 한두 가지씩 나눠서 보내 주세요."),
+}
+_FAILURE_REASON_CREATE_MESSAGES = {
+    "FORMAT": ("요청을 전략 형식으로 옮기다가 AI 출력이 형식에 맞지 않았어요. 다시 시도했지만 해결되지 "
+               "않았습니다. 진입·청산 규칙을 한두 문장씩 나눠서 보내 주세요. 예: '5일 이동평균이 20일 "
+               "이동평균을 위로 뚫으면 매수하고 아래로 뚫으면 매도, 손절 10%'"),
+    "COMPILE": ("요청을 해석했지만 실행할 수 있는 전략 형식으로 만들지 못했어요. 진입·청산 규칙을 "
+                "한두 문장씩 나눠서 보내 주세요. 예: '5일 이동평균이 20일 이동평균을 위로 뚫으면 "
+                "매수하고 아래로 뚫으면 매도, 손절 10%'"),
+}
+
+
 def _interpretation_failure_result(request: NLParseRequest, backend: str, request_started: float):
     """해석 실패를 500이 아니라 되묻기 응답으로 돌려준다(None이면 구성 실패).
 
@@ -3856,14 +3881,18 @@ def _interpretation_failure_result(request: NLParseRequest, backend: str, reques
     에러", 2026-07-26)을 원천 차단한다.
     """
     from engine.nl_parser import ParsedStrategy
+    from strategy_conversation.primary import take_failure
 
+    reason = (take_failure() or {}).get("code")
     try:
         if request.previous_parsed:
             parsed = ParsedStrategy.model_validate(request.previous_parsed)
-            question, chips = _INTERPRETATION_FAILURE_MESSAGE, _INTERPRETATION_FAILURE_MODIFY_CHIPS
+            question = _FAILURE_REASON_MODIFY_MESSAGES.get(reason, _INTERPRETATION_FAILURE_MESSAGE)
+            chips = _INTERPRETATION_FAILURE_MODIFY_CHIPS
         else:
             parsed = ParsedStrategy(description=request.prompt)
-            question, chips = _INTERPRETATION_FAILURE_CREATE_MESSAGE, None
+            question = _FAILURE_REASON_CREATE_MESSAGES.get(reason, _INTERPRETATION_FAILURE_CREATE_MESSAGE)
+            chips = None
         # 실패 보고에 원문 섹터/테마 스캔을 적용하지 않는다 — 해석 실패 결과에 테마
         # 상장사가 자동 적용되면 실패가 전략처럼 위장된다(§ 11-3).
         result = _build_parse_result(
@@ -3878,6 +3907,9 @@ def _interpretation_failure_result(request: NLParseRequest, backend: str, reques
     result["clarification_suggestions"] = chips
     # 우선순위 마커 — 프론트의 explicit 설정 게이트가 이 안내를 삼키지 않게 한다.
     result["clarification_priority"] = "interpretation_failed"
+    if reason:
+        # 실패 분류(triage)가 원인별로 묶을 수 있게 구조 신호로 남긴다.
+        result.setdefault("runtime", {})["failure_reason"] = reason
     return _finalize_parse_result(result, request)
 
 
@@ -3904,6 +3936,13 @@ def _run_nl_parse(request: NLParseRequest, on_stage=None, defer_holder: dict | N
         raise HTTPException(status_code=503, detail="전략 버전을 보관하지 못했어요. 변경을 반영하지 않았습니다.") from exc
 
 
+def _is_chip_click(request: NLParseRequest) -> bool:
+    """입력이 직전 질문의 칩 문자열과 정확히 같은가(형식 비교 — run_chip_answer와 같은 판정)."""
+    chips = (request.pending_ask or {}).get("chips")
+    return isinstance(chips, list) and (request.prompt or "").strip() in {
+        str(chip).strip() for chip in chips if isinstance(chip, str)}
+
+
 def _run_nl_parse_orchestrated(request: NLParseRequest, on_stage, defer_holder, draft_id, owner_id=None):
     """총괄 에이전트가 켜져 있으면 한 턴의 진행을 에이전트가 고른다(로컬 dev, 한국 레인).
 
@@ -3913,8 +3952,18 @@ def _run_nl_parse_orchestrated(request: NLParseRequest, on_stage, defer_holder, 
     """
     from strategy_conversation import config as _config
 
-    def interpret():
-        return _run_nl_parse_traced(request, on_stage=on_stage, defer_holder=defer_holder)
+    def interpret(recalled_quotes=()):
+        turn_request = request
+        # primary가 꺼진 레인에는 덧붙이지 않는다 — 그쪽 레거시 원문 스캔의 입력을 넓히지 않는다.
+        if recalled_quotes and _config.interpreter_mode() == "primary":
+            # 기억에서 해소한 '앞서 한 말'은 사용자의 이전 발화 조각 그대로다(orchestrator가 기록과
+            # 대조했다) — 해석 입력에 덧붙여야 하류의 인용 대조가 그 조각을 근거로 인정한다.
+            # 이 조각(최대 3개·각 80자)은 이번 턴의 Trace 입력에 다시 적힌다 — 그 조각의 원문 보관이
+            # 이번 턴 Trace의 기한(3일)만큼 이어진다.
+            quoted = ", ".join(f'"{quote}"' for quote in recalled_quotes)
+            turn_request = request.model_copy(update={
+                "prompt": f"{request.prompt} (앞서 한 말: {quoted})"})
+        return _run_nl_parse_traced(turn_request, on_stage=on_stage, defer_holder=defer_holder)
 
     if draft_id is None or _config.orchestrator_mode() != "primary":
         return interpret(), None
@@ -3944,7 +3993,9 @@ def _run_nl_parse_orchestrated(request: NLParseRequest, on_stage, defer_holder, 
         request.prompt, has_strategy=request.previous_parsed is not None,
         pending_question=request.pending_question or (request.pending_ask or {}).get("question"),
         chat_fn=getattr(_primary._get_interpreter(StrategyInterpreter), "_chat", None),
-        interpret=interpret, recall=recall, check_feasibility=check_feasibility)
+        interpret=interpret, recall=recall, check_feasibility=check_feasibility,
+        # 칩 클릭은 시스템이 낸 선택지의 선택이다 — 입력을 바꾸면 결정론 귀속이 깨진다.
+        can_recall=request.previous_parsed is not None and not _is_chip_click(request))
     result = turn["result"] if turn["result"] is not None else interpret()
     notice = orchestrator.feasibility_notice(turn["feasibility"])
     if notice and notice not in (result.get("notices") or []):

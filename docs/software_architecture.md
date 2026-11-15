@@ -1308,8 +1308,17 @@ LLM 처리량**이다(입력은 llama-server 프롬프트 캐시가 6개까지 �
 만든 전략(검증 통과본)을 LLM이 요청 문장과 다시 대조해 **말했는데 빠진 칸**을 도구 루프로
 채운다. 위치는 `run_primary_parse`의 `validate_intent` 뒤·컴파일 앞, 한국 생성 턴 한정이다
 (수정 턴·US 미적용). 매 턴 LLM이 JSON 액션 하나를 낸다 — `lookup`(신규 도구
-`lookup_indicator`: LLM이 뽑은 지표 표현 → 정본 factor ID·연산자·파라미터 이름),
-`patch`(인용+JSON Patch로 채우기 시도), `finish`(종료+관측용 concerns). 러너가 채우기 시도를
+`lookup_indicator`: LLM이 뽑은 지표 표현 → 정본 factor ID·연산자·파라미터 이름. 액션은
+`terms` 목록으로 이름마다 따로 조회하고, 같은 이름을 나눠 쓰는 변형 지표까지 돌려주며, 빈 결과에는
+정해진 사유 문장을 싣는다 — 2026-11-16),
+`patch`(인용+JSON Patch로 채우기 시도), `finish`(종료+concerns). 2026-11-16부터 한국 레인의
+수정 턴(`_run_primary_modification_once`, 검증 통과 뒤·컴파일 앞)에도 돌며, 그 턴이 지운 조건·비운
+칸은 `blocked`·`blocked_paths`로 막는다. concerns 가운데 숫자 한 칸이고 인용 관문을 통과한 것은
+`VerifyOutcome.corrections`로 돌려주고, 호출부(`primary._value_check_ask`)가 현재값·요청값 두 칩을
+값에 결속한 확인 질문으로 낸다(값은 고치지 않는다). 같은 행동의 반복은 한 번 사유를 돌려주고 잇는다.
+해석 경로의 실패는 `primary._note_failure`가 라벨로 남기고, `_self_repairing`이 거부된 출력과 사유를
+인터프리터에 한 번 돌려준 뒤(`output_repair.build_downstream_repair_prompt`), 그래도 실패하면
+`main._interpretation_failure_result`가 라벨로 안내 문구를 고른다. 러너가 채우기 시도를
 복사본에 적용해 `validate_intent`를 다시 돌리고 수락·거절 사유를 다음 턴 관찰로 돌려준다
 (거절을 읽고 고쳐 다시 시도하는 루프). 안전 계약은 전부 결정론: ① **채우기만** — 값이 있던
 칸의 교체·삭제는 거절하고 LLM이 틀렸다고 본 칸은 concerns로 Trace에만 남긴다(두 번째 LLM이
@@ -1352,9 +1361,17 @@ null 값은 '말하지 않음'. 위반은 고치지 않고 보고하며 `Strateg
 #### 총괄 에이전트·대화 기억·실행 가능성 점검 (2026-11-14, 로컬 dev)
 
 `STRATEGY_ORCHESTRATOR_MODE=primary`(기본 off)이면 `/strategy/parse`의 한 턴을
-`planner/orchestrator.orchestrate`가 진행한다(`main._run_nl_parse_orchestrated`). LLM은 매 턴
-JSON 행동 하나를 고른다 — `recall`(대화 기억 조회)·`interpret`(고정 파이프라인 전체, 한 번)·
-`check_feasibility`(남은 질문이 없는 전략의 실제 백테스트 거래 수)·`finish`. 지금 부를 수 있는
+`planner/orchestrator.orchestrate`가 진행한다(`main._run_nl_parse_orchestrated`). 행동은
+`recall`(대화 기억 조회)·`interpret`(고정 파이프라인 전체, 한 번)·`check_feasibility`(남은 질문이
+없는 전략의 실제 백테스트 거래 수)·`finish`다. LLM이 고르는 것은 해석 전 한 번(`recall`을 먼저
+할지)뿐이고, 해석 뒤는 결정론이다 — 점검할 수 있으면 점검하고 끝낸다(2026-11-16: 해석 뒤 선택을
+LLM에 물었을 때 Trace 93턴 중 43턴이 `interpret`를 다시 골라 점검이 빠졌다). `recall`은 고칠 전략이
+있는 턴에만 열리고(칩 클릭 턴 제외), 조회 뒤 `resolve_references`가 LLM에게 "이번 발화가 가리키는
+이전 발화 조각"을 글자 그대로 받아 기록과 대조한 뒤 해석 입력에 `(앞서 한 말: "…")`로 덧붙인다 —
+하류의 인용 대조가 그 조각을 근거로 인정하게 하기 위해서다(에이전트는 새 문장을 쓰지 않는다).
+실행 가능성 점검(`run_feasibility`)은 600종목 초과 유니버스에서 표본 300종목(`universe_id` 없이
+종목 목록만)을 먼저 돌리고, 0건일 때만 전체를 돈다(전 종목 Phase1이 종목 수에 비례해 60초를 넘긴다).
+지금 부를 수 있는
 행동 목록을 상태에 실어 주고, 목록 밖 출력은 즉시 종료하며, 고를 것이 하나뿐이면 LLM을 부르지
 않는다. 해석을 돌리지 못한 채 끝나면 호출부가 고정 파이프라인을 돈다. 네이티브 도구 호출은
 이 레인 모델에서 10회 중 4회가 빈 응답이어서 쓰지 않는다(JSON 행동 출력).

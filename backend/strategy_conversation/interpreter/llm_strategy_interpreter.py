@@ -35,6 +35,7 @@ from strategy_conversation.interpreter.models import StrategyIntent
 from strategy_conversation.interpreter.holding_period_check import reconcile_holding_days
 from strategy_conversation.interpreter.output_repair import (
     bare_unsupported_request_error,
+    build_downstream_repair_prompt,
     build_repair_prompt,
     cross_role_duplicate_error,
     cross_role_duplicate_fields,
@@ -358,6 +359,7 @@ class StrategyInterpreter:
         pending_question: Optional[str] = None,
         on_stage: Optional[Callable[[str], None]] = None,
         previous_coach_text: Optional[str] = None,
+        repair_from: Optional[tuple] = None,
     ) -> InterpreterResult:
         """본체는 _interpret다 — 이 래퍼는 관찰 span만 연다(비활성 시 no-op).
 
@@ -375,7 +377,8 @@ class StrategyInterpreter:
             metadata={"model": _active_model(self.model_name), "prompt_version": PROMPT_VERSION,
                       "mode": "modify" if draft else "create"},
         ) as trace:
-            result = self._interpret(user_input, draft, pending_question, on_stage, previous_coach_text)
+            result = self._interpret(user_input, draft, pending_question, on_stage,
+                                     previous_coach_text, repair_from)
             trace.local_evidence(interpreter_result={"intent": result.intent,
                 "raw_output": result.raw_output, "unreflected_numbers": result.unreflected_numbers,
                 "repair_attempts": result.repair_attempts, "prompt_version": result.prompt_version})
@@ -399,7 +402,13 @@ class StrategyInterpreter:
         pending_question: Optional[str] = None,
         on_stage: Optional[Callable[[str], None]] = None,
         previous_coach_text: Optional[str] = None,
+        repair_from: Optional[tuple] = None,
     ) -> InterpreterResult:
+        # 자가 복구 재요청(repair_from=(반영되지 못한 원출력, 사유)) — 하류가 거부한 출력을 사유와
+        # 함께 돌려주고 다시 받는다. 전체 형태로만 받는다.
+        if repair_from is not None:
+            return self._run(user_input, draft, pending_question, on_stage, previous_coach_text,
+                             repair_from=repair_from)
         # 설정 옮겨 적기 형태(생성 턴 한정, 기본 off) — 출력이 요청 분량에 비례하게 한다.
         # 형식 위반(차림표 밖 경로·요청에 없는 인용)이나 해석 실패는 전체 형태로 한 번 다시 받는다.
         if draft is None and config.settings_form_enabled():
@@ -422,6 +431,7 @@ class StrategyInterpreter:
         on_stage: Optional[Callable[[str], None]] = None,
         previous_coach_text: Optional[str] = None,
         form_violations: Optional[list] = None,
+        repair_from: Optional[tuple] = None,
     ) -> InterpreterResult:
         started = time.perf_counter()
         system_prompt, chat = self._system_prompt, self._chat
@@ -452,7 +462,11 @@ class StrategyInterpreter:
                     last_stage["stage"] = stage
                     on_stage(stage)
 
-        if on_chunk is not None:
+        if repair_from is not None:
+            _log_llm("⟳ 자가 복구 요청", f"하류 거부 사유: {str(repair_from[1])[:300]}")
+            raw = chat(system_prompt, build_downstream_repair_prompt(
+                user_input, repair_from[0], repair_from[1], draft))
+        elif on_chunk is not None:
             raw = chat(system_prompt, user_prompt, on_chunk=on_chunk)
         else:
             raw = chat(system_prompt, user_prompt)
@@ -767,7 +781,10 @@ class StrategyInterpreter:
                 _log_llm(f"◀ 복구 응답({attempts}회차)", current_raw.strip())
 
         _log_llm("✗ 해석 실패", f"{attempts}회 복구 후에도 스키마 불만족: {str(last_error)[:200]}")
-        raise InterpreterError(
+        failure = InterpreterError(
             f"LLM 출력이 {attempts}회 복구 후에도 StrategyIntent 스키마를 만족하지 않습니다: "
             f"{str(last_error)[:500]}"
         )
+        # 자가 복구(primary)가 사유와 함께 다시 요청할 수 있게 마지막 출력을 실어 보낸다.
+        failure.raw_output = current_raw
+        raise failure

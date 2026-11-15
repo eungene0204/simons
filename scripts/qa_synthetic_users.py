@@ -135,9 +135,16 @@ def gemini_json(prompt: str, key: str, temperature: float = 1.0) -> dict:
             with urllib.request.urlopen(req, timeout=120) as res:
                 data = json.loads(res.read())
             break
-        except urllib.error.HTTPError as exc:
-            if exc.code != 429:
+        except (TimeoutError, urllib.error.URLError) as exc:
+            # 상류의 일시 장애(5xx·읽기 타임아웃)는 잠깐 뒤 다시 보낸다 — 대화 열 개가 통째로 죽는다.
+            code = getattr(exc, "code", None)
+            if code is not None and code < 500 and code != 429:
                 raise
+            if code != 429:
+                if attempt == 2:
+                    raise
+                time.sleep(10)
+                continue
             # 분당 한도는 잠깐 기다리면 풀리고, 일일 한도(retryDelay가 몇 시간)는 기다려도 소용없다.
             detail = json.loads(exc.read() or b"{}").get("error", {})
             delay = next((int(float(d["retryDelay"].rstrip("s"))) for d in detail.get("details", [])

@@ -2279,10 +2279,137 @@ def _condition_keys(strategy) -> frozenset:
         for role in ("entry_conditions", "exit_conditions") for c in getattr(strategy, role))
 
 
+# ── 실패 사유 메모 · 자가 복구 ───────────────────────────────────────────────────
+# 해석 경로가 None(실패 보고)으로 끝날 때 어디서 왜 끝났는지를 라벨로 남긴다. ① 하류가 거부한
+# 출력은 사유와 함께 인터프리터에 한 번 돌려주고 다시 받는다(_self_repairing) ② 그래도 실패하면
+# 호출부(main)가 라벨을 키로 정해진 안내 문구를 고른다 — "해석하지 못했어요" 한 문장으로 원인이
+# 뭉개지지 않게 한다(2026-11-16). 라벨·사유는 시스템 출력이고 사용자 원문을 읽지 않는다.
+_FAILURE_NOTE: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar(
+    "primary_failure_note", default=None)
+# NO_PATCHES(바꿀 것 없음·수정 요청 아님)는 다시 묻지 않는다 — 그것도 LLM의 판정이고, "패치를 내라"는
+# 사유를 붙여 재요청하면 말하지 않은 변경을 지어내게 미는 재심이 된다(안내 문구만 고른다).
+_RETRYABLE_FAILURES = frozenset({"FORMAT", "PATCH_INVALID", "VALIDATION", "COMPILE"})
+
+
+def _note_failure(code: str, detail: Any = "", raw: Optional[str] = None) -> None:
+    _FAILURE_NOTE.set({"code": code, "detail": str(detail)[:500], "raw": raw})
+
+
+def take_failure() -> Optional[Dict[str, Any]]:
+    """이번 요청의 실패 사유 메모를 꺼내고 비운다(없으면 None)."""
+    note = _FAILURE_NOTE.get()
+    _FAILURE_NOTE.set(None)
+    return note
+
+
+def _self_repairing(run_once: Callable[..., Optional[Dict[str, Any]]], *args: Any,
+                    **kwargs: Any) -> Optional[Dict[str, Any]]:
+    """한 번 실패하면 거부 사유를 인터프리터에 돌려주고 한 번만 더 돈다(무한 재시도 금지)."""
+    _FAILURE_NOTE.set(None)
+    result = run_once(*args, **kwargs)
+    first = _FAILURE_NOTE.get()
+    if (result is not None or not first or not first.get("raw")
+            or first["code"] not in _RETRYABLE_FAILURES):
+        if result is not None:
+            _FAILURE_NOTE.set(None)
+        return result
+    _log_llm("⟳ 자가 복구", f"{first['code']}: {first['detail'][:200]} — 사유를 돌려주고 한 번 더")
+    _FAILURE_NOTE.set(None)
+    result = run_once(*args, repair_from=(first["raw"], first["detail"]), **kwargs)
+    if result is not None:
+        _FAILURE_NOTE.set(None)
+        _log_llm("✓ 자가 복구 성공", first["code"])
+    elif _FAILURE_NOTE.get() is None:
+        _FAILURE_NOTE.set(first)
+    return result
+
+
+# ── 값 확인 질문 — 자기 검증 에이전트가 '틀린 값'으로 본 숫자 한 칸을 사용자에게 묻는다 ──────
+_VALUE_CHECK_LABELS = {
+    "/risk_management/stop_loss": ("손절 기준", "%"),
+    "/risk_management/take_profit": ("익절 기준", "%"),
+    "/risk_management/trailing_stop": ("트레일링 스탑", "%"),
+    "/portfolio/selection_count": ("보유 종목 수", "개"),
+}
+_VALUE_CHECK_TOPIC = "값 확인"
+
+
+def _value_check_ask(corrections: List[Dict[str, Any]], validated: Any, report: Any,
+                     base_parsed: Any, final_parsed: Any, compile_user_input: str,
+                     partial: bool) -> Optional[tuple]:
+    """값 확인 후보 하나를 (질문, 칩, pending_ask)로 만든다. 만들 수 없으면 None.
+
+    값은 고치지 않는다 — 요청 문장의 값과 전략의 값을 나란히 보여 주고 사용자가 고른다
+    (두 번째 AI가 맞는 값을 뒤집은 2026-10-23 사고 때문에 자동 교체는 하지 않는다).
+    칩은 발행 시점에 값에 결속한다(칩=값 결속 계약): 바꾸는 칩은 고친 전략을 컴파일해 달라진
+    필드만, 유지 칩은 지금 값을 싣는다. 컴파일 뒤 단계가 그 필드를 손댔으면(결속값이 최종
+    전략과 어긋난다) 묻지 않는다.
+    """
+    from strategy_conversation.compiler.strategy_compiler import StrategyCompileError
+    from strategy_conversation.conversation.patch_applier import PatchError, apply_patches
+    from strategy_conversation.interpreter.models import PatchOp
+    from strategy_conversation.tools import call as call_tool
+
+    for item in corrections[:1]:
+        path = item["path"]
+        if path in _VALUE_CHECK_LABELS:
+            label, unit = _VALUE_CHECK_LABELS[path]
+        else:
+            role, index, _ = path.strip("/").split("/")
+            spec = resolve(getattr(validated.strategy, role)[int(index)].factor)
+            if spec is None:
+                return None
+            side = "매수" if role == "entry_conditions" else "매도"
+            label, unit = f"{side} 조건 {spec.display_name} 기준값", ""
+        try:
+            fixed_spec = apply_patches(validated.strategy, [
+                PatchOp(op="replace", path=path, value=item["proposed"])])
+            fixed = call_tool(
+                "compile_strategy", intent=validated.model_copy(update={"strategy": fixed_spec}),
+                report=report, user_input=compile_user_input, partial=partial).parsed
+        except (PatchError, StrategyCompileError, ValueError):
+            return None
+        base, fixed_dump, final = base_parsed.model_dump(), fixed.model_dump(), final_parsed.model_dump()
+        changed = [key for key in fixed_dump if key != "description" and fixed_dump[key] != base.get(key)]
+        if not changed or any(final.get(key) != base.get(key) for key in changed):
+            return None
+        current_text, proposed_text = f"{item['current']:g}{unit}", f"{item['proposed']:g}{unit}"
+        change_chip, keep_chip = f"{label} {proposed_text}", f"{label} {current_text} 유지"
+        question = (f"요청의 '{item['quote']}'와(과) 전략에 들어간 값이 달라 보여요. "
+                    f"{label}: 지금 {current_text}, 요청 문장 기준 {proposed_text}. 어느 값으로 할까요?")
+        _log_llm("? 값 확인 질문", f"{path}: {current_text} ↔ {proposed_text}")
+        return question, [change_chip, keep_chip], {
+            "question": question, "topic": _VALUE_CHECK_TOPIC, "chips": [change_chip, keep_chip],
+            "chip_bindings": {change_chip: {key: fixed_dump[key] for key in changed},
+                              keep_chip: {key: final[key] for key in changed}},
+        }
+    return None
+
+
+def _with_value_check(value_ask: Optional[tuple], question: Optional[str],
+                      suggestions: Optional[List[str]], priority: Optional[str],
+                      pending_ask: Optional[Dict[str, Any]]) -> tuple:
+    """값 확인 질문을 이번 턴 질문으로 올리고, 원래 내려던 질문은 큐로 넘긴다(한 턴에 한 질문)."""
+    if value_ask is None or priority not in (None, "dag_planner", "pending_values"):
+        return question, suggestions, priority, pending_ask
+    new_question, chips, ask = value_ask
+    if question:
+        queued = ({key: pending_ask[key] for key in ("question", "topic", "chips") if key in pending_ask}
+                  if pending_ask else {"question": question, "topic": None, "chips": []})
+        ask["queue"] = [queued, *((pending_ask or {}).get("queue") or [])]
+    return new_question, chips, "pending_values", ask
+
+
+def run_primary_parse(user_input: str, *args: Any, **kwargs: Any) -> Optional[Dict[str, Any]]:
+    """초기 파스의 LLM Interpreter 기본 경로 — 본체는 _run_primary_parse_once(자가 복구 1회 포함)."""
+    return _self_repairing(_run_primary_parse_once, user_input, *args, **kwargs)
+
+
 @decision_session
-def run_primary_parse(
+def _run_primary_parse_once(
     user_input: str, on_stage=None,
     previous_explicit_fields: Optional[List[str]] = None,
+    repair_from: Optional[tuple] = None,
 ) -> Optional[Dict[str, Any]]:
     """LLM Interpreter 기본 경로 실행. 성공 시 결과 dict, 해석 실패 시 None.
 
@@ -2363,10 +2490,12 @@ def run_primary_parse(
             phrases_future = _start_parallel(extract_condition_phrases, user_input, recall_chat)
         # on_stage: 인터프리터가 스트리밍 출력의 섹션 키를 보고 유니버스→매수→매도→리스크
         # 단계 전환을 알린다(비스트리밍 chat 주입 시 자동 비활성 — 동작 동일).
-        result = interpreter.interpret(user_input, on_stage=on_stage)
+        result = interpreter.interpret(user_input, on_stage=on_stage, repair_from=repair_from)
     except InterpreterError as exc:
         logger.warning("interpreter primary failed, reporting failure | err=%s",
                        str(exc)[:200])
+        # 이미 자가 복구로 받은 출력이 또 형식을 깨면 더 돌지 않는다.
+        _note_failure("FORMAT", exc, None if repair_from else getattr(exc, "raw_output", None))
         return None
     # 조건 인용 대조(LLM) — 이동평균·볼린저 조건마다 "인용이 이 조건을 말하나"를 묻는다(신고가
     # 오분류 교정·다른 설정 문구 가드의 판정 근거). 인터프리터 출력이 입력이라 동시 전송은
@@ -2552,6 +2681,7 @@ def run_primary_parse(
         _log_llm("↩ 실패 보고", f"전략 파이프라인 대상이 아닌 intent={validated.intent} — 되묻기로")
         logger.info("interpreter primary non-strategy intent=%s, reporting failure",
                     validated.intent)
+        _note_failure("NOT_STRATEGY", validated.intent)
         return None
 
     # [지역 격리] /us 요청의 한국 시장 명시는 컴파일 전에 거절한다 — 검증기 오류만으로는
@@ -2583,6 +2713,7 @@ def run_primary_parse(
             },
         })
 
+    value_corrections: List[Dict[str, Any]] = []
     # 해석 자기 검증 에이전트 — 검증 통과본을 요청 문장과 대조해 빠진 칸을 채운다(도구 루프,
     # planner/verify_agent.py). 앞 단계들이 빼거나 보류한 조건은 다시 넣지 못하게 넘긴다.
     # 채운 것이 없거나 실패하면 원래 결과 그대로다.
@@ -2593,8 +2724,10 @@ def run_primary_parse(
             validated, report, user_input, recall_chat,
             blocked=conditions_before_guards - _condition_keys(result.intent.strategy))
         if verified is not None:
-            validated, report = verified
-            _log_llm("✓ 자기 검증", f"빠진 칸 채움 — status={report.status}")
+            validated, report = verified.intent, verified.report
+            value_corrections = verified.corrections
+            if verified.filled:
+                _log_llm("✓ 자기 검증", f"빠진 칸 채움 — status={report.status}")
     notices: List[str] = initial_validation_notices(report) + repair_notices
     if checks.blocked(validated.strategy.universe):
         held_conditions += [i for i in checks.items if i["subject"] is validated.strategy.universe
@@ -2628,9 +2761,11 @@ def run_primary_parse(
         compiled = call_tool("compile_strategy", intent=validated, report=report,
                              user_input=user_input, partial=not report.is_valid)
         parsed, dropped = compiled.parsed, compiled.dropped
+        compiled_base = parsed.model_copy(deep=True)
         pending_conditions = list(compiled.pending_conditions)
     except StrategyCompileError as exc:
         logger.warning("interpreter primary compile failed, reporting failure | err=%s", exc)
+        _note_failure("COMPILE", exc, None if repair_from else getattr(result, "raw_output", None))
         return None
     _log_llm("✓ 컴파일", (
         f"{'전체' if report.is_valid else '부분'} 컴파일 — 제외 조건: {', '.join(dropped) or '없음'}"
@@ -3076,6 +3211,15 @@ def run_primary_parse(
         if old_ask and old_ask.get("question") != clarification_question:
             pending_ask["queue"] = [{k: old_ask[k] for k in ("question", "topic", "chips") if k in old_ask}]
             pending_ask["queue"].extend(old_ask.get("queue") or [])
+
+    if value_corrections and not held_conditions and create_domain_ask is None:
+        (clarification_question, clarification_suggestions, clarification_priority,
+         pending_ask) = _with_value_check(
+            _value_check_ask(value_corrections, validated, report, compiled_base, parsed,
+                             user_input, not report.is_valid),
+            clarification_question, clarification_suggestions, clarification_priority, pending_ask)
+        if (pending_ask or {}).get("topic") == _VALUE_CHECK_TOPIC:
+            chips_offered = len(pending_ask["chips"])
 
     # 결속 체인 판정 — 되묻기로 끝나는 턴인데 pending_ask가 없으면 다음 턴의 답변은
     # 귀속 근거 없이 일반 분류 레인으로 떨어진다. 그 손실이 어느 게이트에서 났는지를
@@ -5277,14 +5421,21 @@ def _contribution_symbol_answer_result(draft_spec: Any, user_input: str, pending
                              model_name=getattr(interpreter, "model_name", "") or "")
 
 
+def run_primary_modification(user_input: str, previous_parsed: dict, *args: Any,
+                             **kwargs: Any) -> Optional[Dict[str, Any]]:
+    """수정 요청의 LLM Interpreter 기본 경로 — 본체는 _run_primary_modification_once(자가 복구 1회 포함)."""
+    return _self_repairing(_run_primary_modification_once, user_input, previous_parsed, *args, **kwargs)
+
+
 @decision_session
-def run_primary_modification(
+def _run_primary_modification_once(
     user_input: str, previous_parsed: dict, on_stage=None,
     previous_explicit_fields: Optional[List[str]] = None,
     pending_ask: Optional[Dict[str, Any]] = None,
     pending_question: Optional[str] = None,
     previous_coach_text: Optional[str] = None,
     previous_declined_fields: Optional[List[str]] = None,
+    repair_from: Optional[tuple] = None,
 ) -> Optional[Dict[str, Any]]:
     """수정 요청의 LLM Interpreter 기본 경로. 성공 시 결과 dict, 폴백 필요 시 None.
 
@@ -5367,9 +5518,11 @@ def run_primary_modification(
             or _get_interpreter(StrategyInterpreter).interpret(
                 user_input, draft=_draft_for_interpreter(draft_spec), pending_question=pending_question,
                 previous_coach_text=previous_coach_text if not pending_question else None,
+                repair_from=repair_from,
             )
     except InterpreterError as exc:
         logger.warning("modify primary interpreter failed, falling back | err=%s", str(exc)[:200])
+        _note_failure("FORMAT", exc, None if repair_from else getattr(exc, "raw_output", None))
         return None
     except Exception as exc:  # noqa: BLE001
         if config.modify_interpreter_mode() == "llm_first" and isinstance(exc, OSError):
@@ -5508,6 +5661,7 @@ def run_primary_modification(
     if intent.intent not in ("MODIFY_STRATEGY", "CLARIFY_STRATEGY") or not intent.patches:
         _log_llm("↩ 폴백", f"patches 미출력(intent={intent.intent}) — 기존 수정 경로로")
         logger.info("modify primary without patches (intent=%s), falling back", intent.intent)
+        _note_failure("NO_PATCHES", f"intent={intent.intent}")
         return None
 
     decision_log = current_log()
@@ -5915,6 +6069,8 @@ def run_primary_modification(
     except PatchError as exc:
         _log_llm("↩ 폴백", f"패치 거부: {str(exc)[:150]} — 기존 수정 경로로")
         logger.warning("modify primary patch rejected, falling back | err=%s", exc)
+        _note_failure("PATCH_INVALID", f"patches를 초안에 적용하지 못했습니다: {exc}",
+                      None if repair_from else getattr(result, "raw_output", None))
         return None
     # 이전 턴까지의 '안 함'은 초안(ParsedStrategy 디컴파일)에 실리지 않는다 — 검증이 '매도 조건 없이 보유'로
     # 정한 전략에 청산 규칙을 다시 묻지 않게 이번 턴 신고와 합쳐 싣는다.
@@ -6097,7 +6253,9 @@ def run_primary_modification(
             selected_spec, cued_patches, blocked = approval.restore_rejected(
                 draft_spec, modify_intent.strategy, condition_origins, rejected_cells, apply_patches,
                 decisions=rejection_decisions)
-        except PatchError:
+        except PatchError as exc:
+            _note_failure("PATCH_INVALID", f"patches를 초안에 적용하지 못했습니다: {exc}",
+                          None if repair_from else getattr(result, "raw_output", None))
             return None
         blocked_groups_final.update(blocked)
         if decision_log is not None:
@@ -6247,14 +6405,52 @@ def run_primary_modification(
             _log_llm("↩ 폴백", f"패치 적용 후 검증 미통과(status={report.status}) — 기존 수정 경로로")
             logger.info("modify primary not READY after patch (status=%s), falling back",
                         report.status)
+            _note_failure("VALIDATION", "패치를 적용한 전략이 검증을 통과하지 못했습니다: "
+                          + "; ".join(report.errors[:3]), None if repair_from else getattr(result, "raw_output", None))
             return None
+    # 해석 자기 검증 에이전트(수정 턴) — 이번 발화가 말했는데 패치에 빠진 칸을 채우고, 틀려 보이는
+    # 숫자 한 칸은 값 확인 후보로 받는다(생성 턴과 같은 관문, planner/verify_agent.py). 이 턴의
+    # 게이트가 거부·보류한 조건은 다시 넣지 못하게 넘긴다.
+    value_corrections: List[Dict[str, Any]] = []
+    if (config.verify_agent_mode() == "primary" and callable(modify_chat)
+            and validated.strategy is not None and not _us_market_context(prev)):
+        from strategy_conversation.planner.verify_agent import verify_interpretation
+
+        accepted_ids = {id(patch) for patch in cued_patches}
+        # 이번 턴이 지운 조건·비운 설정 칸도 막는다 — "PER 조건은 빼줘"의 PER을 '말했는데 빠진 것'으로
+        # 되살리면 사용자의 삭제를 뒤집는다.
+        before_sections = {name: getattr(draft_spec, name).model_dump(mode="json")
+                           for name in ("risk_management", "portfolio", "backtest")}
+        after_sections = {name: getattr(validated.strategy, name).model_dump(mode="json")
+                          for name in before_sections}
+        verified = verify_interpretation(
+            validated, report, user_input, modify_chat, pending_question=pending_question,
+            blocked=frozenset(
+                (patch.path.split("/")[1], getattr(resolve(patch.value["factor"]), "id", patch.value["factor"]))
+                for patch in intent.patches
+                if id(patch) not in accepted_ids and isinstance(patch.value, dict)
+                and isinstance(patch.value.get("factor"), str) and patch.path.count("/") >= 2
+            ) | (_condition_keys(draft_spec) - _condition_keys(validated.strategy)),
+            blocked_paths=frozenset(
+                f"/{name}/{key}" for name, fields in before_sections.items()
+                for key, value in fields.items()
+                if value not in (None, [], {}) and after_sections[name].get(key) in (None, [], {})))
+        if verified is not None:
+            validated, report = verified.intent, verified.report
+            value_corrections = verified.corrections
+            if verified.patches:
+                cued_patches = [*cued_patches, *verified.patches]
+                _log_llm("✓ 자기 검증", "빠진 칸 채움 — " + "; ".join(
+                    f"{patch.op} {patch.path}" for patch in verified.patches))
     try:
-        parsed = _carry_over(call_tool(
+        compiled_base = call_tool(
             "compile_strategy", intent=validated, report=report,
             user_input=prev.description, partial=modification_partial,
-        ).parsed)
+        ).parsed
+        parsed = _carry_over(compiled_base)
     except StrategyCompileError as exc:
         logger.warning("modify primary compile failed, falling back | err=%s", exc)
+        _note_failure("COMPILE", exc, None if repair_from else getattr(result, "raw_output", None))
         return None
     # 이번 턴이 보유 수를 실제로 바꿨으면 그때부터는 사용자가 말한 값이다(_carry_over가
     # 이월한 이전 출처에 이번 턴을 더한다). 판정 근거는 패치 경로뿐이다 — 디컴파일 초안의
@@ -6465,6 +6661,11 @@ def run_primary_modification(
             user_input, parsed, turn_explicit_fields,
             declined_fields if declined_fields is not None else previous_declined_fields,
         )
+    if value_corrections and held_clarification is None and pair_question is None:
+        dag_question, dag_suggestions, dag_priority, dag_pending_ask = _with_value_check(
+            _value_check_ask(value_corrections, validated, report, compiled_base, parsed,
+                             prev.description, modification_partial),
+            dag_question, dag_suggestions, dag_priority, dag_pending_ask)
     if decision_log is not None:
         decision_log.groups.append({"stage": "modification_commit", "base_hash": approval.base_hash,
             "approved_proposals": [patch.model_dump(mode="json") for patch in cued_patches],
