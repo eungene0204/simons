@@ -84,8 +84,12 @@ APPLIED=$(npx ts-node --project tsconfig.scripts.json scripts/seed-research-note
 echo "$APPLIED" | head -1
 for slug in ${NEW_SLUGS//,/ }; do
   [ "$slug" = "-" ] && continue
-  page=$(curl -s -o /dev/null -w '%{http_code}' "$SITE/notes/$slug")
-  img=$(curl -s -o /dev/null -w '%{http_code}' "$SITE/notes/news/$slug/overview.webp")
+  # 노트 목록은 운영에서 5분 캐시된다(notesStore) — 시드 직후엔 새 글이 몇 분 404라 기다리며 다시 본다(2026-11-15 오판).
+  for _ in $(seq 1 12); do
+    page=$(curl -s -o /dev/null -w '%{http_code}' "$SITE/notes/$slug")
+    img=$(curl -s -o /dev/null -w '%{http_code}' "$SITE/notes/news/$slug/overview.webp")
+    [ "$page" = 200 ] && [ "$img" = 200 ] && break; sleep 30
+  done
   echo "$slug: 글 $page · 사진 $img"
   [ "$page" = 200 ] && [ "$img" = 200 ] || fail "$slug 운영 주소 확인 실패(글 $page · 사진 $img)"
 done
