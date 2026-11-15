@@ -331,6 +331,8 @@ def test_exit_chips_are_all_bindable():
 
     base = ParsedStrategy(description="x", universe=["KOSPI"]).model_dump()
     for chip in strategy_slots.slot_question(strategy_slots.EXIT)[1]:
+        if strategy_slots.DECLINE_CHIP_FIELDS.get(chip) == strategy_slots.EXIT:
+            continue          # 거부 칩은 값이 아니라 거부 필드에 결속된다
         after = _apply_prompt_overrides(
             ParsedStrategy.model_validate(base), chip,
             skip_signal_validation=True, preserve_universe=True,
@@ -584,13 +586,26 @@ def test_only_declinable_fields_accept_decline():
         parsed, fields=[slots.ENTRY], declined_fields=[slots.ENTRY]))
     assert status.filled is False
     assert slots.DECLINABLE_FIELDS == frozenset(
-        {slots.REBALANCING, slots.STOP_LOSS, slots.TAKE_PROFIT})
+        {slots.REBALANCING, slots.STOP_LOSS, slots.TAKE_PROFIT, slots.EXIT})
+
+
+def test_declined_exit_is_decided_and_stops_the_exit_question():
+    """'매도 조건은 안 정할게요'도 답이다(2026-11-15 사용자 결정) — 손절만 있는 전략에 매도 질문이
+    끝없이 돌아왔다(가상 사용자 QA SU01). 거부 뒤 매도 조건을 넣으면 값이 이긴다."""
+    parsed = ParsedStrategy(description="저PBR", stop_loss_pct=7.0)
+    asked = next(s for s in slots.evaluate(parsed, fields=[slots.EXIT]))
+    assert asked.filled is False
+    declined = next(s for s in slots.evaluate(
+        parsed, fields=[slots.EXIT], declined_fields=[slots.EXIT]))
+    assert declined.filled is True
+    assert declined.value_status is slots.ValueStatus.CONFIRMED
 
 
 def test_decline_chips_are_offered_on_risk_questions():
     """'안 함'을 고를 수 없으면 값을 넣어야만 게이트를 통과할 수 있다."""
     for field, chip in (
         (slots.STOP_LOSS, "손절 안 함"), (slots.TAKE_PROFIT, "익절 안 함"),
+        (slots.EXIT, "매도 조건 없이 보유"),
     ):
         status = next(s for s in slots.evaluate(
             ParsedStrategy(description="빈 전략"), fields=[field]))

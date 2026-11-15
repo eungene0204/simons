@@ -788,7 +788,8 @@ class MarketFilterSpec(BaseModel):
 # (engine.strategy_slots.DECLINABLE_FIELDS와 같은 이름). 칩 거부('손절 안 함' 클릭)와 같은 축을
 # 자유 서술에서도 표현하기 위한 자리다 — 없으면 "손절매는 적용하지 않는다"가 미지원 안내로 나갔다
 # (2026-09-19 실측).
-DeclinableField = Literal["stop_loss", "take_profit", "rebalancing"]
+# exit(매도 조건)는 2026-11-15 사용자 결정으로 추가 — "매도 조건은 안 정할게요"를 담을 자리가 없어 같은 질문이 반복됐다.
+DeclinableField = Literal["stop_loss", "take_profit", "rebalancing", "exit"]
 
 
 class RiskSpec(BaseModel):
@@ -1228,7 +1229,7 @@ class StrategySpec(BaseModel):
         return [x for x in v if isinstance(x, (dict, MacroFilterSpec))] if isinstance(v, list) else []
     declined: List[DeclinableField] = Field(
         default_factory=list,
-        description="사용자가 명시적으로 쓰지 않겠다고 한 설정(stop_loss/take_profit/rebalancing)",
+        description="사용자가 명시적으로 쓰지 않겠다고 한 설정(stop_loss/take_profit/rebalancing/exit)",
     )
 
     @field_validator("declined", mode="before")
@@ -1240,7 +1241,7 @@ class StrategySpec(BaseModel):
         if isinstance(v, str):
             v = [v]
         if isinstance(v, list):
-            allowed = ("stop_loss", "take_profit", "rebalancing")
+            allowed = ("stop_loss", "take_profit", "rebalancing", "exit")
             out = []
             for item in v:
                 # 출력 형태(프롬프트 6.2): {"field": ..., "source_text": 사용자 말 그대로} —

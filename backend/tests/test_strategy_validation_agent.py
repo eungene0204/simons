@@ -331,6 +331,22 @@ def test_periodic_rebalancing_counts_as_exit_rule():
     assert "MISSING_EXIT_RULE" in _codes(not_rebalanced)
 
 
+def test_declined_exit_is_not_reported_missing():
+    # '매도 조건 없이 보유'(2026-11-15 사용자 결정)로 정한 전략에 '청산 조건이 정의되어 있지 않습니다'를 내지 않는다.
+    strategy = {
+        "universe": "KOSPI",
+        "entry_rule": [{"metric": "pbr", "operator": "<=", "value": 1}],
+        "rebalancing_period": "none",
+        "position_sizing": {"method": "equal_weight"},
+        "max_positions": 20,
+        "data_frequency": "daily",
+        "backtest_period": "10y",
+    }
+    assert "MISSING_EXIT_RULE" in _codes(StrategyValidationAgent().validate(strategy))
+    assert "MISSING_EXIT_RULE" not in _codes(
+        StrategyValidationAgent().validate(strategy, declined_fields=["exit"]))
+
+
 def test_declined_risk_slots_are_not_reported_missing():
     # [회귀 2026-09-17] '손절 안 함'·'익절 안 함'을 고른 전략 요약 아래 '손절 조건을 입력해 주세요'가 떴다 —
     # 값이 없는 것이 사용자 결정(declined_fields, engine/strategy_slots.DECLINABLE_FIELDS)인데 누락으로 셌다.

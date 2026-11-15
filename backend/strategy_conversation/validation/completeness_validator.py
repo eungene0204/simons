@@ -658,6 +658,8 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
         or strategy.portfolio.rebalance_frequency
         or strategy.ranking
         or risk.stop_loss or risk.take_profit or risk.trailing_stop or risk.max_mdd_limit
+        # '매도 조건 없이 보유'는 사용자의 결정이다 — 다시 묻지 않는다.
+        or "exit" in strategy.declined
     )
     # 적립식의 진입 조건은 전부 납입액 규칙이다(capability_validator가 섞인 요청을 이미 걸렀다) —
     # 매도가 없는 방식이라 청산 규칙을 묻지 않는다.

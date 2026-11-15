@@ -8024,3 +8024,46 @@ def test_null_patch_without_quote_or_later_value_is_not_decline():
                 source_text="7%로"),
     ])
     assert patched.declined == []
+
+
+# 2026-11-13 가상 사용자 QA SU06 원출력 형태 — 연산자 패치와 값 패치를 한 객체로 합쳐 "value"가 두 번 나온다.
+_DUPLICATE_KEY_SENTENCE = "PBR은 1배 아래로 해줘"
+_DUPLICATE_KEY_RAW = (
+    '{"intent": "MODIFY_STRATEGY", "strategy": null, "patches": ['
+    '{"op": "replace", "path": "/entry_conditions/0/operator", "value": "<=", "value": 1, '
+    '"source_text": "PBR은 1배 아래"}]}'
+)
+_DUPLICATE_KEY_REGENERATED = json.dumps({
+    "intent": "MODIFY_STRATEGY", "strategy": None,
+    "patches": [
+        {"op": "replace", "path": "/entry_conditions/0/operator", "value": "<=",
+         "source_text": "PBR은 1배 아래"},
+        {"op": "replace", "path": "/entry_conditions/0/value", "value": 1,
+         "source_text": "PBR은 1배 아래"},
+    ],
+}, ensure_ascii=False)
+_DUPLICATE_KEY_DRAFT = {"entry_conditions": [{"factor": "fundamental.pbr", "operator": "<=", "value": 2}]}
+
+
+def test_duplicate_key_patch_regenerates_once_and_splits_the_patch():
+    """같은 키를 두 번 쓴 패치 객체는 형식 위반이다 — 뒤의 값만 남아 연산자 칸에 숫자가 들어가고 수정 전체가
+    "해석하지 못했어요"로 끝났다. 어느 값이 어느 칸인지 정하지 않고 오류를 LLM에 되돌려 1회 재생성한다."""
+    chat, calls = _bare_label_chat(_DUPLICATE_KEY_RAW, _DUPLICATE_KEY_REGENERATED)
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(
+        _DUPLICATE_KEY_SENTENCE, draft=_DUPLICATE_KEY_DRAFT)
+
+    assert len(calls) == 2 and result.repair_attempts == 1
+    assert "같은 키가 두 번" in calls[1] and "/entry_conditions/0/operator" in calls[1]
+    assert [(p.path, p.value) for p in result.intent.patches] == [
+        ("/entry_conditions/0/operator", "<="), ("/entry_conditions/0/value", 1)]
+
+
+def test_duplicate_key_patch_still_duplicated_after_regeneration_is_returned_as_is():
+    """재생성본도 같은 모양이면 더 요청하지 않는다(기존 패치 거부 경로)."""
+    chat, calls = _bare_label_chat(_DUPLICATE_KEY_RAW, _DUPLICATE_KEY_RAW)
+
+    result = StrategyInterpreter(chat_fn=chat, model="stub").interpret(
+        _DUPLICATE_KEY_SENTENCE, draft=_DUPLICATE_KEY_DRAFT)
+
+    assert len(calls) == 2 and result.repair_attempts == 1

@@ -150,6 +150,8 @@ export function isSlotFilled(
   }
   // 신규 상장 코호트(FR-STR-073)는 창 시작이 상장일 하한으로 확정돼 다른 답이 성립하지 않는다.
   if (field === "backtest_period" && parsed.listing_from) return true;
+  // '매도 조건 없이 보유'(2026-11-15) — 매도 조건도 거부할 수 있다. 값 판정(아래 ②)이 참이면 어차피 채워진 칸이다.
+  if (field === "exit" && (options.declinedFields ?? []).includes("exit")) return true;
 
   // ② 값이 있는가(백엔드 _has_value). 각 슬롯의 입력 필드 집합은 provenance와 같아야 한다.
   let hasValue: boolean;

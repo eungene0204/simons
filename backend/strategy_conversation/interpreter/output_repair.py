@@ -545,6 +545,40 @@ def draftless_patch_error() -> str:
     )
 
 
+def duplicate_key_patch_paths(raw_text: str) -> list:
+    """같은 키를 두 번 쓴 패치 객체의 path 목록(형식 위반) — LLM 원출력의 JSON 구조만 본다.
+
+    수정 LLM이 한 조건의 연산자 패치와 값 패치를 한 객체로 합쳐 `"value"`를 두 번 쓰면
+    (`{"path": ".../operator", "value": "<=", "value": 10}`) JSON 파서는 뒤의 값만 남긴다 — 연산자 칸에
+    숫자가 들어가 스키마 위반으로 수정 전체가 "해석하지 못했어요"로 끝난다(2026-11-13 가상 사용자 QA SU06).
+    어느 값이 어느 칸의 것인지 여기서 정하지 않는다 — 오류를 LLM에 되돌려 다시 받는다.
+    """
+    def pairs(items):
+        keys = [k for k, _ in items]
+        obj = dict(items)
+        if len(set(keys)) != len(keys):
+            obj["__duplicate_key__"] = True
+        return obj
+
+    try:
+        data = json.loads(extract_json_object(raw_text), object_pairs_hook=pairs)
+    except (ValueError, TypeError):
+        return []
+    patches = data.get("patches") if isinstance(data, dict) else None
+    return [str(p.get("path")) for p in patches or []
+            if isinstance(p, dict) and p.get("__duplicate_key__")]
+
+
+def duplicate_key_patch_error(paths: list) -> str:
+    """키가 중복된 패치를 LLM에 되돌려줄 검증 오류 문구(build_repair_prompt의 error_message)."""
+    return (
+        f"patches: {', '.join(paths)} 패치 객체에 같은 키가 두 번 있습니다 — 패치 하나는 path 하나의 "
+        "value 하나만 바꿉니다.\n"
+        "- 그 객체를 path마다 하나씩의 패치로 나누어 쓰세요(예: 조건의 /operator 패치와 /value 패치는 "
+        "별개의 객체). 다른 패치는 그대로 두세요."
+    )
+
+
 def bare_unsupported_request_error() -> str:
     """빈 UNSUPPORTED_REQUEST를 LLM에 되돌려줄 검증 오류 문구(build_repair_prompt의 error_message).
 

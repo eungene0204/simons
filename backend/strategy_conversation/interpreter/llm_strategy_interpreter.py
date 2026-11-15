@@ -42,6 +42,8 @@ from strategy_conversation.interpreter.output_repair import (
     is_bare_unsupported_request,
     is_draftless_patch_intent,
     draftless_patch_error,
+    duplicate_key_patch_paths,
+    duplicate_key_patch_error,
     misfiled_trading_value_error,
     misfiled_trading_value_fields,
     split_bollinger_recovery_error,
@@ -592,6 +594,22 @@ class StrategyInterpreter:
                         build_repair_prompt(user_input, current_raw, error_message, draft),
                     )
                     _log_llm(f"◀ 초안 없는 패치 재생성 응답({attempts}회차)", current_raw.strip())
+                    continue
+                # 출력 형식 위반 — 같은 키를 두 번 쓴 패치 객체(duplicate_key_patch_paths docstring).
+                # 같은 레인으로 1회 재생성한다. 재생성 뒤에도 남으면 그대로 진행한다(기존 패치 거부 경로).
+                duplicated = duplicate_key_patch_paths(current_raw) if intent.patches else []
+                if (duplicated and format_fallback_raw is None
+                        and attempts < config.MAX_REPAIR_ATTEMPTS):
+                    format_fallback_raw = current_raw
+                    format_original_other_slots = _other_strategy_slots(intent)
+                    attempts += 1
+                    error_message = duplicate_key_patch_error(duplicated)
+                    _log_llm(f"⟳ 패치 키 중복 재생성 요청({attempts}회차)", error_message)
+                    current_raw = chat(
+                        system_prompt,
+                        build_repair_prompt(user_input, current_raw, error_message, draft),
+                    )
+                    _log_llm(f"◀ 패치 키 중복 재생성 응답({attempts}회차)", current_raw.strip())
                     continue
                 # 출력 형식 위반 — 인용이 다른 지표를 부르는 거래대금 조건(금액 표현을 거래대금으로
                 # 지어낸 흔적, misfiled_trading_value_fields docstring). 같은 레인으로 1회 재생성한다

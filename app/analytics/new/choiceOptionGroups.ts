@@ -75,6 +75,7 @@ const LIST_SPECS: ReadonlyArray<ListSpec> = [
         ],
       },
       { title: "기간으로 청산", members: ["20일 보유 후 청산"] },
+      { title: "사용 안 함", members: ["매도 조건 없이 보유"] },
     ],
     placeholder: "원하는 매도 조건을 직접 적어 주세요",
     note: "매도 조건은 여러 개를 함께 쓸 수 있어요. 함께 쓰려면 위 입력창에 한 번에 적어 주세요.",

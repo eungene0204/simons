@@ -5309,7 +5309,8 @@ def run_primary_modification(
     from engine.nl_parser import ParsedStrategy
     from strategy_conversation.compiler.strategy_compiler import StrategyCompileError
     from strategy_conversation.compiler.strategy_decompiler import decompile_strategy
-    from strategy_conversation.conversation.patch_applier import PatchError, apply_patches
+    from strategy_conversation.conversation.patch_applier import (
+        DECLINABLE_PATHS, PatchError, apply_patches, is_noop_clear, patch_document)
     from strategy_conversation.interpreter.llm_strategy_interpreter import (
         InterpreterError,
         StrategyInterpreter,
@@ -5603,9 +5604,14 @@ def run_primary_modification(
     # 위험 관리 설정(익절·손절 등)을 비우는 패치도 같다 — 매도 조건 답 전체를 인용으로 단 익절 비우기가
     # 인용 대조를 통과해 기존 익절이 사라졌다(2026-11-06). 사용자가 없애라고 명시했다는 LLM 판정이
     # 있을 때만 남기고, 판정 실패·unclear는 기존 값을 지키며 되묻는다.
+    # 이미 비어 있는 설정을 다시 비우는 패치는 바뀌는 것이 없어 묻지 않는다 — 수정 LLM이 '익절 안 함' 한 마디에
+    # 위험 관리 칸 전부를 비우면 칸마다 판정이 돌고 "설정을 없앨지" 되묻기까지 나갔다(2026-11-13 실측).
+    # 손절·익절은 비움이 곧 '안 함' 신고(_record_null_declines)라 그대로 판정한다.
+    draft_doc = patch_document(draft_spec)
     risk_clear_candidates = [
         (i, p) for i, p in enumerate(intent.patches)
         if verdicts[i] and is_risk_clear_patch(p)
+        and (p.path in DECLINABLE_PATHS or not is_noop_clear(draft_doc, p))
     ]
     checks.plan("risk_clear", [p for _, p in risk_clear_candidates])
     if risk_clear_candidates:
@@ -5910,6 +5916,12 @@ def run_primary_modification(
         _log_llm("↩ 폴백", f"패치 거부: {str(exc)[:150]} — 기존 수정 경로로")
         logger.warning("modify primary patch rejected, falling back | err=%s", exc)
         return None
+    # 이전 턴까지의 '안 함'은 초안(ParsedStrategy 디컴파일)에 실리지 않는다 — 검증이 '매도 조건 없이 보유'로
+    # 정한 전략에 청산 규칙을 다시 묻지 않게 이번 턴 신고와 합쳐 싣는다.
+    if previous_declined_fields:
+        from strategy_conversation.response.provenance import merge_declined_fields
+
+        patched_spec.declined = merge_declined_fields(previous_declined_fields, patched_spec.declined)
 
     # 이번 턴이 새로 넣은 유니버스 표현 중 정본 섹터로 풀리지 않는 것(= 테마 표현)은
     # **미지원이 아니라 지식 조회 대상**이다. 검증기(정본 사전만 안다)에 그대로 넘기면

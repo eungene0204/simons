@@ -47,7 +47,7 @@ class StrategyValidationAgent:
         """Return the stable validation contract consumed before a backtest.
 
         declined_fields: 사용자가 '안 함'으로 거부한 슬롯(engine/strategy_slots.DECLINABLE_FIELDS 이름 —
-        stop_loss·take_profit·rebalancing). 값이 없는 것이 사용자 결정이므로 누락으로 보고하지 않는다
+        stop_loss·take_profit·rebalancing·exit). 값이 없는 것이 사용자 결정이므로 누락으로 보고하지 않는다
         (2026-09-17 실측: '손절 안 함'을 고른 전략에 '손절 조건을 입력해 주세요').
         """
         payload = self._as_mapping(strategy)
@@ -63,8 +63,8 @@ class StrategyValidationAgent:
             ])
 
         issues: list[dict[str, str]] = []
-        issues.extend(self._validate_required_fields(payload))
         declined = {str(field) for field in (declined_fields or ())}
+        issues.extend(self._validate_required_fields(payload, exit_declined="exit" in declined))
         # 정액 적립식은 매도가 없다 — 손절·익절은 물을 대상이 아니다(슬롯 정본 CONTRIBUTION_NOT_APPLICABLE).
         if self._has_contribution_plan(payload) or self._has_withdrawal_plan(payload):
             declined |= {"stop_loss", "take_profit"}
@@ -116,7 +116,8 @@ class StrategyValidationAgent:
             and bool(strategy.get("target_symbols") or strategy.get("etf_theme"))
         )
 
-    def _validate_required_fields(self, strategy: Mapping[str, Any]) -> list[dict[str, str]]:
+    def _validate_required_fields(
+            self, strategy: Mapping[str, Any], exit_declined: bool = False) -> list[dict[str, str]]:
         contribution = self._has_contribution_plan(strategy) or self._has_withdrawal_plan(strategy)
         fields = {
             "universe": self._first(strategy, ("universe",), ("symbols",)),
@@ -161,7 +162,7 @@ class StrategyValidationAgent:
         )
         has_rebalancing = not self._is_empty(rebalancing) and str(rebalancing).lower() != "none"
         if (self._is_empty(exit_rule) and self._is_empty(holding_period) and not has_rebalancing
-                and not contribution):
+                and not contribution and not exit_declined):
             issues.append(self._issue(
                 "MISSING_EXIT_RULE", "error", "missing_field", "exit_rule",
                 "청산 조건이 정의되어 있지 않습니다.",

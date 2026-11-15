@@ -2325,6 +2325,7 @@ function StrategyLabContent() {
       rebalancing: "리밸런싱 안 함",
       stop_loss: "손절 안 함",
       take_profit: "익절 안 함",
+      exit: "매도 조건 없이 보유",
     };
     const userChoice =
       (field === "rebalancing" && text === NO_REBALANCING_CHIP) ||
