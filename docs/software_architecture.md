@@ -1,5 +1,9 @@
 # Software Architecture
 
+### 신규 가입 Telegram 운영 알림 — 2026-11-16
+
+이메일 가입 및 Google 최초 계정 생성 직후 운영자에게 가입 방식·한국 시각을 전송한다. 기존 계정 로그인은 전송하지 않는다. 서버 환경변수 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`가 필요하며 미설정 시 건너뛴다. 전송은 최대 3초 대기하고 실패해도 가입을 유지한다. 개인정보·토큰·API 오류 본문을 로그나 알림에 포함하지 않는다. 재시도 큐는 없으므로 전송 실패 시 알림이 유실될 수 있다. 운영 배포에는 동일 환경변수 설정이 필요하다.
+
 ### 2026-10-26 수익률 랭킹의 하한 대조
 
 - Primary 생성은 랭킹 중복 정리(`_dedupe_relative_return_against_ranking`) 뒤, 위쪽 순위 기간 수익률 랭킹이 있고 `portfolio.absolute_momentum_threshold_percent`가 비어 있을 때만 `interpreter/return_floor_check.py`의 짧은 LLM 판정을 부른다. LLM은 `stated|none|unclear`와 하한 숫자 표기(`value_text`)를 옮겨 적고, 코드는 그 표기가 입력에 실재하고 숫자+% 꼴인지만 확인해 칸을 채운다. 실패·애매함은 칸을 그대로 둔다(fail-open). 메인 프롬프트는 바꾸지 않았다.

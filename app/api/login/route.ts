@@ -1,3 +1,4 @@
+import { notifySignup } from "@/lib/server/signup-notification"
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import {
@@ -73,6 +74,7 @@ export async function POST(request: NextRequest) {
             updatedAt: new Date(),
           },
         })
+        await notifySignup('google')
       }
 
       if (user.status !== 'ACTIVE') {

@@ -1,3 +1,4 @@
+import { notifySignup } from "@/lib/server/signup-notification"
 // 이메일 가입 2단계 — 인증번호 확인 + 계정 생성.
 //
 // 보안 설계
@@ -154,6 +155,8 @@ export async function POST(request: NextRequest) {
       }
       throw createError
     }
+
+    await notifySignup('email')
 
     // 인증번호 단계가 꺼져 있으면 지울 인증 행 자체가 없다 — 건너뛴다.
     // (2026-08-20 사고: off인데도 이 호출을 타는 바람에, 새 모델을 모르는 구버전

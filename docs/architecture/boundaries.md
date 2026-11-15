@@ -519,6 +519,8 @@ Backtest result Experience Memory를 semantic retrieval 용도로 저장하고 �
 
 ## Boundary O: Landing / Auth Entry Experience
 
+2026-11-16 사용자 승인: 신규 가입 Telegram 운영 알림에 한해 `app/api/register/route.ts`, `lib/server/signup-notification.ts`, `lib/server/signup-notification.test.ts`를 이 boundary에 포함한다. 기존 가입 흐름·인증 계약·스키마는 보존한다.
+
 ### Purpose
 Public landing page, sign-in entry flow, and session bootstrap into the existing dashboard.
 
