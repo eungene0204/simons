@@ -62,9 +62,10 @@ services:
       OMP_NUM_THREADS: "1"
       POLARS_MAX_THREADS: "1"
       # 전략 대화 에이전트(총괄: 대화 기억·실행 가능성 점검 / 자기 검증: 빠진 칸 채우기·값 확인 질문).
-      # 2026-11-16 사용자 결정으로 운영에서 켠다 — 끄려면 박스 .env에 해당 변수를 off로 둔다.
+      # 2026-11-16 사용자 결정으로 총괄은 운영에서 켠다 — 끄려면 박스 .env에 해당 변수를 off로 둔다.
+      # 자기 검증은 같은 날 껐다: 13문항 104건 중 39건을 쓰고 채움 1건(수정 41턴 채움 0건) — 켜려면 박스 .env에 primary.
       STRATEGY_ORCHESTRATOR_MODE: ${STRATEGY_ORCHESTRATOR_MODE:-primary}
-      STRATEGY_VERIFY_AGENT_MODE: ${STRATEGY_VERIFY_AGENT_MODE:-primary}
+      STRATEGY_VERIFY_AGENT_MODE: ${STRATEGY_VERIFY_AGENT_MODE:-off}
       # news_v2 — main.py가 startup에서 스케줄러+celery 워커 서브프로세스를 직접 spawn한다.
       # 컨테이너 호스트명으로 redis/postgres에 연결(없으면 localhost로 붙어 실패).
       NEWSV2_ENABLED: "true"

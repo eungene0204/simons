@@ -2698,6 +2698,7 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 - ✅ 값 확인 질문: 틀렸다고 본 값이 숫자 한 칸(손절·익절·트레일링·보유 종목 수·조건 기준값)이고 인용 관문을 통과하면 고치지 않고 현재값/요청값 두 칩(값 결속)으로 묻는다(`primary._value_check_ask`). 원래 질문은 큐로 넘긴다.
 - ✅ 실패 자가 복구: 하류(패치 적용·검증·컴파일)가 거부한 출력은 사유와 함께 인터프리터에 1회 재요청(`primary._self_repairing`, `output_repair.build_downstream_repair_prompt`). 그래도 실패하면 실패 라벨별 안내 문구(`main._FAILURE_REASON_*`).
 - ✅ 운영에서 켜기: `docker-compose.yml` backend에 `STRATEGY_ORCHESTRATOR_MODE`·`STRATEGY_VERIFY_AGENT_MODE` 기본 primary(박스 `.env`로 끌 수 있음). 대화 기억 테이블 마이그레이션은 운영 DB에 이미 적용돼 있음(`prisma migrate status` up to date).
+- ✅ 자기 검증 운영에서 끄기(2026-11-16 같은 날, 사용자 결정): `docker-compose.yml`의 `STRATEGY_VERIFY_AGENT_MODE` 기본을 off로. 근거 — 어려운 13문항 실측에서 LLM 호출 104건 중 39건이 자기 검증이고 채움 1건, 수정 턴 41개에서는 채움 0건. 끄면 문항당 8건 → 5건. 값 확인 질문도 함께 꺼진다(실 LLM 발생 0건). 총괄(대화 기억·실행 점검)은 그대로 켜 둔다. 코드는 남아 있어 박스 `.env`에 primary로 되켤 수 있다.
 - 회귀: `backend/tests/test_agent_self_repair.py` 14건(신규), `test_orchestrator.py`·`test_verify_agent.py` 갱신·추가. 가상 사용자 하니스에 Gemini 일시 장애(5xx·타임아웃) 재시도.
 - 실측(nemotron-3.5-super-vl:free, 워크트리 서버): 되묻기 하니스 `modify` 변경 전 40 PASS·3 NOT_RUN·FAIL 0 → 변경 후 41 PASS·2 NOT_RUN·FAIL 0. 가상 사용자 — 1·2번 수리 뒤 10개 대화(건너뜀 1) 결함 후보 3개(11-13 같은 하니스 7개), 최종 코드 4개 대화에서 해석 실패·질문 반복 0. 수정 턴 자기 검증 41턴: 종료 39·반복 종료 2·채움 0·값 확인 질문 0.
 - 운영 LLM 호출 수: 수정 턴 평균 4.0건(되묻기 하니스 44턴 178건 — 자기 검증이 턴당 1~2건, 기억을 조회하는 턴은 총괄 2건 추가). 자가 복구가 도는 턴은 해석 경로 전체를 한 번 더 돈다(하니스·가상 사용자 실측에서는 발생 0건). 무료 한도(1000건/일)는 운영과 같은 키다.
