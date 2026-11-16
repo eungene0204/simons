@@ -2703,3 +2703,8 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 - ⑤ 주문·시장 로그 인덱스와 로그 FK, 대화 턴 `(draftId, turn)` unique + 재시도, 미사용 테이블 3개 삭제(운영 0행), public RLS
 - 검증: 임시 PG16에 psql·`prisma migrate deploy` 두 방식 적용 후 스키마 차이 0, 프론트 2906·백엔드 5947 통과
 - 보류: `ExampleSimulationResult`(78행 남음), 주문 취소↔자동 체결 이중 환불 경합, PATCH `currentBalance` 임의 변경, 관심종목 그룹 교차 참조
+
+### 실험 — 2026-11-17 해석 에이전트 실험 레인(기본 off) 배포
+
+- `planner/interpretation_agent.py` — 켜면(`STRATEGY_INTERPRETATION_AGENT_MODE=primary`) 한국 레인 생성 턴의 해석을 LLM 루프가 맡는다(초안·검증 결과를 보고 지표 조회·추가·교체·삭제를 스스로 고름). 운영은 off라 동작 변화 없음. 비교 하니스 `scripts/qa_agent_vs_pipeline.py`
+- ⬜ 켜기 전: 고정 파이프라인 단계(planner-first 업종·테마, 조건 인용·누락 대조, 지역 격리 가드)를 건너뛰는 점 점검, 되묻기 하니스·예시 게이트 실행(한도 사용 — 사용자 승인 필요). 인용 숫자 대조가 표기(`\d+`)만 맞춰 "열흘"·"다섯 종목" 같은 편집은 거절됨(보수적 방향)
