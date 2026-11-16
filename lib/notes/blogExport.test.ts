@@ -3,6 +3,7 @@ import type { GuideArticle } from "@/lib/guide/articles";
 import { SITE_SUMMARY_KO } from "@/lib/seo/site";
 import { BLOG_COMMENT_LINE, BLOG_SOURCE_LINE, blogTags, buildBlogExport } from "./blogExport";
 import { BLOG_HOOKS } from "./blogHooks";
+import { NEWS_CAUSE_QUESTION } from "./newsNotes";
 import { NOTES_DISCLAIMER, SEED_NOTES } from "./notes";
 
 const NOTE: GuideArticle = {
@@ -58,6 +59,15 @@ describe("buildBlogExport", () => {
     expect(html).toContain("Q. 자주 묻는 질문?</p>");
     expect(html).toContain("A. 답</p>");
     expect(buildBlogExport({ ...NOTE, faq: undefined }, "https://example.test").text).not.toContain("■ 자주 묻는 질문");
+  });
+
+  // 2026-11-16 — 뉴스 노트의 기사↔결과 인과 질문은 블로그 복사본에서 뺀다(페이지 FAQ에는 남는다).
+  it("drops the news cause question from the FAQ", () => {
+    const note = { ...NOTE, faq: [...NOTE.faq!, { question: NEWS_CAUSE_QUESTION, answer: "아닙니다." }] };
+    const { html, text } = buildBlogExport(note, "https://example.test");
+    expect(text).toContain("Q. 자주 묻는 질문?");
+    expect(text).not.toContain(NEWS_CAUSE_QUESTION);
+    expect(html).not.toContain(NEWS_CAUSE_QUESTION);
   });
 
   it("keeps the source link and puts photos at absolute addresses", () => {

@@ -9,10 +9,12 @@
 // 제목 바로 아래에 출처 한 줄을, 끝에 사이트 공통 소개 문장(SITE_SUMMARY_KO)을 고정으로 붙인다.
 // 2026-11-15 — 블로그 홈피드는 클릭(제목)·머문 시간(본문)으로 노출되므로, 표(blogHooks.ts)에 있는 노트는 말하듯 쓴
 // 제목과 결론 한 문장으로 시작하고, 모든 노트가 댓글을 청하는 한 줄로 끝난다.
+// 2026-11-16 — 뉴스 노트의 기사↔결과 인과 질문(NEWS_CAUSE_QUESTION)은 복사본 FAQ에서 뺀다(페이지 FAQ에는 남는다).
 
 import type { GuideArticle, GuideFaq, GuideSection } from "@/lib/guide/articles";
 import { DEFAULT_SITE_URL, SITE_SUMMARY_KO } from "@/lib/seo/site";
 import { BLOG_HOOKS } from "./blogHooks";
+import { NEWS_CAUSE_QUESTION } from "./newsNotes";
 import { notePath } from "./notes";
 
 /** 제목 바로 아래 출처 한 줄 — 요약을 발췌해도 계산 주체가 같이 읽히도록 요약 앞에 둔다. */
@@ -104,7 +106,7 @@ export function buildBlogExport(note: GuideArticle, base: string = DEFAULT_SITE_
   const tags = blogTags(note.slug).map((tag) => `#${tag}`).join(" ");
   const link = `<a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`;
 
-  const faq = note.faq ?? [];
+  const faq = (note.faq ?? []).filter((item) => item.question !== NEWS_CAUSE_QUESTION);
   const hook = BLOG_HOOKS[note.slug];
   const title = hook?.title ?? note.title;
   const closing = "관련 기록과 같은 문장으로 다시 계산하는 링크는 원문에 있습니다";

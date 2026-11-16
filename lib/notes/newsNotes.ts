@@ -15,6 +15,9 @@ import NEWS_DATA from "./newsNotes.data.json";
 
 type Row = [string, string];
 
+/** 뉴스 노트 FAQ 중 기사↔결과 인과를 묻는 질문 — 페이지에는 싣고 블로그 복사본에서는 뺀다(blogExport.ts, 2026-11-16 사용자 지시). */
+export const NEWS_CAUSE_QUESTION = "이 결과가 기사 내용 때문에 나온 것인가요?";
+
 type Photo = { key: "overview" | "dist"; src: string; caption: string; width: number; height: number };
 
 type NewsStrategy = {
@@ -208,7 +211,7 @@ function buildNote(n: NewsStrategy, related: string[], index: number): GuideArti
       answer: `널스탁이 입력 문장을 해석한 조건은 ${rules.join(", ")}입니다.`,
     },
     {
-      question: "이 결과가 기사 내용 때문에 나온 것인가요?",
+      question: NEWS_CAUSE_QUESTION,
       answer:
         "아닙니다. 기사는 전략을 떠올린 계기일 뿐이고, 결과는 기사보다 앞선 과거 데이터에 전략을 적용해 계산한 값입니다. 기사와 결과 사이의 인과는 확인하지 않았습니다.",
     },
