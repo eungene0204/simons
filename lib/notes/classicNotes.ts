@@ -950,6 +950,15 @@ export function classicNoteSlug(market: string, rule: string): string | undefine
   return t && MARKETS.includes(market as Market) ? slugOf(market as Market, t) : undefined;
 }
 
+/** 기록이 다룬 기법 이름 — 블로그 태그의 핵심 단어 원천(blogExport.ts). 개별 기록이 아니면 undefined. */
+export function classicNoteName(slug: string): string | undefined {
+  for (const rep of REPORTS) {
+    const t = technique(rep.key);
+    if (slugOf(rep.market, t) === slug) return t.name;
+  }
+  return undefined;
+}
+
 /** 유명 기법 기록이 근거로 삼은 결과 데이터(Dataset 구조화 데이터). 개별 기록이 아니면 undefined. */
 export function classicNoteDataset(slug: string): BacktestDataset | undefined {
   for (const rep of REPORTS) {

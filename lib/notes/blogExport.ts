@@ -13,6 +13,7 @@
 
 import type { GuideArticle, GuideFaq, GuideSection } from "@/lib/guide/articles";
 import { DEFAULT_SITE_URL, SITE_SUMMARY_KO } from "@/lib/seo/site";
+import { classicNoteName } from "./classicNotes";
 import { BLOG_HOOKS } from "./blogHooks";
 import { mythNoteRule } from "./mythNotes";
 import { NEWS_CAUSE_QUESTION, newsNoteName } from "./newsNotes";
@@ -37,8 +38,8 @@ export function blogTags(slug: string): string[] {
 // 입력은 우리가 쓴 노트 데이터이지 사용자 원문이 아니다. 태그는 공백·기호가 없어야 하므로 글자·숫자만 남긴다.
 const KEYWORD_LIMIT = 5;
 function nameKeywords(slug: string): string[] {
-  const name = newsNoteName(slug) ?? mythNoteRule(slug) ?? "";
-  const words = name.split(/\s+/).map((word) => word.replace(/[^\p{L}\p{N}]/gu, "")).filter((word) => word.length >= 2 && word !== "전략");
+  const name = newsNoteName(slug) ?? mythNoteRule(slug) ?? classicNoteName(slug) ?? "";
+  const words = name.split(/[^\p{L}\p{N}]+/u).filter((word) => word.length >= 2 && word !== "전략");
   return words.slice(0, KEYWORD_LIMIT);
 }
 

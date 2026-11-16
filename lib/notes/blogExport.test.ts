@@ -89,6 +89,8 @@ describe("buildBlogExport", () => {
     expect(tags).toEqual(expect.arrayContaining(["반도체", "관련주", "이동평균", "돌파"]));
     expect(tags.every((tag) => /^[\p{L}\p{N}]+$/u.test(tag))).toBe(true);
     expect(new Set(tags).size).toBe(tags.length);
+    // 유명 기법 기록(kospi-3y-*)도 기법 이름의 단어(MACD 등)가 태그로 붙는다.
+    expect(blogTags("kospi-3y-macd-signal-cross")).toEqual(expect.arrayContaining(["MACD", "시그널", "교차"]));
     expect(blogTags("sample-note")).toEqual(["널스탁", "백테스트", "퀀트투자", "주식백테스트", "퀀트연구"]);
   });
 
