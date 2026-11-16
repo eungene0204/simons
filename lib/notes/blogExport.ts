@@ -14,7 +14,8 @@
 import type { GuideArticle, GuideFaq, GuideSection } from "@/lib/guide/articles";
 import { DEFAULT_SITE_URL, SITE_SUMMARY_KO } from "@/lib/seo/site";
 import { BLOG_HOOKS } from "./blogHooks";
-import { NEWS_CAUSE_QUESTION } from "./newsNotes";
+import { mythNoteRule } from "./mythNotes";
+import { NEWS_CAUSE_QUESTION, newsNoteName } from "./newsNotes";
 import { notePath } from "./notes";
 
 /** 제목 바로 아래 출처 한 줄 — 요약을 발췌해도 계산 주체가 같이 읽히도록 요약 앞에 둔다. */
@@ -28,7 +29,17 @@ export type BlogExport = { html: string; text: string };
 /** 끝에 붙이는 블로그 태그 — 공통 태그에 노트 묶음(slug 접두사) 태그를 더한다. */
 export function blogTags(slug: string): string[] {
   const series = slug.startsWith("myth-") ? ["속설검증", "매매속설"] : slug.startsWith("news-") ? ["뉴스전략", "업종백테스트"] : ["퀀트연구"];
-  return ["널스탁", "백테스트", "퀀트투자", "주식백테스트", ...series];
+  const common = ["널스탁", "백테스트", "퀀트투자", "주식백테스트"];
+  return [...new Set([...common, ...series, ...nameKeywords(slug)])];
+}
+
+// 2026-11-16 — 핵심 단어: 노트가 다룬 전략 이름(뉴스 전략 이름·속설 규칙 이름)을 단어로 나눠 태그에 더한다.
+// 입력은 우리가 쓴 노트 데이터이지 사용자 원문이 아니다. 태그는 공백·기호가 없어야 하므로 글자·숫자만 남긴다.
+const KEYWORD_LIMIT = 5;
+function nameKeywords(slug: string): string[] {
+  const name = newsNoteName(slug) ?? mythNoteRule(slug) ?? "";
+  const words = name.split(/\s+/).map((word) => word.replace(/[^\p{L}\p{N}]/gu, "")).filter((word) => word.length >= 2 && word !== "전략");
+  return words.slice(0, KEYWORD_LIMIT);
 }
 
 function escapeHtml(value: string): string {

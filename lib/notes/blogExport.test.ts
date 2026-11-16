@@ -83,6 +83,15 @@ describe("buildBlogExport", () => {
     expect(buildBlogExport(NOTE, "https://example.test").text.endsWith("#널스탁 #백테스트 #퀀트투자 #주식백테스트 #퀀트연구")).toBe(true);
   });
 
+  // 2026-11-16 — 전략 이름의 단어가 핵심 단어 태그로 붙고, 이름이 없는 노트는 공통·묶음 태그만 갖는다.
+  it("adds strategy-name words as keyword tags", () => {
+    const tags = blogTags("news-20261029-semiconductor");
+    expect(tags).toEqual(expect.arrayContaining(["반도체", "관련주", "이동평균", "돌파"]));
+    expect(tags.every((tag) => /^[\p{L}\p{N}]+$/u.test(tag))).toBe(true);
+    expect(new Set(tags).size).toBe(tags.length);
+    expect(blogTags("sample-note")).toEqual(["널스탁", "백테스트", "퀀트투자", "주식백테스트", "퀀트연구"]);
+  });
+
   it("links the original note twice, and closes with the shared summary and tags, without the full disclaimer", () => {
     const { html, text } = buildBlogExport(NOTE, "https://example.test");
     const url = "https://example.test/notes/sample-note?utm_source=naver_blog&amp;utm_medium=referral&amp;utm_campaign=sample-note";

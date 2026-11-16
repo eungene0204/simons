@@ -194,6 +194,11 @@ export function mythNoteOpenPrompt(slug: string): string | undefined {
   return input && input.length > 0 ? input.join(" ") : undefined;
 }
 
+/** 속설이 검증한 규칙 이름 — 블로그 태그의 핵심 단어 원천(blogExport.ts). 속설 글이 아니면 undefined. */
+export function mythNoteRule(slug: string): string | undefined {
+  return MYTHS.find((m) => m.slug === slug)?.rule;
+}
+
 /** 속설 노트가 근거로 삼은 백테스트 결과 데이터(Dataset 구조화 데이터). 속설 글이 아니면 undefined. */
 export function mythNoteDataset(slug: string): BacktestDataset | undefined {
   const m = MYTHS.find((item) => item.slug === slug);

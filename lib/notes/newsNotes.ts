@@ -254,6 +254,11 @@ export function newsNoteDataset(slug: string): BacktestDataset | undefined {
   };
 }
 
+/** 전략 이름 — 블로그 태그의 핵심 단어 원천(blogExport.ts). 뉴스 글이 아니면 undefined. */
+export function newsNoteName(slug: string): string | undefined {
+  return NEWS.find((n) => n.slug === slug)?.name;
+}
+
 /** "이 전략 그대로 열기" 링크에 넣을 입력 문장 — DB 노트에는 이 필드가 없으므로 원본에서 slug로 찾는다. 뉴스 글이 아니면 undefined. */
 export function newsNoteOpenPrompt(slug: string): string | undefined {
   return NEWS.find((n) => n.slug === slug)?.prompt;
