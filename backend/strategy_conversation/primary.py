@@ -2402,6 +2402,12 @@ def _with_value_check(value_ask: Optional[tuple], question: Optional[str],
 
 def run_primary_parse(user_input: str, *args: Any, **kwargs: Any) -> Optional[Dict[str, Any]]:
     """초기 파스의 LLM Interpreter 기본 경로 — 본체는 _run_primary_parse_once(자가 복구 1회 포함)."""
+    if config.interpretation_agent_mode() == "primary" and ui_language.get_ui_language() != "en":
+        # 실험 레인: 해석의 진행을 LLM이 쥔다(planner/interpretation_agent.py, 기본 off).
+        from strategy_conversation.planner.interpretation_agent import run_agent_parse
+
+        _FAILURE_NOTE.set(None)
+        return run_agent_parse(user_input, kwargs.get("previous_explicit_fields"))
     return _self_repairing(_run_primary_parse_once, user_input, *args, **kwargs)
 
 

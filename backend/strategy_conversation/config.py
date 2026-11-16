@@ -172,6 +172,14 @@ def settings_form_enabled() -> bool:
     return os.environ.get("STRATEGY_INTERPRETER_SETTINGS_FORM", "off").strip().lower() == "on"
 
 
+# ── 해석 에이전트(실험 레인) — 초안 뒤의 고정 보조 판정 대신 LLM이 확인·수정을 스스로 고른다 ──
+# off(기본, 운영) / primary(생성 턴을 planner/interpretation_agent.py가 처리 — 고정 파이프라인과의
+# 비교 실험용, 한국 레인. 업종·테마 유니버스 해석은 이 레인에 없다).
+def interpretation_agent_mode() -> str:
+    mode = os.environ.get("STRATEGY_INTERPRETATION_AGENT_MODE", "off").strip().lower()
+    return mode if mode in ("off", "primary") else "off"
+
+
 def call_reduction_enabled() -> bool:
     """Rollback switch for auxiliary batching and conditional planner scheduling."""
     return os.environ.get("STRATEGY_CALL_REDUCTION", "on").strip().lower() != "off"
