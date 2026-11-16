@@ -37,6 +37,25 @@ export function moneyToNumber(value: Prisma.Decimal.Value | null | undefined) {
   return new Prisma.Decimal(value).toNumber();
 }
 
+// 계좌 현금은 항상 DB에서 상대 갱신한다(2026-11-17). 읽어 둔 잔고로 절대값을 덮어쓰면, 같은 계좌를
+// 30초마다 갱신하는 파이썬 자동매매(virtual_trader: "currentCash" = "currentCash" - ?)의 변경이 지워진다.
+/** 잔고가 금액 이상일 때만 차감한다. 모자라면 INSUFFICIENT_BALANCE — 확인과 차감이 한 문장이라 경합이 없다. */
+export async function debitCash(tx: AssetTx, accountId: string, amount: Prisma.Decimal.Value) {
+  const value = toMoney(amount);
+  const { count } = await tx.virtualAccount.updateMany({
+    where: { id: accountId, currentCash: { gte: value } },
+    data: { currentCash: { decrement: value } },
+  });
+  if (count === 0) throw new Error("INSUFFICIENT_BALANCE");
+}
+
+export async function creditCash(tx: AssetTx, accountId: string, amount: Prisma.Decimal.Value) {
+  await tx.virtualAccount.update({
+    where: { id: accountId },
+    data: { currentCash: { increment: toMoney(amount) } },
+  });
+}
+
 function assertPositiveAmount(amount: Prisma.Decimal, errorCode = "INVALID_AMOUNT") {
   if (!amount.isFinite() || amount.lte(0)) {
     throw new Error(errorCode);
@@ -146,6 +165,9 @@ export async function closeAccountWithSettlement(
     priceMap: Record<string, Prisma.Decimal>;
   }
 ) {
+  // 정산 동안 자동매매 체결·입금이 끼어들지 못하게 계좌 행부터 잠근다(2026-11-17). 아래에서 읽은 현금으로
+  // 정산하고 마지막에 0으로 비우므로, 잠그지 않으면 그 사이 들어온 상대 갱신이 지워진다.
+  await tx.$queryRaw`SELECT "id" FROM "VirtualAccount" WHERE "id" = ${params.accountId} FOR UPDATE`;
   const account = await tx.virtualAccount.findFirst({
     where: { id: params.accountId, userId: params.userId },
     include: { VirtualPosition: true },

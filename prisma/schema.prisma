@@ -27,7 +27,7 @@ model BoardComment {
   status       String @default("PUBLIC")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-  post         BoardPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  post         BoardPost @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   reports      BoardReport[]
   @@index([postId, status, createdAt])
 }
@@ -41,8 +41,8 @@ model BoardReport {
   reporter   String?
   expiresAt  DateTime
   createdAt  DateTime @default(now())
-  post       BoardPost? @relation(fields: [postId], references: [id], onDelete: Cascade)
-  comment    BoardComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  post       BoardPost? @relation(fields: [postId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  comment    BoardComment? @relation(fields: [commentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   @@index([status, createdAt])
   @@index([reporter, createdAt])
 }
@@ -120,7 +120,7 @@ model BacktestResult {
 
 // 이메일 회원가입 인증번호 — 이메일당 1행(가장 최근 발송 코드만 유효).
 // 코드 원문은 저장하지 않는다(SHA-256 해시만). 만료·시도 상한은 가입 API가 강제한다.
-// 프로덕션 반영: 배포는 마이그레이션을 실행하지 않으므로 prod DB에 수동 CREATE 필요.
+// 운영 DB에는 수동 CREATE로 먼저 생겼고, 20261117000000_add_email_verification이 같은 정의를 IF NOT EXISTS로 기록한다.
 model EmailVerification {
   email      String   @id
   codeHash   String
@@ -203,16 +203,15 @@ model Strategy {
   User           User?            @relation(fields: [userId], references: [id])
   BacktestResult BacktestResult[]
   BacktestHistory BacktestHistory[]
-  BacktestRun    BacktestRun[]
   BatchRunCandidate BatchRunCandidate[]
-  StrategyEmbedding StrategyEmbedding[]
   AdviceExperience AdviceExperience[]
+  VirtualAccount VirtualAccount[]
 
+  // 가상계좌가 '같은 사용자'의 전략만 가리키게 하는 복합 FK의 참조 대상(2026-11-17).
+  @@unique([userId, id])
   @@index([userId, createdAt])
 }
 
-/// 내 전략 버전 이력(2026-09-23) — 저장할 때마다 그 시점의 설정을 남긴다.
-/// Strategy.id는 DSL 해시라 내용을 고치면 다른 행이 된다 — 이력은 사용자+이름(lineageKey)으로 묶는다.
 // 검색 그라운딩 학습 어휘집(FR-STR-069/070b) — 로컬·운영이 같은 DB를 읽고 써서 환경 간 해석이
 // 갈리지 않게 한다(2026-09-30 'bts 관련주' 사고: git 밖 data/term_lexicon.json이 환경마다
 // 따로 자라 로컬=테마 13종목, 운영=업종 근사). entry = 종전 파일 항목 그대로(JSON).
@@ -240,22 +239,6 @@ model ExampleSimulationResult {
   updatedAt         DateTime  @updatedAt
 }
 
-model StrategyVersion {
-  id          String   @id @default(cuid())
-  userId      Int?
-  lineageKey  String
-  strategyId  String
-  version     Int
-  name        String
-  description String?
-  settings    String
-  createdAt   DateTime @default(now())
-  User        User?    @relation(fields: [userId], references: [id])
-
-  @@index([lineageKey, version])
-  @@index([userId, createdAt])
-}
-
 // 전략 대화의 서버 쪽 기억(2026-11-14) — 초안(draftId)별 턴 기록. 발화 원문은 3일만 보관한다.
 model StrategyConversationTurn {
   id          String   @id
@@ -269,52 +252,9 @@ model StrategyConversationTurn {
   createdAt   DateTime @default(now())
   User        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([draftId, turn])
+  // 동시 요청이 같은 턴 번호를 쓰지 못하게 한다 — 충돌하면 memory.remember가 번호를 다시 매긴다.
+  @@unique([draftId, turn])
   @@index([createdAt])
-}
-
-model BacktestRun {
-  id                   String   @id @default(cuid())
-  strategyId           String
-  market               String?
-  universe             String?
-  timeframe            String   @default("1d")
-  startDate            String?
-  endDate              String?
-  initialCapital       Float
-  commissionBps        Float    @default(0)
-  slippageBps          Float    @default(0)
-  liquidityPolicy      String?
-  universeSnapshotHash String?
-  resultMetrics        String
-  monthlyReturns       String?
-  rollingMetrics       String?
-  oosMetrics           String?
-  walkForwardResult    String?
-  tradeStats           String?
-  status               String   @default("completed")
-  cacheKey             String   @unique
-  hitCount             Int      @default(0)
-  createdAt            DateTime @default(now())
-  Strategy             Strategy @relation(fields: [strategyId], references: [id])
-
-  @@index([strategyId])
-  @@index([strategyId, createdAt])
-}
-
-model StrategyEmbedding {
-  id            String   @id @default(cuid())
-  strategyId    String
-  embeddingType String
-  sourceText    String
-  vector        Bytes?
-  sparseTokens  String?
-  modelName     String
-  createdAt     DateTime @default(now())
-  Strategy      Strategy @relation(fields: [strategyId], references: [id])
-
-  @@index([strategyId])
-  @@index([embeddingType])
 }
 
 model AdviceExperience {
@@ -339,7 +279,8 @@ model AdviceExperience {
   lesson             String
   confidence         String
   dataCoverage       String?
-  Strategy           Strategy @relation(fields: [strategyId], references: [id])
+  // 전략에서 파생된 학습 사본 — 전략 행이 지워지면 함께 지운다(RESTRICT로 전략 삭제가 막히던 문제, 2026-11-17).
+  Strategy           Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
 
   @@index([strategyId])
   @@index([market, universe])
@@ -485,7 +426,6 @@ model User {
   UserBacktestHistory UserBacktestHistory[]
   SavedValidation SavedValidation[]
   StrategyChatLog StrategyChatLog[]
-  StrategyVersion StrategyVersion[]
   PaymentOrder   PaymentOrder[]
   StrategyConversationTurn StrategyConversationTurn[]
 }
@@ -510,7 +450,8 @@ model PaymentOrder {
   refundedAt DateTime? // 환불 집행 시각 — 값이 있으면 이 주문은 다시 정산 대상이 되지 않는다
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
-  User       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // 결제 이력은 사용자 행보다 오래 남아야 한다 — 결제 기록이 있는 사용자는 하드 삭제되지 않는다(2026-11-17).
+  User       User      @relation(fields: [userId], references: [id], onDelete: Restrict)
 
   @@index([userId, createdAt])
 }
@@ -691,6 +632,9 @@ model VirtualAccount {
   updatedAt          DateTime
   closedAt           DateTime?
   User               User?               @relation(fields: [userId], references: [id])
+  // 같은 사용자의 전략만 연결된다(복합 FK, 2026-11-17). userId·strategyId 중 하나라도 null이면 검사하지 않는다.
+  // 전략 행을 지우려면 먼저 연결을 끊어야 한다(NoAction) — SetNull은 userId까지 비우므로 쓰지 않는다.
+  Strategy           Strategy?           @relation(fields: [userId, strategyId], references: [userId, id], onDelete: NoAction, onUpdate: NoAction)
   VirtualMarketState VirtualMarketState?
   VirtualOrder       VirtualOrder[]
   VirtualPosition    VirtualPosition[]
@@ -699,6 +643,7 @@ model VirtualAccount {
   AssetLedger        AssetLedger[]
   VirtualCashEvent   VirtualCashEvent[]
   VirtualAccountSnapshot VirtualAccountSnapshot[]
+  VirtualMarketLog   VirtualMarketLog[]
 
   @@index([userId, createdAt])
   @@index([userId, status])
@@ -744,7 +689,8 @@ model AssetLedger {
   amount         Decimal
   balanceAfter   Decimal
   createdAt      DateTime        @default(now())
-  User           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // 원장 이력은 사용자 행보다 오래 남아야 한다(2026-11-17).
+  User           User            @relation(fields: [userId], references: [id], onDelete: Restrict)
   VirtualAccount VirtualAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
@@ -764,6 +710,10 @@ model VirtualMarketLog {
   action     String
   orderId    String?
   createdAt  DateTime @default(now())
+  VirtualAccount VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
+  @@index([accountId, date])
 }
 
 model VirtualMarketState {
@@ -796,6 +746,9 @@ model VirtualOrder {
   realizedPnl    Decimal?
   tax            Decimal?
   VirtualAccount VirtualAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  // 자동매매 루프(PENDING 조회)·주문 목록·정산이 모두 accountId+status로 읽는다(2026-11-17).
+  @@index([accountId, status, createdAt])
 }
 
 // 예약 주문 큐(2026-09-14) — 신호 후 N거래일 지연 체결(risk.execution_delay_days>1)의 자동매매 대응.

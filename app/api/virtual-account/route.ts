@@ -94,6 +94,10 @@ export async function POST(request: Request) {
             where: withOwnership({ id: strategyId }, userId),
           })
       : null;
+    // 남의 전략·없는 전략은 연결하지 않는다 — 찾지 못한 id를 그대로 저장하던 구멍(2026-11-17).
+    if (strategyId && !strategy) {
+      return NextResponse.json({ error: 'Strategy not found' }, { status: 404 });
+    }
 
     // 초기 투자금은 사용자의 현재 플랜에서 서버가 결정한다(클라이언트 금액 무시).
     // 비로그인은 FREE 플랜 기준. /us 요청은 미국 가격표(USD 모의 자금)로 시드하고
@@ -122,7 +126,7 @@ export async function POST(request: Request) {
               currency,
               contributionCap: contributionCap == null ? null : toMoney(contributionCap),
               status: "ACTIVE",
-              strategyId: strategyId || null,
+              strategyId: strategy?.id ?? null,
               strategyName: strategyName || null,
               tradingMode: tradingMode || "manual",
               updatedAt: new Date(),
@@ -137,7 +141,7 @@ export async function POST(request: Request) {
               initialAmount: amount,
               currency,
               contributionCap,
-              strategyId: strategyId || null,
+              strategyId: strategy?.id ?? null,
               strategyName: strategyName || null,
               tradingMode: tradingMode || "manual",
             });

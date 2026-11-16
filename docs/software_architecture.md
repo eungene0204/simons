@@ -204,7 +204,7 @@
 |------|------|
 | 프론트엔드 | Next.js 14 (App Router) + TypeScript + Tailwind CSS |
 | 백엔드 | FastAPI (Python) + Uvicorn |
-| ORM / DB | Prisma + SQLite |
+| ORM / DB | Prisma + Supabase Postgres |
 | 백테스팅 엔진 | VectorBT + Polars + Pandas |
 | AI/ML | PyTorch Transformer + XGBoost + SHAP |
 | 전략 조언 | RAG (bge-m3 의미 임베딩 + ChromaDB 벡터 코퍼스) + Experience Memory + 백테스트 개선 전/후 평가 |
@@ -1600,7 +1600,7 @@ SQLite 시절부터 float 연산을 가정해온 백엔드 코드(`current_cash 
 
 ## 5. 데이터 레이어
 
-### 5.1 Prisma 스키마 (SQLite)
+### 5.1 Prisma 스키마 (Supabase Postgres)
 
 ```
 User            — 사용자 계정 (planTier: FREE/PREMIUM)
@@ -1628,8 +1628,6 @@ ResearchRun     — 리서치 에이전트 런 (status, config JSON, userId)
 ResearchCandidate — 후보 전략 (template, dsl_hash, scores, promoted)
 ResearchEvent   — SSE 이벤트 로그 (type, payload JSON)
 
-BacktestRun     — strategy_id 단위 백테스트 실행 캐시/메트릭 스냅샷
-StrategyEmbedding — RAG 검색용 텍스트/구조 문서 및 임베딩 메타데이터
 AdviceExperience — 조언 전/후 성과, 유사 사례, 평가, reusable lesson 저장
 
 AdminAuditLog   — 관리자 변경 작업 감사 로그 (before/after JSON, IP) — 삭제 API 없음
@@ -1643,6 +1641,16 @@ ChatQaLog       — 전략연구소 대화 기록 (질문·답변 한 턴 = 1행
 - canonicalization은 stable JSON key ordering을 사용하고, 의미 없는 metadata를 제외한다.
 - 동일 DSL이면 항상 동일 `strategy_id`가 생성되므로, 저장 중복 제거, 백테스트 캐시 키, 결과 조회 키를 하나의 식별자로 통합한다.
 - Advisor memory는 `Strategy`를 insert-only로 참조한다. 같은 `strategy_id`가 이미 존재하면 사용자 저장 전략의 `name`, `description`, `settings`를 덮어쓰지 않는다.
+
+**DB 정합성 규칙 (2026-11-17)**
+- **계좌→전략은 같은 사용자끼리만**: `VirtualAccount (userId, strategyId) → Strategy (userId, id)` 복합 FK(NO ACTION). 앱도 저장 전에 소유를 확인한다(PATCH·POST가 남의·없는 전략이면 404). 전략 행을 지우려면 먼저 연결을 끊는다 — `DELETE /api/strategy?id=`가 같은 트랜잭션에서 끊고 지운다. 화면의 삭제(`/api/strategy/[id]`)는 soft delete라 영향이 없다. userId가 없는 테스트 모드 계좌는 검사하지 않는다(MATCH SIMPLE).
+- **이력은 사용자보다 오래 남는다**: `PaymentOrder`·`AssetLedger` → User는 RESTRICT. 결제·원장이 있는 사용자는 하드 삭제되지 않는다(계정 삭제는 원래 soft delete). `AdviceExperience` → Strategy는 CASCADE(파생 학습 사본).
+- **시장 로그는 계좌와 함께**: `VirtualMarketLog.accountId` FK(CASCADE) + `(accountId, createdAt)`·`(accountId, date)` 인덱스. `VirtualOrder`는 `(accountId, status, createdAt)` 인덱스.
+- **현금은 상대 갱신만**: 주문·체결·취소는 `assetService.debitCash`(잔고 조건부 `decrement`, 부족하면 INSUFFICIENT_BALANCE)·`creditCash`(`increment`)로만 바꾼다. 파이썬 자동매매가 같은 계좌를 `"currentCash" = "currentCash" - ?`로 갱신하므로, 읽은 잔고로 절대값을 쓰면 그 변경이 지워진다. 계좌 정산(`closeAccountWithSettlement`)은 계좌 행을 `FOR UPDATE`로 잠근 뒤 읽는다.
+- **대화 턴 번호**: `StrategyConversationTurn (draftId, turn)` 유니크. 충돌하면 `memory.remember`가 번호를 다시 매겨 한 번 더 쓴다.
+- **RLS**: public 테이블 전체에 RLS를 켰고 정책은 없다 — Supabase Data API 역할(anon·authenticated)에게는 전부 거부다(이 역할들은 원래 public 스키마 권한도 없다). 앱은 BYPASSRLS인 테이블 소유자(`postgres`)로 붙어 영향이 없다. **새 테이블 마이그레이션에는 `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`를 함께 넣는다**(자동으로 켜지지 않는다).
+- **스키마 드리프트 가드**: CI가 마이그레이션을 다 적용한 테스트 DB와 `schema.prisma`를 `prisma migrate diff --exit-code`로 대조한다. 운영에 손으로 만든 테이블·스키마와 다른 FK는 여기서 걸린다 — 마이그레이션 없이 운영 DDL을 바꾸지 않는다.
+- 삭제한 미사용 테이블: `BacktestRun`·`StrategyEmbedding`·`StrategyVersion`(운영 0행). `ExampleSimulationResult`는 기능은 없지만 데이터가 남아 보류.
 
 ### 5.2 데이터 파일
 

@@ -13,7 +13,7 @@ import {
   roundToTick,
 } from '@/lib/order-engine';
 import { getTradeBlockReason } from '@/lib/listing-status';
-import { moneyToNumber, toMoney } from '@/lib/server/assetService';
+import { creditCash, debitCash, moneyToNumber, toMoney } from '@/lib/server/assetService';
 import {
   getOwnershipContext,
   isUnauthorizedAccessError,
@@ -122,14 +122,8 @@ export async function POST(
 
         if (side === 'BUY') {
           const cost = calcBuyCost(filledPrice, qty, usd);
-          const currentCash = moneyToNumber(account.currentCash);
-          if (currentCash < cost) throw new Error('INSUFFICIENT_BALANCE');
-
+          await debitCash(tx, params.id, cost);
           await upsertPosition(tx, params.id, symbol, name, qty, filledPrice);
-          await tx.virtualAccount.update({
-            where: { id: params.id },
-            data: { currentCash: toMoney(currentCash - cost) },
-          });
 
           return tx.virtualOrder.create({
             data: {
@@ -148,10 +142,7 @@ export async function POST(
           const realizedPnl = calcRealizedPnl(filledPrice, avgBuyPrice, qty, fee, tax);
           const proceeds = calcSellProceeds(filledPrice, qty, usd);
           await reducePosition(tx, params.id, symbol, qty);
-          await tx.virtualAccount.update({
-            where: { id: params.id },
-            data: { currentCash: toMoney(moneyToNumber(account.currentCash) + proceeds) },
-          });
+          await creditCash(tx, params.id, proceeds);
 
           return tx.virtualOrder.create({
             data: {
@@ -176,13 +167,8 @@ export async function POST(
 
         if (side === 'BUY') {
           const cost = calcBuyCost(filledPrice, qty, usd);
-          const currentCash = moneyToNumber(account.currentCash);
-          if (currentCash < cost) throw new Error('INSUFFICIENT_BALANCE');
+          await debitCash(tx, params.id, cost);
           await upsertPosition(tx, params.id, symbol, name, qty, filledPrice);
-          await tx.virtualAccount.update({
-            where: { id: params.id },
-            data: { currentCash: toMoney(currentCash - cost) },
-          });
 
           return tx.virtualOrder.create({
             data: {
@@ -201,10 +187,7 @@ export async function POST(
           const realizedPnl = calcRealizedPnl(filledPrice, avgBuyPrice, qty, fee, tax);
           const proceeds = calcSellProceeds(filledPrice, qty, usd);
           await reducePosition(tx, params.id, symbol, qty);
-          await tx.virtualAccount.update({
-            where: { id: params.id },
-            data: { currentCash: toMoney(moneyToNumber(account.currentCash) + proceeds) },
-          });
+          await creditCash(tx, params.id, proceeds);
 
           return tx.virtualOrder.create({
             data: {
@@ -222,12 +205,7 @@ export async function POST(
       if (side === 'BUY') {
         // 매수 지정가: 예약 현금 차감 (수수료 추정 포함)
         const reserved = calcBuyCost(limitPrice, qty, usd);
-        const currentCash = moneyToNumber(account.currentCash);
-        if (currentCash < reserved) throw new Error('INSUFFICIENT_BALANCE');
-        await tx.virtualAccount.update({
-          where: { id: params.id },
-          data: { currentCash: toMoney(currentCash - reserved) },
-        });
+        await debitCash(tx, params.id, reserved);
       } else {
         // 매도 지정가: 포지션 수량만 검증 (잠금 없이)
         const pos = await tx.virtualPosition.findUnique({

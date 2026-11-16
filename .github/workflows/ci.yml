@@ -87,6 +87,22 @@ jobs:
             echo "apply $f"
             psql "postgresql://simons:simons@localhost:5432/simons_test" -v ON_ERROR_STOP=1 -q -f "$f"
           done
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Schema drift guard (migrations == schema.prisma)
+        # 마이그레이션을 다 적용한 DB와 schema.prisma가 1칸이라도 다르면 멈춘다(2026-11-17).
+        # 마이그레이션 없이 운영에 손으로 만든 테이블(EmailVerification)·스키마와 다른 FK가 쌓이면
+        # 다음 `prisma migrate dev`가 그 차이를 새 마이그레이션에 섞어 운영 `migrate deploy`를 멈추게 한다.
+        # 실패하면 출력된 SQL이 차이다 — 마이그레이션을 추가하거나 스키마를 DB에 맞춘다.
+        env:
+          DATABASE_URL: postgresql://simons:simons@localhost:5432/simons_test
+          DIRECT_URL: postgresql://simons:simons@localhost:5432/simons_test
+        run: |
+          npx --yes prisma@5.22.0 migrate diff \
+            --from-url "$DATABASE_URL" \
+            --to-schema-datamodel prisma/schema.prisma \
+            --script --exit-code
       - name: Run safe test subset (CLAUDE.md 문서화 명령)
         working-directory: backend
         run: |

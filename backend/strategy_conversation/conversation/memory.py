@@ -68,23 +68,29 @@ def remember(
     import db
 
     try:
-        conn = db.connect()
-        try:
-            with conn:
-                conn.execute(f'DELETE FROM "{TABLE}" WHERE "createdAt" < ?', (db.now() - RETENTION,))
-                turn = conn.execute(
-                    f'SELECT COALESCE(MAX("turn"), 0) + 1 FROM "{TABLE}" WHERE "draftId" = ?',
-                    (draft_id,),
-                ).fetchone()[0]
-                conn.execute(
-                    f'INSERT INTO "{TABLE}" ("id", "userId", "draftId", "turn", "utterance", '
-                    '"question", "stateHash", "feasibility", "createdAt") '
-                    'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    (uuid4().hex, owner_id, draft_id, turn, utterance, question, state_hash,
-                     json.dumps(feasibility, ensure_ascii=False) if feasibility else None, db.now()),
-                )
-        finally:
-            conn.close()
+        # (draftId, turn) 유니크 — 동시 요청이 같은 번호를 먼저 썼으면 번호를 다시 매겨 한 번 더 쓴다.
+        for attempt in range(2):
+            conn = db.connect()
+            try:
+                with conn:
+                    conn.execute(f'DELETE FROM "{TABLE}" WHERE "createdAt" < ?', (db.now() - RETENTION,))
+                    turn = conn.execute(
+                        f'SELECT COALESCE(MAX("turn"), 0) + 1 FROM "{TABLE}" WHERE "draftId" = ?',
+                        (draft_id,),
+                    ).fetchone()[0]
+                    conn.execute(
+                        f'INSERT INTO "{TABLE}" ("id", "userId", "draftId", "turn", "utterance", '
+                        '"question", "stateHash", "feasibility", "createdAt") '
+                        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        (uuid4().hex, owner_id, draft_id, turn, utterance, question, state_hash,
+                         json.dumps(feasibility, ensure_ascii=False) if feasibility else None, db.now()),
+                    )
+                return
+            except db.UniqueViolation:
+                if attempt:
+                    raise
+            finally:
+                conn.close()
     except (db.Error, OSError):
         logger.warning("대화 기억 기록 실패 — 이번 턴은 기억하지 않음", exc_info=True)
 

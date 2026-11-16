@@ -122,9 +122,16 @@ export async function DELETE(request: Request) {
             return NextResponse.json({ error: 'Strategy ID is required' }, { status: 400 });
         }
 
-        await prisma.strategy.deleteMany({
-            where: withOwnership({ id }, userId),
-        });
+        // 계좌→전략 복합 FK(NO ACTION, 2026-11-17)가 연결된 전략의 삭제를 막으므로 연결부터 끊는다.
+        await prisma.$transaction([
+            prisma.virtualAccount.updateMany({
+                where: withOwnership({ strategyId: id }, userId),
+                data: { strategyId: null },
+            }),
+            prisma.strategy.deleteMany({
+                where: withOwnership({ id }, userId),
+            }),
+        ]);
 
         return NextResponse.json({ message: 'Strategy deleted successfully' });
     } catch (error) {

@@ -2,10 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { prisma } from "@/lib/prisma";
 import { fetchStockPriceSnapshots } from "@/lib/server/stock-prices";
-import { GET } from "./route";
+import { GET, POST } from "./route";
 
 vi.mock("@/lib/prisma", () => ({
-  prisma: { virtualAccount: { findMany: vi.fn() } },
+  prisma: {
+    virtualAccount: { findMany: vi.fn(), create: vi.fn() },
+    strategy: { findFirst: vi.fn() },
+    $transaction: vi.fn(),
+  },
 }));
 
 vi.mock("@/lib/server/stock-prices", () => ({
@@ -80,5 +84,24 @@ describe("GET /api/virtual-account", () => {
 
     expect(fetchPrices).not.toHaveBeenCalled();
     expect(result).toMatchObject({ totalValue: 50_000, holdingsCost: 0, holdingsProfit: 0 });
+  });
+});
+
+// 2026-11-17: 찾지 못한(남의·없는) 전략 id도 그대로 계좌에 저장했다.
+describe("POST /api/virtual-account strategy link", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("내 전략이 아니면 404이고 계좌를 만들지 않는다", async () => {
+    vi.mocked(prisma.strategy.findFirst).mockResolvedValue(null);
+    const res = await POST(
+      new Request("http://localhost/api/virtual-account", {
+        method: "POST",
+        body: JSON.stringify({ name: "계좌", strategyId: "2:someone-else" }),
+      })
+    );
+    expect(res.status).toBe(404);
+    expect(prisma.strategy.findFirst).toHaveBeenCalledWith({ where: { id: "2:someone-else", userId: 7 } });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.virtualAccount.create).not.toHaveBeenCalled();
   });
 });

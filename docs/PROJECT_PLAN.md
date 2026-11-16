@@ -1079,19 +1079,6 @@ BacktestResult {
   id (cuid), strategyId→Strategy, stockId→Stock, summary (JSON), trades (JSON), createdAt
 }
 
--- 전략 단위 백테스트 실행 캐시
-BacktestRun {
-  id, strategyId→Strategy, strategyHash, canonicalDsl, request (JSON), result (JSON),
-  metrics (JSON), market, universe, initialCapital, timeframe, costModel (JSON),
-  createdAt, updatedAt
-}
-
--- RAG 검색용 전략 임베딩/검색 메타데이터
-StrategyEmbedding {
-  id, strategyId→Strategy, embeddingModel, embeddingVector (JSON/Text),
-  textDocument, structureDocument, createdAt
-}
-
 -- 조언 경험 메모리
 AdviceExperience {
   id, strategyId→Strategy, userPrompt, strategySummary, strategyDsl, canonicalDsl,
@@ -1477,7 +1464,7 @@ WatchlistSymbol {
 | 작업 | 상세 | 구현 상태 |
 |------|------|----------|
 | Strategy ID 정합성 | canonical DSL + SHA-256 기반 식별 및 캐시 재사용 | ✅ 완료 |
-| Advisor memory schema | `BacktestRun`, `StrategyEmbedding`, `AdviceExperience` 저장 구조 | ✅ 완료 |
+| Advisor memory schema | `AdviceExperience` 저장 구조 (`BacktestRun`·`StrategyEmbedding`은 미사용으로 2026-11-17 삭제) | ✅ 완료 |
 | 유사 전략 검색 | 텍스트 기반 검색 + DSL 구조 기반 검색 결합 | ✅ 완료 |
 | 경험 검색/선별 | 과거 조언 성공/실패 사례와 lesson을 현재 전략 컨텍스트로 주입 | ✅ 완료 |
 | 개선 후보 생성 | 리스크/성과 문제 기반 후보 DSL 생성 | ✅ 완료 |
@@ -1989,7 +1976,7 @@ WatchlistSymbol {
 | 진입 신호 배지의 내부 변수명 노출 수정 + 평균 거래대금 레인 교정 (2026-08-18, FR-STR-019z, PROMPT_VERSION 4.0) — ✅ 완료 | 사용자 신고(스크린샷: 진입 신호에 `trading_value`가 변수명 그대로). **원인 ①(표시)**: `getSignalLabel`의 마지막 폴백이 라벨 맵에 없는 지표를 원본 id로 되돌린다 — 엔진 `TechnicalSignal.indicator` Literal 17종 중 `trading_value`·`williams_r`·`mfi`·`roc` 네 개에 라벨이 없었다(거래대금이 먼저 도달했을 뿐, 나머지 셋도 노출 대기 상태였다). **원인 ②(해석)**: 배지가 그 자리에 온 이유는 스크리닝 조건이 신호 레인으로 갔기 때문 — "최근 20일 평균 거래대금 30억 이상인 종목만 대상으로 … 20일 신고가 돌파"에서 9B가 `technical.trading_value`(당일 하루치 트리거)를 냈다. 라이브 재현(temperature 0)으로 **두 '20일'이 겹칠 때만** 재현됨을 확인(돌파 기간 50일·'일평균' 표현은 정상) — 숫자 충돌로 두 조건을 같은 계열로 묶은 오분류다. **수정**: ⓐ 네 지표 라벨 추가 + 거래대금은 금액 동반 표기(`거래대금 30억 이상`) ⓑ 엔진 Literal ↔ 프론트 라벨 맵 대조를 테스트 게이트로 신설(수정 전 상태에서 실패 확인) ⓒ registry 두 잎 notes를 '기간 평균=fundamental / 당일 하루치=technical'로 가르고 규칙 5-2 보강 + **예시 4-8 추가**(산문 규칙만으로는 안 고쳐졌고 예시를 넣은 뒤 정상화 — 출력 형태가 규칙보다 강하다). 원문 정규식으로 레인을 되돌리는 보정은 하지 않았다(대원칙 1). **검증**: 라이브 4/4(신고 발화·일평균·최근 60일 평균·당일 트리거 무회귀), 거래대금 포함 예시 25개를 QA 캐시와 대조(차이 2건 — 신고 발화 레인 교정 + 예시 23의 근거 없는 `ma_crossover` 청산 소멸, **회귀 0**), 백엔드 3,985 + 프론트 1,537 전체 통과 |
 | 보유 기간의 '미지원' 오신고·소실 수정 + QA 게이트 결손 구멍 차단 (2026-08-18, FR-STR-019aa) — ✅ 완료 | 사용자 지시로 전수 QA(81개)를 돌린 뒤 리포트 diff에서 발견. **예시 32**의 '보유 기간 상한 40거래일'이 사라졌고, 대조군 실험(HEAD + 무의미한 같은 분량 문단)에서도 재현돼 **제 변경이 아니라 프롬프트 미세 변화에 문장 끝 조건이 밀리는 취약성**으로 귀속됐다. 정체는 단순 소실이 아니라 `unsupported_features`로의 오배치 — LLM이 '최대 보유 기간 40거래일'이라 인용해 놓고 미지원으로 신고했고, 예시 55('15거래일 정도만 보유')에서는 "지원하지 않아 반영하지 못했어요"라는 **틀린 안내**까지 사용자에게 나갔다. 프롬프트 3회 시도(미지원 목록 구분=악화, 규칙 5 표기=무효, 직접 부정문=2/3)로 한계를 확인하고, LLM 출력 두 조각의 모순 해소를 결정론으로 처리(`primary` ④ — 보유 동사+기간 수치를 인용에서 읽어 빈 슬롯만 채우고 미지원 목록에서 제거, 하한은 불변). **게이트 구멍 2개**: 대조 루프가 파싱값 None을 건너뛰어 소실을 침묵했고(값 오차만 감지), 기대값 추출기가 두 표기를 못 읽었다 — 결손=치명으로 바꾸고 검사 쪽에서 표기를 보완. 게이트를 조이자 **기대값의 헐거움**(‘최근 한 달 박스권’·‘3개월 상대강도’를 보유기간으로 읽음)이 오탐 4건으로 드러나 함께 정확화(두 결함이 서로를 가리고 있었다). 전수 재판정 **치명 0 · 미탐지 1**(미탐지는 예시 35의 PBR 조건이 되묻기·pending 어디에도 없이 사라진 별건 — 산발적 재현, 미해결로 기록). 백엔드 3,987 통과 |
 | 조건 누락 대조 패스 신설 — 나열된 조건 중 하나가 밀리는 결함 (2026-08-18, FR-STR-019bb) — ✅ 완료 | 전수 QA의 마지막 미탐지 1건에서 출발: "매출 성장률이 양호하고 PBR이 과도하게 높지 않은"에서 PBR이 조건·되묻기·미지원 어디에도 없이 사라졌다. 순서를 바꾸면 둘 다 나오고 PBR만 남기면 시가총액이 빠져 **특정 지표 문제가 아니라 회수 결함**임을 확인. 막다른 길 셋을 실측으로 배제(규칙 4-1 확장=무효+무관 예시 붕괴, num_ctx 32768=무효, 원문 어휘 매칭=대원칙 1 금지). **설계의 핵심은 2차 패스의 과제**다 — 1차 출력을 보여주고 '빠진 것'을 물으면 `{"missing": []}`(차집합 판단 실패), 자유롭게 시키면 '추세가 확실히 잡힌'→ROC 같은 없던 조건과 되묻기를 만든다. LLM=구절 나열, 대조=결정론으로 나누고 가드 4개(입력 에코·지표를 이름으로 부를 것·이미 쓰인 근거 제외·registry 인지)를 세웠다. 값은 만들지 않는다(MISSING→되묻기). prod 기본 on, 롤백 `STRATEGY_CONDITION_RECALL=off`, 비용=생성 턴당 LLM 1회. 회귀 5종, 전수 81개 **치명 0·미탐지 0·종목수 0·미대조 0**. QA 생성물(리포트·파싱 캐시)은 추적 제외 — 낡은 리포트가 오판을 부른 08-14 사고 재발 방지 |
-| 이메일 가입 시스템 — 인증번호 검증·보안 강화 (2026-08-20, FR-USR-001b) — ✅ 완료 | 사용자 지시("이메일 가입 시스템을 만들어야 해. 보안까지 생각해서"). 종전 `/api/register`는 이메일 소유 확인 없이 6자리 비밀번호로 즉시 계정을 만들고, 가입 여부를 응답으로 노출했으며, 레이트리밋이 없었다(라이브 미연결 고아 코드). 신설: ① `/api/register/request-code` — 6자리 인증번호 메일 발송, DB(`EmailVerification`)에는 SHA-256 해시만 저장(10분 만료), 이미 가입된 이메일에도 **동일한 200 응답**(계정 열거 방지 — 대신 '이미 가입됨' 안내 메일), 레이트리밋(IP 20/h·이메일 5/h·재발송 60초 쿨다운은 가입 여부 분기 전에 소비해 응답 차이 제거) ② `/api/register` 재작성 — 코드 타이밍세이프 비교·시도 5회 상한(무차별 대입 차단), 비밀번호 정책 8~72자+영문·숫자, 만 14세·약관 동의 필수, 성공 시 인증 행 삭제 + `/api/login`과 동일 계약의 httpOnly 쿠키 발급(자동 로그인) ③ 메일러 `lib/server/mailer.ts`(nodemailer, SMTP_* env) — 프로덕션 SMTP 미설정이면 발송 실패로 가입 차단(Fail Fast), 개발은 콘솔 출력 ④ 인메모리 레이트리미터 `lib/server/rate-limit.ts`(단일 박스 전제) ⑤ UI — `/register` 2단계(정보+동의 → 인증번호 확인, 60초 재발송 타이머), `/login` 이메일 로그인 페이지 부활(종전 랜딩 리다이렉트), 로그인 모달에 '이메일로 로그인' 링크. route.ts 비표준 export 금지 선례에 따라 순수 함수는 `lib/server/email-verification.ts`로 분리. **prod 반영 전 필수**: EmailVerification 테이블 수동 CREATE(배포는 마이그레이션 미실행) + SMTP env 설정 + 개인정보처리방침 갱신(현행 문구는 'Google OAuth 단일 경로·비밀번호 미수집' — 사용자 결정 필요). 회귀: `app/api/register/route.test.ts`(9)·`app/api/register/request-code/route.test.ts`(5)·`lib/server/rate-limit.test.ts`(3) |
+| 이메일 가입 시스템 — 인증번호 검증·보안 강화 (2026-08-20, FR-USR-001b) — ✅ 완료 | 사용자 지시("이메일 가입 시스템을 만들어야 해. 보안까지 생각해서"). 종전 `/api/register`는 이메일 소유 확인 없이 6자리 비밀번호로 즉시 계정을 만들고, 가입 여부를 응답으로 노출했으며, 레이트리밋이 없었다(라이브 미연결 고아 코드). 신설: ① `/api/register/request-code` — 6자리 인증번호 메일 발송, DB(`EmailVerification`)에는 SHA-256 해시만 저장(10분 만료), 이미 가입된 이메일에도 **동일한 200 응답**(계정 열거 방지 — 대신 '이미 가입됨' 안내 메일), 레이트리밋(IP 20/h·이메일 5/h·재발송 60초 쿨다운은 가입 여부 분기 전에 소비해 응답 차이 제거) ② `/api/register` 재작성 — 코드 타이밍세이프 비교·시도 5회 상한(무차별 대입 차단), 비밀번호 정책 8~72자+영문·숫자, 만 14세·약관 동의 필수, 성공 시 인증 행 삭제 + `/api/login`과 동일 계약의 httpOnly 쿠키 발급(자동 로그인) ③ 메일러 `lib/server/mailer.ts`(nodemailer, SMTP_* env) — 프로덕션 SMTP 미설정이면 발송 실패로 가입 차단(Fail Fast), 개발은 콘솔 출력 ④ 인메모리 레이트리미터 `lib/server/rate-limit.ts`(단일 박스 전제) ⑤ UI — `/register` 2단계(정보+동의 → 인증번호 확인, 60초 재발송 타이머), `/login` 이메일 로그인 페이지 부활(종전 랜딩 리다이렉트), 로그인 모달에 '이메일로 로그인' 링크. route.ts 비표준 export 금지 선례에 따라 순수 함수는 `lib/server/email-verification.ts`로 분리. **prod 반영 전 필수**: EmailVerification 테이블 수동 CREATE(배포는 마이그레이션 미실행 — 이후 운영에 수동 생성됐고, 2026-11-17 `20261117000000_add_email_verification`이 마이그레이션 이력에 기록) + SMTP env 설정 + 개인정보처리방침 갱신(현행 문구는 'Google OAuth 단일 경로·비밀번호 미수집' — 사용자 결정 필요). 회귀: `app/api/register/route.test.ts`(9)·`app/api/register/request-code/route.test.ts`(5)·`lib/server/rate-limit.test.ts`(3) |
 | 이메일 로그인·가입 off 전환 + 킬 스위치 사각지대 보완 (2026-09-14) — ✅ 완료 | 사용자 지시("이메일 로그인 시스템을 끄자. 지우지 말고. 구글 로그인만 살려놔"). 로컬·prod `.env`에 `EMAIL_SIGNUP_ENABLED=off`(prod web recreate → /login·/register 307, 가입 API 404 실측). 점검에서 발견한 구멍 2곳: ① `/api/login` 이메일·비밀번호 분기가 플래그를 안 봐 페이지를 막아도 직접 POST 로그인이 가능했다 → 가입 API와 같은 404, Google 토큰 분기는 통과. ② 로그인 선택 모달(상단 내비·전략연구소 진입) "이메일로 시작하기"가 남아 눌러도 랜딩으로 튕겼다 → 서버 env는 클라이언트가 못 읽으므로 루트 레이아웃이 `EmailLoginOptionProvider`(기본 true)로 판정값을 내리고 두 모달이 버튼을 숨기고 부제를 "Google 계정으로 시작하세요"로 바꾼다. 코드·DB 테이블 보존(env 줄 삭제=복원). 회귀: `app/api/login/route.test.ts`(+2)·`components/__tests__/TopNavigationQuickSearch.test.tsx`(+1) |
 | Google 로그인 복귀 지연 단축 + "로그인 중" 무한 대기 수리 (2026-10-30) — ✅ 완료 | 사용자 지시("로그인 시간이 너무 오래 걸려" → "근본적으로 해결해"). 원인: 복귀 직후 브라우저가 ① Supabase 클라이언트의 해시 처리(implicit flow — 토큰 확인 `getUser` 왕복) ② 결과가 늘 비어 있는 `/api/user` ③ `/api/login`을 차례로 기다렸고, 서버는 그 안에서 부트스트랩 트랜잭션과 `lastLoginAt` 기록을 순차로 돌렸다(원격 us-west-1 DB, 로컬 dev 실측 1묶음 ~0.68초). 또 가림막은 처음 한 번만 켜지고 끄는 길이 없어 교환이 실패하면 스피너가 끝없이 돌았다. 수정: `lib/auth/loginReturn.ts`가 해시의 액세스 토큰을 곧바로 `/api/login`에 넘기고(검증은 서버가 이미 함, PKCE `?code=`만 Supabase 교환 폴백) 토큰을 주소에서 지운다 — 상단 내비와 가림막이 같은 교환 결과를 공유하고, 실패면 가림막을 걷는다. `/api/login`은 두 쓰기를 `Promise.all` 한 왕복으로. 복귀 페이지에서는 Supabase 브라우저 세션을 저장하지 않는다(앱 쿠키가 세션 정본). 회귀: `lib/auth/__tests__/loginReturn.test.ts`(7)·`LoginReturnVeil.test.tsx`(+1)·`TopNavigationQuickSearch.test.tsx`(+1)·`app/api/login/route.test.ts`(+1) |
 | 워크포워드 준비 단계 대기 제거 (2026-10-30) — ✅ 완료 | 사용자 지시("워크포워드 준비 시간이 너무 길어"). 원인: 준비 단계("백테스트 기간 데이터를 확인하는 중...")가 구간 분할용 거래일 목록 하나를 얻으려고 base_request 전체 백테스트(신호·시뮬레이션·결과 정리)를 한 번 더 돌렸다 — 전 시장 전략이면 그 대기만 원래 백테스트 시간만큼. 화면은 같은 목록(`result.dates`, 엔진 `format_results`의 같은 필드)을 이미 들고 있다. 수정: 프론트가 `backtest_dates`(표시 중 결과의 거래일)를 요청에 싣고(`WalkForwardSettings`→`buildWalkForwardRequest`), `WalkForwardAnalyzer`는 형식(ISO 날짜·엄격 증가·2개 이상, 최대 2만)이 맞으면 그대로 분할에 쓴다 — 표시=실행이 구성상 보장된다. 없거나 어긋나면 종전처럼 백테스트로 구한다(Modal 워커 미재배포 시도 동일 폴백). 창 병렬 경로는 분할 직후 "0/N 구간 완료" 진행을 먼저 보내 워커 기동 동안 기간 확인 문구에 머물지 않는다. 예상 소요 시간은 준비 1회를 뺀다(문구 변형+en). 회귀: `test_walk_forward.py`(+2)·`test_walk_forward_parallel.py`(첫 진행 이벤트)·`parsedStrategyMerge.test.ts`(+1)·`WalkForwardModal.test.tsx`(요청·예상치 갱신) |
@@ -2705,3 +2692,14 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 - 계약 검토(contract-reviewer) 반영: '바꿀 것 없음'(NO_PATCHES) 판정은 재요청하지 않고 안내 문구만 고른다(재심 방지), 재요청 머리말에서 '형식은 맞았지만' 삭제, primary가 꺼진 레인에는 '앞서 한 말'을 덧붙이지 않는다, 인터프리터 쪽 자가 복구 분기 회귀 3건 추가. 해석에 쓰인 이전 발화 조각(최대 3개·각 80자)은 그 턴 Trace에 다시 적힌다.
 - 새로 확인한 해석 결함(미수리): "20일마다 리밸런싱"이 `bimonthly`(2개월)로 조용히 들어감, 랭킹 미지원 안내에 '알 수 없는 지표' 문구가 그대로 노출.
 - ⬜ 미실행: 예시 82 전수 게이트·화면 전수 조사(한도 — 사용자 결정으로 축소), 되묻기 하니스 `fill`, 자가 복구·값 확인 질문의 실 LLM 발생 사례(하니스에서 발생 0건이라 유닛 테스트로만 확인). 운영에서는 점검 백테스트가 완성 턴마다 한 번 더 돈다(같은 전략 상태는 기억에서 재사용).
+
+### 기능 — 2026-11-17 DB 정합성 강화 ✅ 완료
+
+사용자 지시("1번부터 5번까지 진행"). database-architect 검토 → 운영 읽기 전용 확인 뒤 반영.
+- ① 운영에만 있던 `EmailVerification`을 마이그레이션 이력에 기록(`IF NOT EXISTS`), 게시판 FK 스키마를 DB에 맞춤, CI 스키마 드리프트 가드(`prisma migrate diff --exit-code`)
+- ② 계좌→전략 같은 사용자 복합 FK + PATCH·POST 저장 전 소유 확인(남의·없는 전략 404)
+- ③ 현금 상대 갱신(`debitCash`·`creditCash`), 계좌 정산 `FOR UPDATE`
+- ④ 결제·원장 → User RESTRICT, `AdviceExperience` → Strategy CASCADE
+- ⑤ 주문·시장 로그 인덱스와 로그 FK, 대화 턴 `(draftId, turn)` unique + 재시도, 미사용 테이블 3개 삭제(운영 0행), public RLS
+- 검증: 임시 PG16에 psql·`prisma migrate deploy` 두 방식 적용 후 스키마 차이 0, 프론트 2906·백엔드 5947 통과
+- 보류: `ExampleSimulationResult`(78행 남음), 주문 취소↔자동 체결 이중 환불 경합, PATCH `currentBalance` 임의 변경, 관심종목 그룹 교차 참조

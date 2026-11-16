@@ -25,6 +25,8 @@ from psycopg.types.numeric import FloatLoader
 
 # best-effort DB 접근부의 `except db.Error`용 — psycopg 에러 최상위 타입 재노출.
 Error = psycopg.Error
+# 유니크 제약 충돌 — 번호를 다시 매겨 재시도하는 쓰기(대화 턴 등)가 구분해 잡는다.
+UniqueViolation = psycopg.errors.UniqueViolation
 
 # libpq가 이해하지 못하는 Prisma 전용 쿼리 파라미터 — 연결 전 제거한다.
 _PRISMA_ONLY_PARAMS = {"pgbouncer", "connection_limit", "pool_timeout", "schema"}

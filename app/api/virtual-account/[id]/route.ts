@@ -102,14 +102,23 @@ export async function PATCH(
     }
 
     const body = await request.json();
-    const strategyChanged = typeof body.strategyId === "string" && body.strategyId.trim().length > 0;
+    // 전략 연결은 저장하기 전에 소유를 확인한다 — 확인 전에 저장해 남의 전략 id로 자동매매가
+    // 돌 수 있던 구멍(2026-11-17). 빈 값은 연결 해제다(DB 복합 FK가 ''를 없는 전략으로 거부한다).
+    const requestedStrategyId =
+      typeof body.strategyId === "string" && body.strategyId.trim().length > 0 ? body.strategyId : null;
+    const strategy = requestedStrategyId
+      ? await findOwnedStrategyById(requestedStrategyId, userId)
+      : null;
+    if (requestedStrategyId && !strategy) {
+      return NextResponse.json({ error: 'Strategy not found' }, { status: 404 });
+    }
     const account = await prisma.virtualAccount.update({
       where: { id: params.id },
       data: {
         ...(body.currentBalance !== undefined && { currentCash: toMoney(body.currentBalance) }),
         ...(body.tradingMode !== undefined && { tradingMode: body.tradingMode }),
         ...(typeof body.isPublic === "boolean" && { isPublic: body.isPublic }),
-        ...(body.strategyId !== undefined && { strategyId: body.strategyId }),
+        ...(body.strategyId !== undefined && { strategyId: requestedStrategyId }),
         ...(body.strategyName !== undefined && { strategyName: body.strategyName }),
         updatedAt: new Date(),
       },
@@ -119,17 +128,13 @@ export async function PATCH(
     const posSymbols = account.VirtualPosition.map((p: any) => p.symbol);
     const nameMap = await buildNameMap(posSymbols);
 
-    if (strategyChanged) {
-      const strategy = await findOwnedStrategyById(body.strategyId, userId);
-
-      const resolved = strategy
-        ? await resolveTrackedSymbolsForStrategy({
-            strategyId: body.strategyId,
-            strategyName: strategy.name,
-            strategySettings: strategy.settings,
-            currency: account.currency,
-          })
-        : { symbols: [], source: "universe" as const };
+    if (strategy) {
+      const resolved = await resolveTrackedSymbolsForStrategy({
+        strategyId: strategy.id,
+        strategyName: strategy.name,
+        strategySettings: strategy.settings,
+        currency: account.currency,
+      });
       const topSymbols = resolved.symbols;
 
       if (topSymbols.length > 0) {
