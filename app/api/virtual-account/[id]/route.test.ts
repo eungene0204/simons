@@ -6,6 +6,7 @@ import { GET, PATCH } from "./route";
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     virtualAccount: { findFirst: vi.fn(), update: vi.fn() },
+    strategy: { findFirst: vi.fn() },
     stock: { findMany: vi.fn().mockResolvedValue([]) },
   },
 }));
@@ -19,6 +20,10 @@ vi.mock("@/lib/get-user", () => ({
 vi.mock("@/lib/krx-stocks", () => ({
   getStockNameMap: vi.fn().mockResolvedValue({}),
   loadEtfMasterNameMap: vi.fn().mockResolvedValue({}),
+}));
+
+vi.mock("@/lib/strategy-tracked-symbols", () => ({
+  resolveTrackedSymbolsForStrategy: vi.fn().mockResolvedValue({ symbols: [], source: "universe" }),
 }));
 
 vi.mock("@/lib/server/assetService", () => ({
@@ -102,5 +107,46 @@ describe("PATCH /api/virtual-account/[id] isPublic", () => {
     const res = await patch({ isPublic: true });
     expect(res.status).toBe(404);
     expect(update).not.toHaveBeenCalled();
+  });
+});
+
+// 2026-11-17: 소유 확인 전에 strategyId를 저장해, 남의 전략 id로 자동매매가 돌 수 있었다.
+describe("PATCH /api/virtual-account/[id] strategy link", () => {
+  const update = vi.mocked(prisma.virtualAccount.update);
+  const strategyFindFirst = vi.mocked(prisma.strategy.findFirst);
+  const patch = (body: unknown) =>
+    PATCH(
+      new Request("http://localhost/api/virtual-account/a1", { method: "PATCH", body: JSON.stringify(body) }),
+      { params: { id: "a1" } }
+    );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    findFirst.mockResolvedValue({ id: "a1", status: "ACTIVE" } as any);
+    update.mockResolvedValue({
+      id: "a1", name: "n", initialCash: 1, contributedCash: 0, currentCash: 1,
+      createdAt: new Date(), updatedAt: new Date(), VirtualPosition: [],
+    } as any);
+  });
+
+  it("내 전략이 아니면 404이고 계좌를 쓰지 않는다", async () => {
+    strategyFindFirst.mockResolvedValue(null);
+    const res = await patch({ strategyId: "2:someone-else" });
+    expect(res.status).toBe(404);
+    expect(strategyFindFirst).toHaveBeenCalledWith({ where: { id: "2:someone-else", userId: 7 } });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("내 전략이면 그 id를 저장한다", async () => {
+    strategyFindFirst.mockResolvedValue({ id: "7:mine", name: "s", settings: "{}" } as any);
+    const res = await patch({ strategyId: "7:mine" });
+    expect(res.status).toBe(200);
+    expect(update.mock.calls[0][0].data).toMatchObject({ strategyId: "7:mine" });
+  });
+
+  it("빈 strategyId는 연결 해제(null)로 저장한다", async () => {
+    await patch({ strategyId: "" });
+    expect(strategyFindFirst).not.toHaveBeenCalled();
+    expect(update.mock.calls[0][0].data).toMatchObject({ strategyId: null });
   });
 });

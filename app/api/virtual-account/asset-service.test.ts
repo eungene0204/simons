@@ -12,6 +12,8 @@ import {
   calculateAccountValue,
   closeAccountWithSettlement,
   createFundedAccount,
+  creditCash,
+  debitCash,
   fetchSettlementPriceMap,
   getAccountSettlementValues,
   moneyToNumber,
@@ -20,6 +22,7 @@ import {
 
 function createTx(overrides: Record<string, any> = {}) {
   return {
+    $queryRaw: vi.fn(),
     assetLedger: {
       create: vi.fn(),
       findFirst: vi.fn(),
@@ -29,6 +32,7 @@ function createTx(overrides: Record<string, any> = {}) {
       findMany: vi.fn(),
       findFirst: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
     },
     virtualPosition: {
       deleteMany: vi.fn(),
@@ -268,5 +272,43 @@ describe("asset service", () => {
       where: { accountId: { in: ["account-1", "account-2"] }, type: "ACCOUNT_LIQUIDATION_RETURN" },
       orderBy: { createdAt: "desc" },
     });
+  });
+
+  // 2026-11-17 lost update: 읽어 둔 잔고로 절대값을 쓰면 파이썬 자동매매의 동시 차감이 지워졌다.
+  it("debitCash는 잔고 조건부 상대 차감이고, 잔고가 모자라면 INSUFFICIENT_BALANCE", async () => {
+    const tx = createTx();
+    tx.virtualAccount.updateMany.mockResolvedValueOnce({ count: 1 });
+    await debitCash(tx, "account-1", 1_000);
+    const call = tx.virtualAccount.updateMany.mock.calls[0][0];
+    expect(call.where.id).toBe("account-1");
+    expect(call.where.currentCash.gte.toNumber()).toBe(1_000);
+    expect(call.data.currentCash.decrement.toNumber()).toBe(1_000);
+    expect(call.data.currentCash).not.toHaveProperty("set");
+
+    tx.virtualAccount.updateMany.mockResolvedValueOnce({ count: 0 });
+    await expect(debitCash(tx, "account-1", 1_000)).rejects.toThrow("INSUFFICIENT_BALANCE");
+  });
+
+  it("creditCash는 읽은 잔고 없이 increment로 더한다", async () => {
+    const tx = createTx();
+    await creditCash(tx, "account-1", 2_500);
+    const call = tx.virtualAccount.update.mock.calls[0][0];
+    expect(call.where).toEqual({ id: "account-1" });
+    expect(call.data.currentCash.increment.toNumber()).toBe(2_500);
+  });
+
+  it("계좌 정산은 현금을 읽기 전에 계좌 행을 잠근다(FOR UPDATE)", async () => {
+    const tx = createTx();
+    tx.virtualAccount.findFirst.mockResolvedValue({ ...activeAccount, VirtualPosition: [] });
+    tx.virtualAccount.update.mockResolvedValue({ ...activeAccount, status: "CLOSED", VirtualPosition: [] });
+
+    await closeAccountWithSettlement(tx, { userId: 1, accountId: "account-1", priceMap: {} });
+
+    const [strings, accountId] = tx.$queryRaw.mock.calls[0];
+    expect(strings.join("?")).toMatch(/FOR UPDATE/);
+    expect(accountId).toBe("account-1");
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.virtualAccount.findFirst.mock.invocationCallOrder[0]
+    );
   });
 });

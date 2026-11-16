@@ -41,7 +41,7 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
         });
       }
       // 소프트 삭제: 사용자 목록에서만 숨기고(isSaved=false) DB 레코드는 보존한다.
-      // 백테스트 결과(BacktestHistory/BacktestResult/BacktestRun)는 공유 캐시이자
+      // 백테스트 결과(BacktestHistory/BacktestResult)는 공유 캐시이자
       // 코칭 agent 학습 데이터이므로 절대 삭제하지 않는다.
       if (userId == null) {
         await tx.strategy.update({

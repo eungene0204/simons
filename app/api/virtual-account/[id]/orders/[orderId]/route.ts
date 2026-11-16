@@ -6,7 +6,7 @@ import {
   isUnauthorizedAccessError,
   withOwnership,
 } from '@/lib/get-user';
-import { moneyToNumber, toMoney } from '@/lib/server/assetService';
+import { creditCash, moneyToNumber } from '@/lib/server/assetService';
 
 // DELETE: PENDING 주문 취소 (매수의 경우 예약 현금 환급)
 export async function DELETE(
@@ -36,10 +36,7 @@ export async function DELETE(
         const usd = ((account as { currency?: string } | null)?.currency ?? 'KRW') === 'USD';
         const refund = calcBuyCost(moneyToNumber(order.price), order.quantity, usd);
         if (!account) throw new Error('ACCOUNT_NOT_FOUND');
-        await tx.virtualAccount.update({
-          where: { id: params.id },
-          data: { currentCash: toMoney(moneyToNumber(account.currentCash) + refund) },
-        });
+        await creditCash(tx, params.id, refund);
       }
 
       return tx.virtualOrder.update({

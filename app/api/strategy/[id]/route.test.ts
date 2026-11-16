@@ -11,18 +11,14 @@ const backtestHistoryFindFirst = vi.fn();
 const userBacktestHistoryFindFirst = vi.fn();
 const strategyDelete = vi.fn();
 const backtestResultDeleteMany = vi.fn();
-const strategyEmbeddingDeleteMany = vi.fn();
 const adviceExperienceDeleteMany = vi.fn();
-const backtestRunDeleteMany = vi.fn();
 const transaction = vi.fn(async (callback: any) =>
   callback({
     virtualAccount: { updateMany: virtualAccountUpdateMany },
     virtualMarketState: { deleteMany: virtualMarketStateDeleteMany },
     strategy: { update: strategyUpdate, updateMany: strategyUpdateMany, delete: strategyDelete },
     backtestResult: { deleteMany: backtestResultDeleteMany },
-    strategyEmbedding: { deleteMany: strategyEmbeddingDeleteMany },
     adviceExperience: { deleteMany: adviceExperienceDeleteMany },
-    backtestRun: { deleteMany: backtestRunDeleteMany },
   })
 );
 
@@ -202,9 +198,7 @@ describe("app/api/strategy/[id]/route DELETE", () => {
     strategyUpdateMany.mockResolvedValue({ count: 1 });
     strategyDelete.mockResolvedValue({});
     backtestResultDeleteMany.mockResolvedValue({ count: 0 });
-    strategyEmbeddingDeleteMany.mockResolvedValue({ count: 0 });
     adviceExperienceDeleteMany.mockResolvedValue({ count: 0 });
-    backtestRunDeleteMany.mockResolvedValue({ count: 0 });
   });
 
   it("소프트 삭제: 전략을 DB에서 지우지 않고 isSaved=false + deletedAt만 기록한다", async () => {
@@ -229,8 +223,6 @@ describe("app/api/strategy/[id]/route DELETE", () => {
 
     expect(response.status).toBe(200);
     expect(backtestResultDeleteMany).not.toHaveBeenCalled();
-    expect(backtestRunDeleteMany).not.toHaveBeenCalled();
-    expect(strategyEmbeddingDeleteMany).not.toHaveBeenCalled();
     expect(adviceExperienceDeleteMany).not.toHaveBeenCalled();
   });
 

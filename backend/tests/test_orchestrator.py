@@ -255,6 +255,48 @@ def test_memory_drops_turns_past_retention(app_db):
     assert [r[0] for r in rows] == ["새 발화"]  # 기한 지난 원문은 지워진다
 
 
+def test_memory_renumbers_when_a_concurrent_turn_takes_the_number(app_db, monkeypatch):
+    """2026-11-17: MAX+1로 매긴 번호를 동시 요청이 먼저 쓰면 같은 턴 번호가 두 줄 생겼다.
+    (draftId, turn) 유니크에 걸리면 번호를 다시 매겨 기록한다."""
+    import db
+
+    real_connect = db.connect
+    raced = []
+
+    class RacingConn:
+        def __init__(self, conn):
+            self._conn = conn
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+        def __enter__(self):
+            self._conn.__enter__()
+            return self
+
+        def __exit__(self, *exc):
+            return self._conn.__exit__(*exc)
+
+        def execute(self, sql, params=()):
+            if sql.startswith("INSERT") and not raced:
+                raced.append(True)  # 이 INSERT 직전에 다른 요청이 같은 번호를 먼저 커밋한다
+                other = real_connect()
+                try:
+                    with other:
+                        values = list(params)
+                        values[0], values[4] = "concurrent", "동시 발화"
+                        other.execute(sql, tuple(values))
+                finally:
+                    other.close()
+            return self._conn.execute(sql, params)
+
+    monkeypatch.setattr(db, "connect", lambda: RacingConn(real_connect()))
+    memory.remember("draft-000000000001", None, "내 발화", None, "a" * 64)
+
+    turns = memory.recall("draft-000000000001")
+    assert [(t["turn"], t["utterance"]) for t in turns] == [(1, "동시 발화"), (2, "내 발화")]
+
+
 def test_memory_is_optional(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://nobody:x@127.0.0.1:1/none")
     assert memory.recall(None) == []

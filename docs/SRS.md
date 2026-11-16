@@ -1119,7 +1119,7 @@ RiskManagement {
 
 **FR-RES-010** [독립 스크리너 — 저장 전략의 조건을 오늘 데이터에 적용, 2026-09-23] `/screener` 화면과 `POST /screener/run`. 저장된 전략을 고르면 그 전략의 매수 조건·유니버스를 **최신 봉**에 한 번 적용해 충족 종목을 표로 보여 준다(종목·섹터·종가·등락률·거래대금·충족 조건). 계산 정본은 `engine/screener.py`이며 자동매매와 **같은 평가기**(`live_signal_utils.resolve_live_universe`·`evaluate_live_strategy_signals`)를 재사용한다 — 화면마다 조건 해석이 갈리면 같은 전략이 자리마다 다른 종목을 고른다. 시점 명부(PIT)가 아니라 현재 상장 종목을 본다(오늘을 묻는 화면). 재무 팩터 랭킹은 최신 행의 지표 값으로 정렬하고 값이 없는 종목은 뒤로 보낸다(0으로 위장 금지). 매수 기준이 없는 전략·빈 유니버스는 빈 표가 아니라 사유를 돌려준다. 화면에는 '사용자가 설정한 조건의 계산 결과이며 투자 추천이 아니다'를 함께 싣는다.
 
-**FR-STR-080** [내 전략 버전 이력, 2026-09-23 — **2026-10-21 UI·API·기록 삭제**, `StrategyVersion` 테이블과 기존 데이터는 보존] `StrategyVersion` 테이블과 `GET/POST /api/strategy/{id}/versions`. 전략을 저장할 때마다 그 시점의 설정을 한 줄 남기고(직전 버전과 설정이 같으면 생략), '내 전략' 카드에서 버전 목록과 '이 버전으로 되돌리기'를 제공한다. `Strategy.id`는 DSL 해시라 내용을 고치면 다른 행이 되므로 이력은 **사용자+전략 이름 계보**(lineageKey)로 묶는다. 되돌리기는 과거 행을 고치지 않고 그 설정을 기존 저장 경로(POST /api/strategy)로 다시 저장한다 — 플랜 한도·유형 추론·버전 기록이 그 경로에 있어 사본을 만들면 규칙이 갈린다. 이력 기록 실패는 저장 자체를 막지 않는다.
+**FR-STR-080** [내 전략 버전 이력, 2026-09-23 — **2026-10-21 UI·API·기록 삭제**, 테이블은 2026-11-17 삭제(운영 0행)] `StrategyVersion` 테이블과 `GET/POST /api/strategy/{id}/versions`. 전략을 저장할 때마다 그 시점의 설정을 한 줄 남기고(직전 버전과 설정이 같으면 생략), '내 전략' 카드에서 버전 목록과 '이 버전으로 되돌리기'를 제공한다. `Strategy.id`는 DSL 해시라 내용을 고치면 다른 행이 되므로 이력은 **사용자+전략 이름 계보**(lineageKey)로 묶는다. 되돌리기는 과거 행을 고치지 않고 그 설정을 기존 저장 경로(POST /api/strategy)로 다시 저장한다 — 플랜 한도·유형 추론·버전 기록이 그 경로에 있어 사본을 만들면 규칙이 갈린다. 이력 기록 실패는 저장 자체를 막지 않는다.
 
 **FR-VA-DCA** [가상계좌 정기 납입, 2026-09-21] 자동매매 계좌의 전략이 정액 적립식(FR-BT-076의 판정과 같다 — 납입액·주기가 둘 다 있는 지정 종목 전략이고 조건·랭킹·손절과 섞이지 않음)이면 자동매매 루프가 납입 회차를 실행해야 한다. ① **회차**: 1회차는 계좌의 초기 자본이다(입금 없이 지정 종목 매수 시작 — 백테스트 첫 봉과 같은 규약). 이후 체결 창이고 오늘 시세가 있는 거래일에, 마지막 납입 기록일과 오늘의 주기 키(`live_signal_utils._period_key`, 백테스트 달력과 같은 주기 어휘)가 다르면 새 회차다. ② **놓친 납입일**(2026-09-21 사용자 결정): 서버가 꺼져 납입일을 놓쳐도 같은 주기 안에 돌아오면 그날 납입하고, 한 주기를 통째로 놓치면 그 회차는 건너뛴다(소급 입금 없음). ③ **플랜 한도**(같은 날 결정): 적립 계좌는 플랜 모의 투자금 전액이 아니라 **전략의 초기 자본**(플랜 투자금 이하)으로 시작하고, 초기 자본 + 누적 납입이 생성 시점의 플랜 투자금(`VirtualAccount.contributionCap`)을 넘지 않는다 — 남은 한도만큼만 넣고, 한도에 닿은 주기는 `CONTRIBUTION_CAPPED`로 닫는다. ④ **중복 방지**: 입금 기록 `VirtualCashEvent`의 `(accountId, date)` 유니크가 '하루 한 번'의 정본이며 입금 기록과 잔액·누적 납입 증가는 한 트랜잭션이다(루프는 30초마다 체결 창에 다시 들어오고 프로세스 재시작도 있다). 시세가 없는 날은 회차를 쓰지 않는다. ⑤ **매수**: 입금 뒤 계좌 현금 전부를 지정 종목에 균등하게 나눠 정수 주로 산다 — 1주도 못 산 몫은 계좌 현금에 남아 다음 회차 예산에 합쳐진다(백테스트 장부는 종목별 예산 이월, 계좌는 계좌 단위 이월). next_open 경로는 신호가 난 종목만 시세를 받으므로 적립 계획이 있으면 지정 종목을 시세 대상에 포함한다. 납입 매수는 신호 로그에 매수(`entry`)로 기록하고 사유 문구로 구분한다. 수동(manual) 계좌에는 납입하지 않는다. ⑥ **수익률**(같은 날 결정): 계좌 수익률의 분모는 **총 납입액** = `initialCash + contributedCash`다 — 계좌 상세·카드·개요, 계좌 대시보드 API, 대시보드 계좌 목록·전략 목록·월별 수익률(가중치 포함), 내 정보 합산, 관리자 목록이 같은 분모를 쓴다(`lib/virtual-account/contributions.ts`). 납입이 없는 계좌는 누적 납입이 0이라 종전 값과 같다. 일별 자산 기록이 없어 시간가중 수익률은 제공하지 않는다. ⑦ 관리자 초기화는 납입 기록과 누적 납입도 지운다. 마이그레이션 `20260921000000_add_virtual_cash_event`(가산 — 컬럼 2개·테이블 1개, 배포가 `prisma migrate deploy`로 자동 적용). 회귀: `backend/tests/test_virtual_contributions.py`, `lib/virtual-account/contributions.test.ts`.
 
@@ -2162,15 +2162,15 @@ News Collector
 
 ### 5.1 ERD 개요
 
+> **정합성 규칙(2026-11-17)** — 계좌는 같은 사용자의 전략만 가리킨다(`VirtualAccount (userId, strategyId) → Strategy (userId, id)`, 남의·없는 전략 연결은 404). 결제(`PaymentOrder`)·원장(`AssetLedger`)이 있는 사용자는 하드 삭제되지 않는다(RESTRICT). 가상계좌 현금은 상대 갱신만 한다(잔고 조건부 차감). public 테이블 전체 RLS(정책 없음 — Supabase Data API 역할 차단, 앱은 BYPASSRLS 소유자로 접속). CI가 마이그레이션 결과와 `schema.prisma`의 차이를 막는다. 상세: `docs/software_architecture.md` §5.1.
+
 ```
 User ─────────────────────────────────────── (계정)
 Strategy ──── BacktestResult ──── Stock        (전략·백테스트)
 Strategy ──── BacktestHistory                 (전략 캐시/이력)
-Strategy ──── BacktestRun                     (strategy_id 단위 백테스트 실행 캐시)
-Strategy ──── StrategyEmbedding               (RAG 검색 문서/임베딩)
 Strategy ──── AdviceExperience                (조언 경험 메모리)
 BatchRun ──── BatchRunCandidate ──── Strategy (배치 실행)
-Strategy ──── VirtualAccount                   (전략-가상계좌 연결)
+Strategy ──── VirtualAccount                   (전략-가상계좌 연결, 같은 사용자끼리만 — 복합 FK)
 VirtualAccount ──── VirtualPosition            (가상 포지션)
 VirtualAccount ──── VirtualOrder               (가상 주문)
 VirtualAccount ──── VirtualMarketState         (가상 시장 상태)
@@ -2228,35 +2228,6 @@ BacktestHistory                                (백테스트 이력)
 | isVisible | Boolean | 사용자 노출 여부 |
 | hitCount | Int | cache hit 누적 수 |
 | createdAt | DateTime | 실행일 |
-
-#### BacktestRun
-| 컬럼 | 타입 | 설명 |
-|------|------|------|
-| id | String PK | 실행 ID |
-| strategyId | String FK | Strategy.id |
-| strategyHash | String | canonical DSL SHA-256 |
-| canonicalDsl | String | canonical Strategy DSL JSON |
-| request | String | JSON 백테스트 요청 |
-| result | String | JSON 백테스트 결과 |
-| metrics | String | JSON 핵심 성과 지표 |
-| market | String? | 시장 구분 |
-| universe | String? | 종목 유니버스 |
-| initialCapital | Float? | 초기자금 |
-| timeframe | String? | 봉 주기 |
-| costModel | String? | 수수료/슬리피지 JSON |
-| createdAt | DateTime | 생성일 |
-| updatedAt | DateTime | 수정일 |
-
-#### StrategyEmbedding
-| 컬럼 | 타입 | 설명 |
-|------|------|------|
-| id | String PK | 임베딩 레코드 ID |
-| strategyId | String FK | Strategy.id |
-| embeddingModel | String | 임베딩 모델명 또는 검색 방식 |
-| embeddingVector | String? | JSON/Text 벡터 저장값 |
-| textDocument | String | 텍스트 검색 문서 |
-| structureDocument | String | DSL 구조 검색 문서 |
-| createdAt | DateTime | 생성일 |
 
 #### AdviceExperience
 | 컬럼 | 타입 | 설명 |

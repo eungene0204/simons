@@ -12,7 +12,7 @@ import {
   isUnauthorizedAccessError,
   withOwnership,
 } from '@/lib/get-user';
-import { moneyToNumber, toMoney } from '@/lib/server/assetService';
+import { creditCash, moneyToNumber, toMoney } from '@/lib/server/assetService';
 
 // POST: 현재가 기준으로 해당 계좌의 PENDING 주문 체결 시도
 // body: { symbol: string, currentPrice: number }
@@ -132,10 +132,7 @@ export async function POST(
           }
 
           const proceeds = calcSellProceeds(filledPrice, order.quantity, usd);
-          await tx.virtualAccount.update({
-            where: { id: params.id },
-            data: { currentCash: toMoney(moneyToNumber(account.currentCash) + proceeds) },
-          });
+          await creditCash(tx, params.id, proceeds);
           return true;
         });
 
