@@ -2482,6 +2482,29 @@ def test_primary_unsupported_request_label_demoted_with_concrete_features(monkey
         result["notices"]
 
 
+def test_primary_run_backtest_label_with_conditions_proceeds_as_create(monkeypatch):
+    """[회귀] 2026-11-16 실측 — 조건을 서술하면서 "백테스트 좀 돌려봐"로 끝난 첫 문장을
+    LLM이 RUN_BACKTEST로 라벨하면서 조건 5개·손절·익절은 제대로 채웠는데, 검증기가 비전략
+    라벨로 거부해 "해석하지 못했어요"가 나갔다. 생성 턴에서 조건이 채워진 RUN_BACKTEST는
+    라벨과 실체가 모순이므로 CREATE_STRATEGY로 진행한다(LLM 출력 정규화)."""
+    data = _full_intent_dict()
+    data["intent"] = "RUN_BACKTEST"
+    result = _run_primary_with(
+        monkeypatch, data, "KOSPI에서 PER 10 이하 20종목 손절 8% 전략 백테스트 좀 돌려봐")
+    assert result is not None, "조건이 채워진 RUN_BACKTEST가 해석 실패로 버려졌다"
+    assert result["parsed"].fundamental_filters[0].metric == "per"
+
+
+def test_primary_run_backtest_label_without_conditions_still_fails(monkeypatch):
+    """조건이 하나도 없는 RUN_BACKTEST(실행만 요청)는 만들 전략이 없다 — 그대로 실패 보고."""
+    data = _full_intent_dict()
+    data["intent"] = "RUN_BACKTEST"
+    for key in ("entry_conditions", "exit_conditions", "ranking"):
+        data["strategy"][key] = []
+    result = _run_primary_with(monkeypatch, data, "이걸로 돌려줘")
+    assert result is None
+
+
 def test_primary_unsupported_request_label_kept_for_role_boundary(monkeypatch):
     """역할 밖 행위(추천·전망·우열) 보고만 있으면 강등하지 않는다 — 규제 거절 보존."""
     for feature in ["종목 추천", "stock_recommendation", "시장 전망"]:

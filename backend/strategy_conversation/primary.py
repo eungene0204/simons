@@ -2727,6 +2727,22 @@ def _run_primary_parse_once(
             f"status={report.status} 오류={len(report.errors)} "
             f"질문={len(report.clarification_questions)} 미지원={report.unsupported_features or '[]'}"
         ))
+    # RUN_BACKTEST 오라벨 정규화 — 조건을 서술하며 "백테스트 돌려봐"로 끝난 첫 문장을
+    # RUN_BACKTEST로 라벨하면서 조건은 제대로 채운 출력(2026-11-16 실측: 조건 5개·손절·
+    # 익절이 채워졌는데 비전략 라벨로 거부돼 해석 실패 안내). 생성 턴에는 실행할 기존
+    # 전략이 없으므로, 조건이 채워진 RUN_BACKTEST는 라벨과 실체의 모순이다 — 실체를
+    # 따른다(위 UNSUPPORTED_REQUEST 강등과 같은 LLM 출력 정규화, 원문을 읽지 않는다).
+    if validated.intent == "RUN_BACKTEST" and validated.strategy is not None and (
+            validated.strategy.entry_conditions or validated.strategy.exit_conditions
+            or validated.strategy.ranking):
+        _log_llm("⚖ 라벨 정규화", "RUN_BACKTEST+조건 있음 — CREATE_STRATEGY로 진행(모순 라벨 정규화)")
+        validated.intent = "CREATE_STRATEGY"
+        validation = call_tool("validate_intent", intent=validated)
+        validated, report = validation.intent, validation.report
+        _log_llm("✓ 재검증", (
+            f"status={report.status} 오류={len(report.errors)} "
+            f"질문={len(report.clarification_questions)} 미지원={report.unsupported_features or '[]'}"
+        ))
     if validated.intent not in _STRATEGY_INTENTS or validated.strategy is None:
         _log_llm("↩ 실패 보고", f"전략 파이프라인 대상이 아닌 intent={validated.intent} — 되묻기로")
         logger.info("interpreter primary non-strategy intent=%s, reporting failure",
