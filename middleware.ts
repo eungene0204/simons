@@ -8,6 +8,8 @@
 //   튕기던 사고로 Accept-Language 기반 첫 방문 리다이렉트를 폐지). 되살리지 않는다.
 // - 사용자가 입력한 경로를 그대로 존중하고, 마지막 방문 지역을 쿠키에 기억한다.
 //
+// - AI 에이전트가 `Accept: text/markdown`으로 홈·가이드·연구노트·방법론을 요청하면 마크다운 판으로 rewrite 한다.
+//
 // API·정적 리소스는 제외한다 — API 라우트는 지역 쿠키를 직접 읽는다(lib/geo/server.ts).
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -19,6 +21,7 @@ import {
   US_REGION_BLOCKED,
   type Region,
 } from "@/lib/geo/region";
+import { AGENT_MARKDOWN_ROUTE, isAgentMarkdownPath, prefersMarkdown } from "@/lib/seo/markdownNegotiation";
 
 const REGION_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
@@ -56,6 +59,11 @@ export function middleware(request: NextRequest) {
     });
     rememberRegion(response, request, "us");
     return response;
+  }
+
+  // AI 에이전트가 마크다운을 요청하면 공개 설명 글의 마크다운 판을 준다(브라우저는 text/markdown을 보내지 않는다).
+  if (isAgentMarkdownPath(pathname) && prefersMarkdown(request.headers.get("accept"))) {
+    return NextResponse.rewrite(new URL(`${AGENT_MARKDOWN_ROUTE}${pathname === "/" ? "" : pathname}`, request.url));
   }
 
   const response = NextResponse.next({

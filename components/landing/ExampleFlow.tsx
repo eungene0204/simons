@@ -1,3 +1,8 @@
+"use client";
+
+// 클라이언트 컴포넌트로 둔다 — 서버 컴포넌트면 카드 82장이 HTML 본문과 RSC 페이로드에 두 번 실려
+// 홈 HTML이 약 13만 자 무거워진다(2026-11-17 측정, 크롤러 응답 시간 지적). 클라이언트 컴포넌트는
+// HTML 본문(SSR)에 한 번만 싣고 예시 데이터는 캐시되는 JS 청크로 받는다.
 import { EXAMPLES, type Example } from "@/components/strategy/strategyExamples";
 import { STRATEGY_PROMPT_PARAM } from "@/lib/strategy/strategyOpenLink";
 import { ExampleFlowCopy } from "./ExampleFlowCopy";
