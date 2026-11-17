@@ -72,6 +72,7 @@ describe("/api/user/account DELETE", () => {
       where: { id: 7 },
       data: {
         status: "DELETED",
+        email: "deleted-7:u@example.com",
         planTier: "FREE",
         planStartDate: null,
         tossBillingKey: null,
@@ -81,6 +82,16 @@ describe("/api/user/account DELETE", () => {
         billingFailCount: 0,
       },
     });
+  });
+});
+
+describe("/api/user/account DELETE 재가입 허용(이메일 해제)", () => {
+  // 2026-11-18 사고: 본인 삭제 계정이 원래 이메일을 계속 점유해 같은 주소로 재가입이 막혔다
+  it("본인 삭제 시 원래 이메일을 deleted-<id>: 접두 형식으로 바꿔 비운다", async () => {
+    await DELETE();
+    const data = userUpdate.mock.calls[0][0].data;
+    expect(data.email).toBe("deleted-7:u@example.com");
+    expect(data.email).not.toBe("u@example.com");
   });
 });
 
