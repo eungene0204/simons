@@ -242,3 +242,7 @@ Recent history uses Conventional Commit prefixes such as `feat:` and `refactor:`
 
 ## Security & Configuration Tips
 Keep secrets in `.env.local` or `.env`, not in source control. Required local settings include `DATABASE_URL` and `JWT_SECRET`. When changing Prisma models, run `npm run db:migrate` and `npm run db:generate` before submitting.
+
+## Gotchas
+
+- 2026-11-18 | 실패 원인: 가입 알림에 저장소 이름 Simons를 서비스명으로 사용함 → 재발 방지: 사용자에게 전달되는 운영 알림의 서비스명은 nullStock으로 표기하고 메시지 테스트에서 제목과 가입자 ID를 검증한다.

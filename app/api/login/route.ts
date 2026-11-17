@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
             updatedAt: new Date(),
           },
         })
-        await notifySignup('google')
+        await notifySignup('google', user.id, user.email)
       }
 
       if (user.status !== 'ACTIVE') {
