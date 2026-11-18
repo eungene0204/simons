@@ -16,6 +16,7 @@ confidence는 상태 판정·사용자 노출에 쓰지 않는다(4B가 자주 �
 
 from __future__ import annotations
 
+import re
 from typing import Tuple
 
 from strategy_conversation.interpreter.models import StrategyIntent, ValidationReport
@@ -138,6 +139,11 @@ def run_validation(intent: StrategyIntent) -> Tuple[StrategyIntent, ValidationRe
     report.conflicted_slots.extend(conflicted_slots)
 
     # ── Completeness (누락 → 질문)
+    for question in intent.clarification_questions:
+        if (question.field in intent.missing_fields
+                and re.fullmatch(r"unresolved\.(entry|exit)_conditions\[\d+\]\.factor", question.field or "")):
+            report.missing_fields.append(question.field)
+            report.clarification_questions.append(question)
     missing, questions = validate_completeness(intent)
     report.missing_fields.extend(missing)
     report.clarification_questions.extend(questions)

@@ -596,3 +596,18 @@ def test_bollinger_table_titles_exist_in_examples(qatd):
     source = (root / "strategyExamples.ts").read_text() + (root / "usExamples.ts").read_text()
     for title in qatd.BOLLINGER_EXPECTED:
         assert f'title: "{title}"' in source
+
+
+@pytest.mark.parametrize(("changes", "status"), [
+    ({}, "omitted"),
+    ({"clarification_suggestions": ["PER 10 이하"]}, "omitted"),
+    ({"clarification_question": "PER 기준은 얼마인가요?"}, "clarification"),
+    ({"pending_ask": {"queue": [{"question": "PER 기준은 얼마인가요?"}]}}, "clarification"),
+    ({"notices": ["PER 조건은 지원하지 않아 전략에 반영하지 못했어요"]}, "unsupported"),
+    ({"parsed": {"fundamental_filters": [{"metric": "per", "operator": ">", "value": 10}]}}, "mismatch"),
+    ({"parsed": {"fundamental_filters": [{"metric": "per", "operator": "<=", "value": 10}]}}, "applied"),
+])
+def test_annotated_condition_outcomes(qatd, changes, status):
+    template = next(t for t in qatd.load_templates() if t.title == "PER·RSI 반등 조건")
+    outcome = qatd.condition_outcomes(template, {"parsed": {}, **changes})[0]
+    assert outcome == {"quote": "PER 10 이하", "status": status}

@@ -8067,3 +8067,132 @@ def test_duplicate_key_patch_still_duplicated_after_regeneration_is_returned_as_
         _DUPLICATE_KEY_SENTENCE, draft=_DUPLICATE_KEY_DRAFT)
 
     assert len(calls) == 2 and result.repair_attempts == 1
+
+
+def test_append_then_edit_targets_one_condition():
+    from strategy_conversation.conversation.patch_approval import PatchApproval
+
+    spec = StrategyIntent.model_validate(_full_intent_dict()).strategy
+    patches = [
+        PatchOp(op="add", path="/entry_conditions/-",
+                value={"factor": "RSI", "operator": "<", "value": 30}),
+        PatchOp(op="replace", path="/entry_conditions/1/factor", value="RSI"),
+        PatchOp(op="replace", path="/entry_conditions/1/value", value=20),
+    ]
+    approval = PatchApproval(spec, patches)
+    selected, _ = approval.select(set())
+    result = apply_patches(spec, selected)
+    assert result == apply_patches(spec, patches)
+    assert len(approval.condition_origins(result)) == 2
+    assert patches[0].value["value"] == 30
+    assert [(c.factor, c.operator, c.value) for c in result.entry_conditions] == [
+        ("fundamental.per", "<=", 10), ("RSI", "<", 20),
+    ]
+
+
+def test_unknown_added_portfolio_field_rejected():
+    with pytest.raises(PatchError, match="max_postions"):
+        apply_patches(StrategySpec(), [PatchOp(op="add", path="/portfolio/max_postions", value=5)])
+
+
+def test_factorless_quote_requires_clarification(monkeypatch):
+    data = _full_intent_dict()
+    data["strategy"]["entry_conditions"].append(
+        {"factor": None, "operator": "<=", "value": 100, "source_text": "부채비율 100% 이하"})
+    saved = StrategyIntent.model_validate(data).model_dump_json()
+    intent, report = run_validation(StrategyIntent.model_validate_json(saved))
+    assert [c.factor for c in intent.strategy.entry_conditions] == ["fundamental.per"]
+    assert report.status == "NEEDS_CLARIFICATION"
+    assert any("부채비율 100% 이하" in q.question for q in report.clarification_questions)
+    response = _run_primary_with(
+        monkeypatch, data, "KOSPI에서 PER 10 이하, 부채비율 100% 이하인 20종목 매월 리밸런싱, 손절 8%")
+    assert "부채비율 100% 이하" in response["clarification_question"]
+    assert [f.metric for f in response["parsed"].fundamental_filters] == ["per"]
+
+    from strategy_conversation.primary import run_primary_modification
+    answer = "부채비율로 해줘"
+    _stub_modify_interpreter(monkeypatch, {
+        "intent": "MODIFY_STRATEGY", "patches": [{
+            "op": "add", "path": "/entry_conditions/-", "source_text": answer,
+            "value": {"factor": "fundamental.debt_ratio", "operator": "<=", "value": None,
+                      "unit": "percent", "source_text": "부채비율"},
+        }], "clarification_questions": [{"field": "strategy.entry_conditions[1].value",
+                                           "question": "부채비율 기준값은 얼마인가요?"}],
+    })
+    previous = response["parsed"]
+    modified = run_primary_modification(
+        answer, previous.model_dump(), pending_question=response["clarification_question"],
+        pending_ask=response.get("pending_ask"), previous_explicit_fields=response["explicit_fields"])
+    expected = previous.model_dump()
+    expected["fundamental_filters"].append({"metric": "debt_ratio", "operator": "<=", "value": 100})
+    assert modified["parsed"].model_dump() == expected
+
+
+def test_add_parameter_key_to_dynamic_map():
+    spec = StrategySpec(entry_conditions=[StrategyCondition(factor="RSI")])
+    result = apply_patches(spec, [
+        PatchOp(op="add", path="/entry_conditions/0/parameters/period", value=14),
+    ])
+    assert result.entry_conditions[0].parameters == {"period": 14}
+
+
+def test_distant_condition_index_does_not_append():
+    with pytest.raises(PatchError):
+        apply_patches(StrategySpec(), [
+            PatchOp(op="replace", path="/entry_conditions/99/factor", value="RSI"),
+        ])
+
+
+def test_factorless_quote_already_reported_as_unsupported():
+    quote = "독자 점수 100 이상"
+    data = _full_intent_dict(exit_conditions=[{"factor": None, "source_text": quote}])
+    data["unsupported_features"] = [quote]
+    _, report = run_validation(StrategyIntent.model_validate(data))
+    assert quote in report.unsupported_features
+    assert not any(quote in q.question for q in report.clarification_questions)
+
+
+@pytest.mark.parametrize("remove_first", [False, True], ids=["entry-and-exit-rsi", "index-shift"])
+def test_modify_changes_only_requested_fields(monkeypatch, remove_first):
+    from strategy_conversation.primary import run_primary_modification
+
+    from engine.nl_parser import ParsedStrategy
+
+    previous = _rich_parsed().model_dump()
+    previous["entry_signals"] = [
+        {"indicator": "rsi", "signal_type": "buy", "period": 14, "operator": "<=", "value": 30},
+    ]
+    previous = ParsedStrategy.model_validate(previous)
+    expected = previous.model_dump()
+    expected["entry_signals"][0]["value"] = 20
+    request = "매수 RSI 기준만 20으로 바꿔줘"
+    patches = []
+    if remove_first:
+        patches.append({"op": "remove", "path": "/entry_conditions/0", "source_text": "ROE 조건을 빼고"})
+        request = "ROE 조건을 빼고 " + request
+        expected["fundamental_filters"].pop(0)
+    idx = len(expected["fundamental_filters"])
+    patches.append({"op": "replace", "path": f"/entry_conditions/{idx}/value",
+                    "value": 20, "source_text": "매수 RSI 기준만 20으로"})
+    _stub_modify_interpreter(monkeypatch, {"intent": "MODIFY_STRATEGY", "patches": patches})
+    result = run_primary_modification(request, previous.model_dump())
+    assert result["parsed"].model_dump() == expected
+
+
+@pytest.mark.parametrize(("question", "answer", "factor"), [
+    ("다른 질문", "부채비율로 해줘", "fundamental.debt_ratio"),
+    ("‘부채비율 100% 이하’ 매수 조건에 사용할 지표는 무엇인가요?", "부채비율 80%로 해줘", "fundamental.debt_ratio"),
+    ("‘부채비율 100% 이하’ 매수 조건에 사용할 지표는 무엇인가요?", "ROE로 해줘", "fundamental.roe_or_gpa"),
+])
+def test_old_operands_require_the_matching_answer(question, answer, factor):
+    from strategy_conversation.primary import _restore_confirmed_operands
+
+    quote = "부채비율 100% 이하"
+    previous = _rich_parsed().model_copy(update={"description": quote})
+    ask = {"question": f"‘{quote}’ 매수 조건에 사용할 지표는 무엇인가요?",
+           "unresolved_condition": {"field": "entry_conditions", "source_text": quote,
+                                    "operator": "<=", "value": 100}}
+    intent = StrategyIntent(intent="MODIFY_STRATEGY", patches=[
+        PatchOp(op="add", path="/entry_conditions/-", value={"factor": factor}, source_text=answer),
+    ])
+    assert _restore_confirmed_operands(intent, previous, StrategySpec(), ask, question, answer) is intent

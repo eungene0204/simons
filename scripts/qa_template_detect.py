@@ -8,6 +8,12 @@ repo 루트에 둔다(uvicorn --reload-dir backend 감시 대상이 아니므로
 
 실행: python scripts/qa_template_detect.py [--out docs/template_detect_report.md]
       python scripts/qa_template_detect.py --category ETF,테마 --refresh   # 예시 추가 후 검증
+      uv run python scripts/qa_template_detect.py --source kr --condition-audit --out /tmp/kr-conditions.json
+
+The condition audit evaluates only clauses annotated in the expectations file. Start a
+fresh QA backend and set QA_BACKEND to its URL. Service errors and server cache hits
+are excluded from the clause denominator and make the audit exit unsuccessfully.
+
 미국 예시 정답표는 아직 작성되지 않아 `--source us` 실행은 명시 중단한다.
 
 **예시를 추가·수정하면 반드시 이 스크립트로 검증한다**(2026-07-27 사고: ETF·테마 예시
@@ -349,6 +355,70 @@ def bollinger_mismatches(title: str, p: dict, asked: str) -> list[str]:
     return out
 
 
+def condition_outcomes(template: Template, response: dict) -> list[dict]:
+    """Compare individually annotated clauses to final KR output channels."""
+    parsed = response.get("parsed")
+    if not isinstance(parsed, dict) or response.get("clarification_priority") == "interpretation_failed":
+        raise ValueError("해석 응답을 평가할 수 없습니다")
+    questions = [response.get("clarification_question") or ""]
+    pending = response.get("pending_ask") or {}
+    questions.extend(item.get("question") or "" for item in pending.get("queue") or [])
+    notices = [str(n) for n in response.get("notices") or [] if _UNSUPPORTED_NOTICE_RE.search(str(n))]
+    results = []
+    for item in template.expect["conditions"]:
+        if item["quote"] not in template.prompt:
+            raise ValueError(f"정답 인용이 원문에 없습니다: {item['quote']}")
+        expected = item["match"]
+        candidates = parsed.get(item["field"]) or []
+        if any(all(c.get(k) == v for k, v in expected.items()) for c in candidates):
+            status = "applied"
+        elif any(c.get(k) == expected[k] for c in candidates
+                 for k in ("metric", "indicator") if k in expected):
+            status = "mismatch"
+        elif any(item["label"] in q for q in questions):
+            status = "clarification"
+        elif any(item["label"] in n for n in notices):
+            status = "unsupported"
+        else:
+            status = "omitted"
+        results.append({"quote": item["quote"], "status": status})
+    return results
+
+
+def audit_conditions(templates: list[Template], out: Optional[str]) -> int:
+    from collections import Counter
+
+    results = []
+    totals = Counter()
+    for template in templates:
+        if not template.expect.get("conditions"):
+            continue
+        try:
+            response = parse_strategy(template.parse_input())
+            runtime = response.get("runtime") or {}
+            if runtime.get("cache_hit"):
+                raise ValueError("백엔드 캐시 응답입니다. 새 QA 백엔드에서 실행하세요")
+            interpreter = runtime.get("interpreter") or {}
+            if not interpreter.get("model_name"):
+                raise ValueError("실모델 실행 정보를 확인할 수 없습니다")
+            outcomes = condition_outcomes(template, response)
+            totals.update(row["status"] for row in outcomes)
+            results.append({"title": template.title, "model": interpreter["model_name"],
+                            "conditions": outcomes})
+        except (OSError, ValueError) as exc:
+            results.append({"title": template.title, "error": str(exc)})
+    count = totals.total()
+    report = json.dumps({"results": results, "counts": totals, "measured": count,
+                         "omission_rate": totals["omitted"] / count if count else None},
+                        ensure_ascii=False, indent=2)
+    if out:
+        Path(out).write_text(report, encoding="utf-8")
+    else:
+        print(report)
+    return int(not count or bool(totals["omitted"] or totals["mismatch"])
+               or any("error" in row for row in results))
+
+
 def analyze(tpl: Template, res: dict) -> Flags:
     f = Flags()
     p = res.get("parsed", {})
@@ -555,6 +625,7 @@ def summarize(p: dict) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=None)
+    ap.add_argument("--condition-audit", action="store_true", help="한국어 원문 조건별 실모델 도달 경로 측정")
     ap.add_argument("--replay", type=Path, help="Replay complete fixed interpreter/check/knowledge fixtures offline")
     ap.add_argument("--replay-trace", type=Path, help="Replay one complete local JSONL trace in memory")
     ap.add_argument("--replay-expectations", type=Path, help="Human annotations keyed by trace_id")
@@ -570,6 +641,8 @@ def main() -> int:
     ap.add_argument("--lang", default="kr", choices=["kr", "en"],
                     help="파서 입력 언어: kr(원문, 기본) | en(en.ts 번역 — /us 전송 경로 재현)")
     args = ap.parse_args()
+    if args.condition_audit and (args.use_cache or args.replay or args.replay_trace):
+        ap.error("--condition-audit requires fresh parse responses")
     if args.replay_expectations and not args.replay_trace:
         ap.error("--replay-expectations requires --replay-trace")
     if args.replay or args.replay_trace:
@@ -624,6 +697,8 @@ def main() -> int:
     if not templates:
         print("HARNESS_INVALID: No selected templates", file=sys.stderr)
         return 1
+    if args.condition_audit:
+        return audit_conditions(templates, args.out)
     # 원시 파스 캐시는 **기록**이지 근거가 아니다 — 기본 경로는 매번 백엔드에 다시 묻는다.
     # 종전엔 캐시에 있으면 무조건 재사용했고(--refresh를 붙여야만 재파싱), CLAUDE.md가
     # 지정한 US 게이트 명령 두 개에는 그 플래그가 없다 → **"치명 0"이라는 합격선이 임의로

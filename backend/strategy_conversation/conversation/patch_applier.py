@@ -108,47 +108,50 @@ def _changed_factor_conditions(
     return out
 
 
-def _promote_patches_on_absent_condition(doc: Any, patches: List[PatchOp]) -> List[PatchOp]:
-    """비어 있는 조건 배열의 없는 인덱스를 겨냥한 필드 패치들을 조건 추가 하나로 합친다.
-
-    9B 드리프트 실측(2026-07-31 QA): 초안의 exit_conditions가 비어 있는데
-    `replace /exit_conditions/0/factor` + `replace /exit_conditions/0/operator`를 낸다.
-    가리킬 대상이 없어 PatchError → 폴백 → "해석하지 못했어요"로 끝나므로,
-    '볼린저밴드 상단 닿으면 매도' 같은 청산 조건 답변이 통째로 사라졌다.
-
-    합치는 것은 **LLM이 같은 인덱스에 대해 이미 낸 필드들**뿐이다 — 값을 지어내지 않고
-    구조만 바로잡으므로 형식 정규화다(§ 3-2). factor가 없으면 조건으로 성립하지 않아
-    승격하지 않는다(불완전한 조건을 만들어 검증을 통과시키지 않는다). 인덱스가 실재하면
-    기존 경로 그대로다 — 이 함수는 '없는 인덱스'에만 개입한다.
-    """
-    groups: dict[tuple[str, int], List[PatchOp]] = {}
-    for patch in patches:
-        tokens = [t for t in patch.path.split("/") if t]
-        if len(tokens) != 3 or tokens[0] not in _CONDITION_LIST_FIELDS:
+def _condition_patch_groups(doc: dict, patches: List[PatchOp]):
+    """Yield sequential operations together with their original approval members."""
+    lengths = {field: len(doc[field]) for field in _CONDITION_LIST_FIELDS}
+    consumed = set()
+    for ordinal, patch in enumerate(patches):
+        if ordinal in consumed:
             continue
-        if patch.op != "replace" or not tokens[1].isdigit():
+        tokens = patch.path.split("/")[1:]
+        if not tokens:
+            raise PatchError(f"JSON Pointer 경로가 아닙니다: {patch.path!r}")
+        field = tokens[0]
+        if field not in lengths:
+            yield patch, [patch]
             continue
-        current = doc.get(tokens[0])
-        if not isinstance(current, list) or int(tokens[1]) < len(current):
-            continue
-        groups.setdefault((tokens[0], int(tokens[1])), []).append(patch)
-    if not groups:
-        return patches
-
-    promoted: List[PatchOp] = []
-    absorbed: set[int] = set()
-    for (list_field, _index), group in groups.items():
-        value = {p.path.rsplit("/", 1)[1]: p.value for p in group}
-        if not value.get("factor"):
-            continue          # 조건의 정체가 없다 — 승격하지 않고 기존 실패에 맡긴다
-        source = next((p.source_text for p in group if p.source_text), None)
-        promoted.append(PatchOp.model_validate({
-            "op": "add", "path": f"/{list_field}/-", "value": value, "source_text": source,
-        }))
-        absorbed.update(id(p) for p in group)
-    if not promoted:
-        return patches
-    return [p for p in patches if id(p) not in absorbed] + promoted
+        if len(tokens) == 1:
+            lengths[field] = len(patch.value) if isinstance(patch.value, list) else 0
+        elif len(tokens) == 2:
+            if patch.op == "add" or tokens[1] == "-":
+                lengths[field] += 1
+            elif patch.op == "remove":
+                lengths[field] -= 1
+        elif len(tokens) == 3 and tokens[1] == str(lengths[field]) and patch.op == "replace":
+            # Recover field-wise creation only at the next index. A structural
+            # operation changes identity, so never collect siblings across it.
+            members = [patch]
+            indices = []
+            prefix = tokens[:2]
+            for index in range(ordinal + 1, len(patches)):
+                other = patches[index]
+                path = other.path.split("/")[1:]
+                if not path or path[0] != field:
+                    continue
+                if len(path) <= 2 or path[:2] != prefix or len(path) != 3 or other.op != "replace":
+                    break
+                members.append(other)
+                indices.append(index)
+            value = {item.path.rsplit("/", 1)[1]: item.value for item in members}
+            if value.get("factor"):
+                consumed.update(indices)
+                lengths[field] += 1
+                source = next((item.source_text for item in members if item.source_text), None)
+                yield PatchOp(op="add", path=f"/{field}/-", value=value, source_text=source), members
+                continue
+        yield patch, [patch]
 
 
 def unchanged_replace_indices(strategy: StrategySpec, patches: List[PatchOp]) -> set[int]:
@@ -242,7 +245,8 @@ def apply_patches(strategy: StrategySpec, patches: List[PatchOp]) -> StrategySpe
     _reject_state_ops(patches)
     doc = patch_document(strategy)
     patches = _relocate_declined_patches(patches)
-    patches = _promote_patches_on_absent_condition(doc, patches)
+    patches = [patch for patch, _ in _condition_patch_groups(doc, patches)]
+    check_extra_fields = False
     before = copy.deepcopy(doc)
     for patch in patches:
         parent, last = _resolve_parent(doc, patch.path)
@@ -250,7 +254,7 @@ def apply_patches(strategy: StrategySpec, patches: List[PatchOp]) -> StrategySpe
             if last == "-" and patch.op in ("add", "replace"):
                 # JSON Pointer의 "-"(배열 끝)는 add 전용이지만, 4B가 추가 의도를
                 # replace로 내는 드리프트 실측(2026-07-17) — 의미가 유일하므로 append로 수용
-                parent.append(patch.value)
+                parent.append(copy.deepcopy(patch.value))
                 continue
             try:
                 index = int(last)
@@ -259,14 +263,16 @@ def apply_patches(strategy: StrategySpec, patches: List[PatchOp]) -> StrategySpe
             if patch.op == "add":
                 if not (0 <= index <= len(parent)):
                     raise PatchError(f"배열 인덱스 범위 밖입니다: {patch.path!r}")
-                parent.insert(index, patch.value)
+                parent.insert(index, copy.deepcopy(patch.value))
             elif not (0 <= index < len(parent)):
                 raise PatchError(f"배열 인덱스 범위 밖입니다: {patch.path!r}")
             elif patch.op == "replace":
-                parent[index] = patch.value
+                parent[index] = copy.deepcopy(patch.value)
             else:  # remove
                 del parent[index]
         elif isinstance(parent, dict):
+            if patch.op == "add" and last not in parent:
+                check_extra_fields = True
             if patch.op in ("replace", "remove") and last not in parent:
                 if _is_clear(patch):
                     continue          # 없는 설정을 비우는 패치 — 바뀌는 것이 없다
@@ -275,7 +281,7 @@ def apply_patches(strategy: StrategySpec, patches: List[PatchOp]) -> StrategySpe
                 # 스키마 필드 삭제는 null 초기화로 해석한다(필드 자체는 계약상 존재)
                 parent[last] = None
             else:
-                parent[last] = patch.value
+                parent[last] = copy.deepcopy(patch.value)
         else:
             raise PatchError(f"경로가 컨테이너를 가리키지 않습니다: {patch.path!r}")
 
@@ -283,6 +289,6 @@ def apply_patches(strategy: StrategySpec, patches: List[PatchOp]) -> StrategySpe
     _record_null_declines(doc, before, patches)
 
     try:
-        return StrategySpec.model_validate(doc)
+        return StrategySpec.model_validate(doc, extra="forbid" if check_extra_fields else None)
     except Exception as exc:
         raise PatchError(f"패치 적용 결과가 스키마를 위반합니다: {str(exc)[:300]}")

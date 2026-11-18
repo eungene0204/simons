@@ -1461,6 +1461,47 @@ class StrategyIntent(BaseModel):
     clarification_questions: List[ClarificationQuestion] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
+    _unresolved_operands: dict = PrivateAttr(default_factory=dict)
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _retain_unresolved_conditions(cls, data, handler):
+        intent = handler(data)
+        if not isinstance(data, dict) or intent.intent != "CREATE_STRATEGY":
+            return intent
+        strategy = data.get("strategy")
+        if not isinstance(strategy, dict):
+            return intent
+        for field, role in (("entry_conditions", "매수"), ("exit_conditions", "매도")):
+            conditions = strategy.get(field, data.get(field))
+            if not isinstance(conditions, list):
+                continue
+            for index, item in enumerate(conditions):
+                if not isinstance(item, dict) or item.get("factor"):
+                    continue
+                quote = item.get("source_text")
+                if not isinstance(quote, str) or not quote.strip():
+                    continue
+                quote = quote.strip()
+                if any(quote in label for label in intent.unsupported_features):
+                    continue
+                path = f"strategy.{field}[{index}].factor"
+                question = next((q for q in intent.clarification_questions
+                                 if q.field == path or quote in q.question), None)
+                # The source index belongs to the original output. It must not
+                # point at a different, surviving item after normalization.
+                unresolved = f"unresolved.{field}[{index}].factor"
+                intent._unresolved_operands[unresolved] = {
+                    "field": field, "source_text": quote, "operator": item.get("operator"),
+                    "value": item.get("value"), "unit": item.get("unit"),
+                }
+                intent.missing_fields.append(unresolved)
+                intent.clarification_questions.append(ClarificationQuestion(
+                    field=unresolved, question=question.question if question else
+                    f"‘{quote}’ {role} 조건에 사용할 지표는 무엇인가요?",
+                ))
+        return intent
+
     @field_validator("confidence", mode="before")
     @classmethod
     def _coerce_confidence(cls, v):

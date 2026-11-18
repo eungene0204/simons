@@ -2715,3 +2715,11 @@ npm run dev:all      # 프론트엔드 + 백엔드 + 스케줄러 동시
 
 - `planner/interpretation_agent.py` — 켜면(`STRATEGY_INTERPRETATION_AGENT_MODE=primary`) 한국 레인 생성 턴의 해석을 LLM 루프가 맡는다(초안·검증 결과를 보고 지표 조회·추가·교체·삭제를 스스로 고름). 운영은 off라 동작 변화 없음. 비교 하니스 `scripts/qa_agent_vs_pipeline.py`
 - ⬜ 켜기 전: 고정 파이프라인 단계(planner-first 업종·테마, 조건 인용·누락 대조, 지역 격리 가드)를 건너뛰는 점 점검, 되묻기 하니스·예시 게이트 실행(한도 사용 — 사용자 승인 필요). 인용 숫자 대조가 표기(`\d+`)만 맞춰 "열흘"·"다섯 종목" 같은 편집은 거절됨(보수적 방향)
+
+### 버그 수정 — 2026-11-18 지표를 못 정한 조건이 조용히 사라짐 → 되묻기 + 답의 지표에 원래 연산자·값 결속 ✅ 완료 · 예시 전수 게이트 미실행
+
+- 생성 턴: AI가 인용·연산자·값은 냈는데 지표를 비운 조건을 버리지 않고 "‘인용’ 매수/매도 조건에 사용할 지표는 무엇인가요?"를 묻는다(`StrategyIntent._retain_unresolved_conditions`, `validation/pipeline.py`). 인용·연산자·값은 `pending_ask.unresolved_condition`에 실어 다음 턴으로 넘긴다.
+- 수정 턴: 답이 지표 이름만 말하면 AI가 추가한 조건에 저장된 연산자·값을 채운다(`primary._restore_confirmed_operands` — 인용·근거·표시 이름·숫자 유무 대조가 모두 맞을 때만, 아니면 AI 출력 그대로). 계약 검토가 표시 이름·답 숫자 유무의 글자 대조를 '판단 필요'로 올렸고 사용자가 허용 결정(2026-11-19).
+- 수정 패치의 조건 추가 형태 보정을 패치 순서·배열 길이 추적 방식으로 바꿨다(`patch_applier._condition_patch_groups`) — 구조 변경을 건너 형제 항목을 모으지 않는다. 승인 묶음도 같은 함수를 쓴다.
+- QA: `qa_template_detect.py --condition-audit`(정답표에 적은 조건 단위로 반영/되묻기/미지원/누락 집계), 예시 3개에 조건 단위 정답 추가.
+- 운영 콘솔 흐름도(AgentsTab) 반영. 예시 81 전수 게이트는 미실행.

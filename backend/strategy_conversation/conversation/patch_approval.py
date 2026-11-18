@@ -2,7 +2,7 @@
 from copy import deepcopy
 
 from strategy_conversation.interpreter.decisions import digest, record
-from .patch_applier import PatchError, _promote_patches_on_absent_condition
+from .patch_applier import PatchError, _condition_patch_groups
 
 FIELDS = ("entry_conditions", "exit_conditions")
 
@@ -15,21 +15,13 @@ class PatchApproval:
                         for field in FIELDS}
         cells = deepcopy(self.initial)
         self.operations, self.owners = [], {}
-        normalized = _promote_patches_on_absent_condition(strategy.model_dump(), patches)
-        absent = {}
-        for patch in patches:
-            tokens = patch.path.split("/")[1:]
-            if (patch.op == "replace" and len(tokens) == 3 and tokens[0] in FIELDS
-                    and tokens[1].isdigit() and int(tokens[1]) >= len(self.initial[tokens[0]])):
-                absent.setdefault((tokens[0], int(tokens[1])), []).append(patch)
-        promoted_members = iter(group for group in absent.values()
-                                if {p.path.rsplit("/", 1)[1]: p.value for p in group}.get("factor"))
-        for ordinal, patch in enumerate(normalized):
+        groups = _condition_patch_groups(strategy.model_dump(), patches)
+        for ordinal, (patch, members) in enumerate(groups):
             tokens = patch.path.split("/")[1:]
             field = tokens[0]
             operation = {"patch": patch, "field": field, "target": None,
                          "group": f"patch:{ordinal}:{digest(patch)[:12]}"}
-            operation["members"] = [p for p in patches if p is patch] or next(promoted_members)
+            operation["members"] = members
             if field in FIELDS:
                 if len(tokens) == 1:
                     operation["group"] = f"list:{field}:{ordinal}"

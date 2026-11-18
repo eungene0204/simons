@@ -3257,6 +3257,16 @@ def _run_primary_parse_once(
 
     turn_declined = list(getattr(validated.strategy, "declined", None) or []) \
         if validated.strategy is not None else []
+    if report.clarification_questions:
+        first = report.clarification_questions[0]
+        operands = validated._unresolved_operands.get(first.field)
+        if (operands and first.question == clarification_question
+                and operands["source_text"] in user_input):
+            pending_ask = dict(pending_ask or {}, question=first.question,
+                               unresolved_condition=operands)
+            pending_ask.setdefault("chips", [])
+            clarification_priority = "pending_values"
+
     return finalize_user_response({
         **({"_notice_context": notice_context(report, validated.strategy, user_input,
             universe_resolutions, planner_scope_terms if planner_scope_question else (),
@@ -5313,6 +5323,51 @@ def _resolve_theme_change(
     return None
 
 
+def _restore_confirmed_operands(intent, previous, draft, ask, question, answer):
+    """Bind one grounded metric selection to the operands of the echoed open question."""
+    from strategy_conversation.registry.indicator_registry import resolve
+
+    if (intent.intent != "MODIFY_STRATEGY" or not isinstance(ask, dict)
+            or not question or ask.get("question") != question):
+        return intent
+    saved = ask.get("unresolved_condition")
+    if not isinstance(saved, dict) or saved.get("field") not in ("entry_conditions", "exit_conditions"):
+        return intent
+    field = saved["field"]
+    quote, value, operator = saved.get("source_text"), saved.get("value"), saved.get("operator")
+    if (not isinstance(quote, str) or not quote or quote not in question
+            or quote not in (previous.description or "") or type(value) not in (int, float)
+            or value not in _input_number_candidates(quote) or _input_number_candidates(answer)
+            or operator not in ("<", "<=", ">", ">=", "==")):
+        return intent
+    count = len(getattr(draft, field))
+    additions = [p for p in intent.patches if p.op == "add"
+                 and p.path in (f"/{field}/-", f"/{field}/{count}") and isinstance(p.value, dict)]
+    if len(additions) != 1:
+        return intent
+    patch = additions[0]
+    condition = patch.value
+    factor = condition.get("factor")
+    spec = resolve(factor) if isinstance(factor, str) else None
+    evidence = patch.source_text or condition.get("source_text")
+    if (not spec or not isinstance(evidence, str) or evidence not in answer
+            or spec.display_name not in evidence or spec.display_name not in quote
+            or operator not in spec.allowed_operators
+            or (saved.get("unit") and condition.get("unit") not in (None, saved["unit"]))
+            or condition.get("operator") not in (None, operator)
+            or condition.get("value") not in (None, value)):
+        return intent
+    updated = {**condition, "value": value, "operator": operator}
+    if saved.get("unit") and not updated.get("unit"):
+        updated["unit"] = saved["unit"]
+    replacement = patch.model_copy(update={"value": updated})
+    path = f"strategy.{field}[{count}].value"
+    return intent.model_copy(update={
+        "patches": [replacement if p is patch else p for p in intent.patches],
+        "clarification_questions": [q for q in intent.clarification_questions if q.field != path],
+    })
+
+
 def _draft_for_interpreter(draft_spec: Any) -> dict:
     """수정 인터프리터에 보여 줄 초안 — 현금 풀(v16.22)은 가린다.
 
@@ -5542,7 +5597,8 @@ def _run_primary_modification_once(
         logger.warning("modify primary transport error, falling back | err=%r", exc)
         return None
 
-    intent = result.intent
+    intent = _restore_confirmed_operands(result.intent, prev, draft_spec, pending_ask,
+                                         pending_question, user_input)
     # 2026-07-26 계약 전환: 인터프리터가 패치를 못 냈을 때 결정론 fast-path(_modify_rule_based,
     # 원문 정규식)에게 해석 가능 여부를 묻던 상담을 제거했다 — llm_first에서 원문 해석은
     # LLM만 한다. 인터프리터가 되묻기·설명도 내지 못한 미해석 발화는 아래 patches 미출력
