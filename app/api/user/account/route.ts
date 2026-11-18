@@ -1,3 +1,4 @@
+import { notifyWithdrawal } from "./notification";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/get-user";
 import { prisma } from "@/lib/prisma";
@@ -47,6 +48,8 @@ export async function DELETE() {
         billingFailCount: 0,
       },
     });
+
+    await notifyWithdrawal(user.id, user.email);
 
     return NextResponse.json({ ok: true });
   } catch (error) {

@@ -8,6 +8,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getCurrentUser = vi.fn();
 const userFindUnique = vi.fn();
 const userUpdate = vi.fn();
+const notifyWithdrawal = vi.fn();
+vi.mock("./notification", () => ({ notifyWithdrawal: (...a) => notifyWithdrawal(...a) }));
 
 vi.mock("@/lib/get-user", () => ({
   getCurrentUser: (...a) => getCurrentUser(...a),
@@ -33,6 +35,7 @@ beforeEach(async () => {
     subscriptionCanceledAt: null,
   });
   userUpdate.mockResolvedValue({});
+  notifyWithdrawal.mockResolvedValue(undefined);
 });
 
 describe("/api/user/account DELETE", () => {
@@ -41,6 +44,7 @@ describe("/api/user/account DELETE", () => {
     const res = await DELETE();
     expect(res.status).toBe(401);
     expect(userUpdate).not.toHaveBeenCalled();
+    expect(notifyWithdrawal).not.toHaveBeenCalled();
   });
 
   it("활성 자동갱신 구독이 있으면 400으로 거부한다", async () => {
@@ -53,6 +57,7 @@ describe("/api/user/account DELETE", () => {
     const body = await res.json();
     expect(body.error).toContain("구독을 취소");
     expect(userUpdate).not.toHaveBeenCalled();
+    expect(notifyWithdrawal).not.toHaveBeenCalled();
   });
 
   it("해지 예약된 구독은 삭제를 허용한다", async () => {
@@ -108,6 +113,7 @@ describe("/api/user/account DELETE 게스트(특별 계정) 가드", () => {
     expect(res.status).toBe(403);
     expect(body.error).toContain("특별 계정");
     expect(userUpdate).not.toHaveBeenCalled();
+    expect(notifyWithdrawal).not.toHaveBeenCalled();
     // 구독 조회조차 하지 않는다 — 가드가 앞선다
     expect(userFindUnique).not.toHaveBeenCalled();
   });
@@ -120,3 +126,15 @@ describe("/api/user/account DELETE 게스트(특별 계정) 가드", () => {
     );
   });
 });
+
+ it("sends original email only after successful withdrawal", async () => {
+   await DELETE();
+   expect(notifyWithdrawal).toHaveBeenCalledWith(7, "u@example.com");
+   expect(userUpdate.mock.invocationCallOrder[0]).toBeLessThan(notifyWithdrawal.mock.invocationCallOrder[0]);
+ });
+ it("does not notify when saving withdrawal fails", async () => {
+   userUpdate.mockRejectedValueOnce(new Error("database unavailable"));
+   const res = await DELETE();
+   expect(res.status).toBe(500);
+   expect(notifyWithdrawal).not.toHaveBeenCalled();
+ });
