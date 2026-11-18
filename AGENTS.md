@@ -246,3 +246,4 @@ Keep secrets in `.env.local` or `.env`, not in source control. Required local se
 ## Gotchas
 
 - 2026-11-18 | 실패 원인: 가입 알림에 저장소 이름 Simons를 서비스명으로 사용함 → 재발 방지: 사용자에게 전달되는 운영 알림의 서비스명은 nullStock으로 표기하고 메시지 테스트에서 제목과 가입자 ID를 검증한다.
+- 2026-11-19 | 실패 원인: 새 PostgreSQL의 빈 public 스키마가 앱 덤프의 CREATE SCHEMA와 충돌함 → 재발 방지: 격리 소켓으로 연결한 새 클러스터에서만 빈 스키마를 RESTRICT로 제거하고 pg_restore 종료 코드와 복원 데이터 대조를 확인한다. [훈련 기록](docs/deployment.md#10-백업)

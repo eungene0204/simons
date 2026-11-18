@@ -1,5 +1,15 @@
 # Simons System Boundaries (Codex Control Layer)
 
+## Release verification and recovery
+
+- Task: 검사한 커밋을 배포하고 공개 KR 결과 조회와 격리 복원을 검증한다.
+- Boundary: Release verification and recovery.
+- Files allowed: `.github/workflows/ci.yml`, `Dockerfile`, `ops/recovery_drill.py`, `docs/deployment.md`.
+- Do not: 운영 DB를 복원 대상으로 사용하거나 인증·스키마·제품 동작을 수정하지 않는다.
+- Requirements: 실행 이미지 SHA 일치, 외부 HTTPS에서 한국 전략 결과 검증, 별도 PostgreSQL에 복원 후 관계·시세 대조.
+- Run: 워크플로 셸 구문 검사, 공개 경로 정상·오류 응답 검사, 격리 복구 실측.
+- Deliver: 배포 게이트, 재실행 가능한 복구 훈련, 실측 기록.
+
 ## Boundary Y: Anonymous Community Board
 
 사용자 승인(2026-10-19). 전용 범위와 실행 명세는

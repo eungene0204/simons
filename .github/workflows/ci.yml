@@ -47,6 +47,9 @@ jobs:
       - run: npx prisma generate          # lint/vitest가 @prisma/client 타입 필요
       - run: npm run lint
       - run: npm run test:frontend
+      - run: npm run build
+        env:
+          DATABASE_URL: postgresql://simons:simons@localhost:5432/simons_test
 
   backend:
     runs-on: ubuntu-latest
@@ -145,6 +148,7 @@ jobs:
         env:
           # 검색 학습 레인 자격증명(FR-STR-069). 박스 .env는 수동 관리라 종전엔 이 두 개가
           # 누락된 채로도 배포가 성공했고, 그라운딩만 조용히 죽어 있었다(2026-09-16 사고).
+          RELEASE_SHA: ${{ github.sha }}
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
         with:
@@ -152,12 +156,16 @@ jobs:
           username: ${{ secrets.VULTR_SSH_USER }}
           key: ${{ secrets.VULTR_SSH_KEY }}
           command_timeout: 30m
-          envs: NAVER_CLIENT_ID,NAVER_CLIENT_SECRET   # 원격 셸로 전달(값은 로그에 찍지 않는다)
+          envs: RELEASE_SHA,NAVER_CLIENT_ID,NAVER_CLIENT_SECRET   # 원격 셸로 전달(값은 로그에 찍지 않는다)
           script: |
             set -euo pipefail
             cd /opt/simons
+            exec 9>/opt/simons/.git/release.lock
+            flock -w 1200 9
             git fetch origin main
-            git reset --hard origin/main      # 박스 로컬 드리프트 무시, main과 정합
+            test "$(git rev-parse origin/main)" = "$RELEASE_SHA"
+            git reset --hard "$RELEASE_SHA"
+            test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
 
             # 내부 토큰(NFR-SEC-012) — 없으면 백엔드 관리자·내부·운영 변경 엔드포인트가 전부 404가
             # 되어(fail-closed) 상장폐지 동기화 등이 조용히 멈춘다. 빌드 전에 배포를 멈춘다(값은 찍지 않는다).
@@ -193,12 +201,18 @@ jobs:
               echo "[env] ⚠ 네이버 검색 자격증명 없음(시크릿 미설정) — 검색 학습 레인 비활성 유지"
             fi
 
-            # Keep only the active deployment image. Do not prune volumes; app data may live there.
+            # Clear unused build cache and dangling images. Do not prune volumes; app data may live there.
             docker builder prune -af || true
-            docker image prune -af || true
+            docker image prune -f || true
             docker container prune -f || true
 
-            docker compose build --pull --force-rm
+            previous_web=$(docker compose ps -q web)
+            if [ -n "$previous_web" ]; then
+              docker tag "$(docker inspect --format '{{.Image}}' "$previous_web")" simons-app:previous
+            fi
+            docker compose build --pull --build-arg "RELEASE_SHA=$RELEASE_SHA"
+            image_id=$(docker image inspect simons-app:latest --format '{{.Id}}')
+            test "$(docker image inspect "$image_id" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$RELEASE_SHA"
 
             # 스키마 마이그레이션 자동 적용 (Supabase Postgres). 이전엔 SQLite라 `prisma migrate`
             # CLI가 막혀 sqlite3로 직접 적용했지만, Postgres 이관 후엔 shadow DB 없이
@@ -209,11 +223,28 @@ jobs:
 
             docker compose up -d --remove-orphans
 
-            # Remove all build cache and images not used by the newly running containers.
+            # Keep the tagged previous web image for operator rollback.
             docker builder prune -af || true
-            docker image prune -af || true
+            docker image prune -f || true
             docker container prune -f || true
 
+            for service in web backend scheduler scheduler-us; do
+              cid=$(docker compose ps -q "$service")
+              test "$(docker inspect --format '{{.Image}} {{.State.Running}}' "$cid")" = "$image_id true"
+            done
+            page=$(mktemp)
+            trap 'rm -f "$page"' EXIT
+            for attempt in $(seq 1 30); do
+              if curl --fail --silent --max-time 8 --resolve www.nullstock.im:443:127.0.0.1 \
+                  https://www.nullstock.im/notes/myth-01-breakout-chasing -o "$page" &&
+                 grep -Fq '−65.74%' "$page" && grep -Fq '−87.11%' "$page" &&
+                 docker compose exec -T web node -e \
+                   'fetch("http://backend:8000/market/health",{signal:AbortSignal.timeout(5000)}).then(async r=>{if(!r.ok||(await r.json()).status!=="ok")process.exit(1)}).catch(()=>process.exit(1))'; then
+                break
+              fi
+              if [ "$attempt" = 30 ]; then echo "::error::KR release smoke failed"; exit 1; fi
+              sleep 3
+            done
             docker compose ps
 
             # 검색 학습 레인이 실제로 살아났는지 배포 로그에 한 줄 남긴다(자격증명 값은 출력하지

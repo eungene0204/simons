@@ -73,3 +73,6 @@ ENV PYTHONPATH=/app:/app/backend \
 # 기본은 백엔드. 다른 서비스는 compose에서 command를 덮어쓴다.
 WORKDIR /app/backend
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+ARG RELEASE_SHA=local
+LABEL org.opencontainers.image.revision=$RELEASE_SHA

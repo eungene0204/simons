@@ -321,15 +321,12 @@ npx prisma migrate deploy # 스키마 반영 (Supabase Postgres, shadow DB 불�
 docker compose logs -f backend
 ```
 
-**평상시는 완전 자동**: `.github/workflows/ci.yml`의 `deploy` job이 `main` push마다(또는 `workflow_dispatch`) 다음을 SSH로 실행한다.
-```
-git fetch origin main && git reset --hard origin/main
-docker compose build --pull --force-rm
-docker compose run --rm --workdir /app backend npx prisma migrate deploy   # Supabase에 자동 적용
-docker compose up -d --remove-orphans
-```
-- `reset --hard`인 이유: 박스가 런타임 산출물(`data/universe-history.json` 등)로 더럽혀져 ff-only pull이 실패하기 때문.
-- 마이그레이션 실패 시 `set -e`로 배포가 중단되고 **구버전 컨테이너가 계속 떠 있어 서비스는 안 죽는다**.
+**자동 배포**는 main push 또는 수동 배포에 연결된 CI 커밋을 사용한다. 프론트 테스트와 운영 빌드, 백엔드 검사, 엔진 버전 검사가 통과해야 시작한다. 서버 파일 잠금 안에서 새 main과 CI SHA가 일치할 때만 해당 SHA를 체크아웃한다. 운영 합본 이미지에 SHA를 붙이고 기동한 web·backend·두 스케줄러의 이미지 ID를 검증한다.
+
+Caddy의 운영 도메인과 TLS를 통해 한국 연구노트 `/notes/myth-01-breakout-chasing`를 읽고 수익률 −65.74%와 최대 낙폭 −87.11%를 대조한다. web 컨테이너에서 백엔드 상태 응답도 확인한다. 준비 중에는 재시도하며 제한을 넘기면 배포 작업이 실패한다. 이 경로는 DB에 발행된 전략 결과를 조회한다. 전략을 새로 계산하거나 사용량을 소비하지 않는다.
+
+기동 전 실행 중인 web 이미지에 `simons-app:previous` 태그를 보존한다. 배포 실패 시 운영자가 직전 코드와 현재 DB 마이그레이션의 하위 호환성 및 Compose 설정을 확인한 뒤, 호환되는 경우 서버에서 `docker tag simons-app:previous simons-app:latest`, `docker compose up -d --no-build` 순으로 복귀하고 같은 HTTPS 결과 검사를 반복한다. 스키마 역마이그레이션은 자동 실행하지 않는다.
+
 - 필수 GitHub Secrets: `VULTR_SSH_HOST`(=45.77.214.226), `VULTR_SSH_USER`, `VULTR_SSH_KEY`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`.
 - **자격증명 주입(2026-09-16)**: 박스 `.env`는 수동 관리라 키 하나가 누락돼도 배포는 성공하고 해당 기능만 조용히 죽는다 — 실제로 검색 학습 레인이 그렇게 죽어 있었다. 배포 스크립트가 `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET`이 **없거나 값이 비어 있을 때만** 시크릿 값으로 다시 쓴다(박스 수동 값 우선 — 로테이션은 수동). 기동 직후 `docker compose exec backend`로 레인 상태 한 줄(`검색 학습 레인 활성 — 어휘집 N개 용어`)을 배포 로그에 남긴다.
 
@@ -369,6 +366,14 @@ docker compose up -d --remove-orphans
 
 ### Supabase Postgres (앱 DB)
 Pro 플랜의 자동 백업(일별/PITR, 플랜 조건에 따름)에 의존. 별도 스크립트 불필요 — 예전 SQLite Litestream 방식은 이관 후 폐기.
+
+### 격리 복구 훈련 (2026-11-19)
+
+저장소 루트에서 `PATH="/opt/homebrew/opt/postgresql@17/bin:$PATH" uv run --frozen python ops/recovery_drill.py`를 실행한다. 운영 앱 DB의 public 스키마를 읽기 전용 일관 스냅샷으로 덤프한다. 임시 PostgreSQL은 전용 Unix 소켓에서만 접속을 받으며 훈련 종료 후 덤프와 클러스터를 제거한다. 한국 시세 파일은 로컬 미러에서 복사한다.
+
+- DB 복구 기준 시각은 **2026-11-19 05:19:37 KST**. 원본 스냅샷과 복원본에서 전략 425개, 백테스트 이력 403개, 결과 423개, 전략과 연결된 이력 235개·결과 423개, 고정 공개 연구노트 1개가 일치했다.
+- 덤프 준비 후 새 DB 초기화부터 복원·대조와 한국 시세 파일 **5,158개**의 복사·SHA-256·Parquet 행 존재 확인까지 **11.5초**가 걸렸다. 이 시간에는 덤프 생성, 서버 재조달, 서비스 재기동이 빠져 있다.
+- Supabase 관리형 백업 보존 기간, Auth 스키마, 실제 장애 시 허용 손실과 서비스 재개 시간은 별도 측정 대상이다.
 
 ### 로컬 news Postgres
 `postgres` 컨테이너(`pgdata` 볼륨)는 뉴스 수집이 비활성 상태라 우선순위 낮음. 필요 시 `pg_dump` 또는 재생성(수집 재개 시 재구축 가능).
