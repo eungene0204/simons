@@ -1,31 +1,17 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { adminFetch, formatDateTime, Pagination, ErrorNotice, actionBtnClass } from './shared'
-import StrategySnapshotView, { type StrategySnapshot, type StrategySource } from './StrategySnapshotView'
+import { adminFetch, Pagination, ErrorNotice, actionBtnClass } from './shared'
+import QaTurnCard, { type QaTurn } from './QaTurnCard'
 
 // Users 탭에서 사용자를 고르면 그 사용자가 전략연구소에 입력한 내용과 우리의 응답을 보여 준다.
 // 기본은 전략 카드가 뜬 턴만(입력한 전략과 해석) — 되묻기·안내까지 전부 보려면 토글을 끈다.
-
-interface ConversationLog {
-  recoveredFromSnapshot?: boolean
-  id: string
-  sessionId: string
-  turnIndex: number
-  question: string
-  answer: string
-  answerKind: string
-  chipAnswer: boolean
-  createdAt: string
-  strategy: StrategySnapshot | null
-  strategySource: StrategySource | null
-}
 
 interface ConversationResponse {
   total: number
   page: number
   pageSize: number
-  logs: ConversationLog[]
+  logs: QaTurn[]
 }
 
 export default function UserConversationPanel({ userId, email }: { userId: number; email: string }) {
@@ -54,7 +40,7 @@ export default function UserConversationPanel({ userId, email }: { userId: numbe
   }, [load])
 
   return (
-    <section className="flat-card space-y-3 rounded-xl px-5 py-4" data-testid="user-conversation-panel">
+    <section className="space-y-3" data-testid="user-conversation-panel">
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-sm font-black text-white">{email} — 입력한 전략과 응답</p>
         <button
@@ -82,22 +68,8 @@ export default function UserConversationPanel({ userId, email }: { userId: numbe
       ) : (
         <ol className="space-y-3">
           {data.logs.map((log) => (
-            <li key={log.id} className="rounded-lg border border-white/5 px-3 py-2.5">
-              <p className="mb-1.5 text-[11px] font-bold text-gray-600">
-                {formatDateTime(log.createdAt)} · 대화 {log.sessionId.slice(0, 8)} #{log.turnIndex}
-                {log.chipAnswer && ' · 칩 선택'}
-                {log.recoveredFromSnapshot && ' · 복구 기록(대화 저장 시각 기준)'}
-              </p>
-              <p className="whitespace-pre-wrap text-sm font-bold text-gray-100">{log.question}</p>
-              <details className="mt-1.5">
-                <summary className="cursor-pointer text-[11px] font-bold text-gray-500">응답 텍스트</summary>
-                <p className="mt-1 whitespace-pre-wrap text-xs text-gray-400">{log.answer}</p>
-              </details>
-              {log.strategy && (
-                <div className="mt-2">
-                  <StrategySnapshotView strategy={log.strategy} source={log.strategySource} />
-                </div>
-              )}
+            <li key={log.id}>
+              <QaTurnCard turn={log} />
             </li>
           ))}
         </ol>
