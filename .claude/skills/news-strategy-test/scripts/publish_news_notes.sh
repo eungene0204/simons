@@ -26,6 +26,15 @@ git fetch -q origin main
 git -C "$REPO" worktree add -q --detach "$WT" origin/main
 trap cleanup EXIT
 bash "$REPO/scripts/worktree.sh" link "$WT" >/dev/null
+# 공용 node_modules의 Prisma 클라이언트는 생성한 폴더 기준으로 .env를 찾는다. 임시 폴더에서 빌드(prisma generate)하면
+# 지워질 폴더 기준으로 덮어써져 DATABASE_URL을 못 찾는다 — 2026-11-19·20 이틀 게시가 시드 dry-run에서 멈췄다.
+# 기준 폴더에 schema.prisma가 없으면 원래 checkout에서 다시 생성한다(워크트리에서 생성하면 같은 문제가 난다).
+CLIENT_DIR="$REPO/node_modules/.prisma/client"
+CLIENT_SCHEMA_DIR=$(cd "$CLIENT_DIR" && node -e 'const m=require("fs").readFileSync("index.js","utf8").match(/"relativePath": "([^"]*)"/); console.log(m ? require("path").resolve(m[1]) : "")')
+if [ ! -f "$CLIENT_SCHEMA_DIR/schema.prisma" ]; then
+  echo "[연구노트] Prisma 클라이언트 기준 폴더(${CLIENT_SCHEMA_DIR:-알 수 없음})가 없어 원래 checkout에서 다시 생성한다"
+  (cd "$REPO" && npx prisma generate >/dev/null 2>&1) || fail "prisma generate"
+fi
 cd "$WT"
 
 cp "$DATA" /tmp/news-notes-before.$$.json
@@ -50,7 +59,7 @@ TOTAL=$(python3 -c "import json; print(len(json.load(open('$DATA'))))")
 sed -i '' -E "s/expect\(NEWS_NOTES\)\.toHaveLength\([0-9]+\)/expect(NEWS_NOTES).toHaveLength($TOTAL)/" "$TEST"
 npx vitest run lib/notes components/notes >/tmp/news-notes-vitest.$$.log 2>&1 || { tail -30 /tmp/news-notes-vitest.$$.log; fail "vitest"; }
 
-DRY=$(npx ts-node --project tsconfig.scripts.json scripts/seed-research-notes.ts --slug-prefix=news- 2>&1) || fail "시드 dry-run 오류: $(echo "$DRY" | tail -3)"
+DRY=$(npx ts-node --project tsconfig.scripts.json scripts/seed-research-notes.ts --slug-prefix=news- 2>&1) || fail "시드 dry-run 오류: $(echo "$DRY" | grep -v -E '^ *at |^ *$' | tail -12)"
 DRY=$(echo "$DRY" | head -1)
 echo "$DRY"
 [[ "$DRY" == *"신규 $ADDED · 덮어쓰기 0"* ]] || fail "시드 dry-run 신규 수가 새 편 수($ADDED)와 다르다: $DRY"

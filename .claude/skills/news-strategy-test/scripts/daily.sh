@@ -24,7 +24,7 @@ if [ -f "$REPORT" ]; then
   # 연구노트 게시(2026-11-08 사용자 지시 — 뉴스 전략을 만들면 노트까지 자동으로). 13시 속설 작업도 노트를 시드하므로 잠금을 쥔 채 한다.
   pub_log="$(bash "$REPO/.claude/skills/news-strategy-test/scripts/publish_news_notes.sh" 2>&1)"; pub=$?
   echo "$pub_log"
-  { echo; echo "## 연구노트 게시"; echo; echo '```'; echo "$pub_log" | tail -15; echo '```'; } >> "$REPORT"
+  { echo; echo "## 연구노트 게시"; echo; echo '```'; echo "$pub_log" | tail -25; echo '```'; } >> "$REPORT"
   [ $pub = 0 ] && notify "오늘 결과가 준비됐어요 — 연구노트 게시까지 끝" || notify "결과는 준비됐지만 연구노트 게시가 실패했어요 — report.md"
   open "$REPORT"
 else
