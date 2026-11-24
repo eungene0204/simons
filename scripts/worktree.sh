@@ -14,7 +14,7 @@
 #   scripts/worktree.sh new <slug> [base]   # ../simons-wt/<slug>, 브랜치 wt/<slug> (base 기본: 현재 HEAD)
 #   scripts/worktree.sh link <path>         # 이미 만든 워크트리(EnterWorktree 등)에 자원만 연결
 #   scripts/worktree.sh list
-#   scripts/worktree.sh rm <slug>           # 미커밋 변경이 있으면 git이 거부한다(브랜치는 남긴다)
+#   scripts/worktree.sh rm <slug>           # 미커밋 변경이 있으면 git이 거부한다(브랜치는 원격 main에 다 들어갔을 때만 지운다)
 set -euo pipefail
 
 MAIN="$(git rev-parse --path-format=absolute --git-common-dir)"
@@ -96,7 +96,20 @@ case "$cmd" in
     # 변경이 있으면 git이 제거를 거부한다(그게 의도다).
     find "$path" -type l -lname "$MAIN/*" -not -path "$path/node_modules/*" -delete
     git -C "$MAIN" worktree remove "$path"
-    echo "제거됨(브랜치 wt/${slug}는 남김): $WT_ROOT/$slug"
+    echo "제거됨: $WT_ROOT/$slug"
+    # 브랜치는 끝 커밋이 원격 main에 이미 들어 있을 때만 지운다 — main 밖 커밋이 있으면 남겨
+    # 작업을 잃지 않는다. 로컬 main은 낡았을 수 있어(2026-11-24 'not fully merged' 오판) 원격 기준으로 본다.
+    branch="wt/$slug"
+    if git -C "$MAIN" show-ref --verify --quiet "refs/heads/$branch"; then
+      if ! git -C "$MAIN" fetch -q origin main; then
+        echo "브랜치 $branch 남김: 원격 main을 받지 못해 병합 여부를 확인할 수 없음"
+      elif git -C "$MAIN" merge-base --is-ancestor "$branch" origin/main; then
+        git -C "$MAIN" branch -D "$branch" >/dev/null
+        echo "브랜치 $branch 삭제: 커밋이 모두 원격 main에 있음"
+      else
+        echo "브랜치 $branch 남김: 원격 main에 없는 커밋 $(git -C "$MAIN" rev-list --count "origin/main..$branch")개"
+      fi
+    fi
     ;;
   *)
     sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
