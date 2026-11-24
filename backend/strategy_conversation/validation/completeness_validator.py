@@ -43,6 +43,14 @@ _PARAM_LABELS = {
 }
 
 
+# 시장 지수 등락률(엔진 v16.52)의 기준 지수 되묻기 문구(ko, en) — 칩은 primary가 조건 전체를 담아 만든다.
+MARKET_INDEX_RETURN_FACTOR = "technical.market_index_return"
+MARKET_INDEX_QUESTION = (
+    "어느 지수의 등락률을 기준으로 할까요? 코스피와 코스닥 중에서 고를 수 있어요.",
+    "Which index's change should be used? You can choose KOSPI or KOSDAQ.",
+)
+
+
 # 적립 종목·현금 하한 되묻기 문구(ko, en) — primary가 "지금 답을 기다리는 질문이 이것인가"를 같은 문자열로
 # 판정한다(우리가 낸 문장의 동일성 대조 — 사용자 원문 해석이 아니다).
 CONTRIBUTION_SYMBOL_QUESTION = (
@@ -220,6 +228,13 @@ def validate_completeness(intent: StrategyIntent) -> Tuple[List[str], List[Clari
             spec = REGISTRY.get(cond.factor)
             if spec is None or spec.supported == "UNSUPPORTED":
                 continue
+            if spec.id == MARKET_INDEX_RETURN_FACTOR and cond.parameters.get("index") is None:
+                # 시장 지수 등락률(v16.52)의 기준 지수 — 지수 이름 없이 '시장'만 말했으면 되묻는다(2026-11-24 결정).
+                missing.append(f"{field_base}.parameters.index")
+                questions.append(ClarificationQuestion(
+                    field=f"{field_base}.parameters.index",
+                    question=msg(*MARKET_INDEX_QUESTION),
+                ))
             # 자기 선(線)을 둘 가진 지표(이동평균·EMA)에서 비교 연산자는 **두 선의 관계**를
             # 뜻한다("5일 EMA가 20일 EMA 위에 있으면") — 사용자가 줄 숫자 임계값이 없고,
             # 컴파일러도 값 없이 mode(above/below)로 바인딩한다(_compile_technical).

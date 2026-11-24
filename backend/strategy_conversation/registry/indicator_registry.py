@@ -487,6 +487,15 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                      "period=거래일(3개월=63). 미국 시장은 지수 시계열이 없어 미지원. "
                      "'상대강도 상위 N%'는 이 지표가 아니라 ranking.return(수익률 랭킹)이다 — "
                      "그 표현으로 이 조건을 함께 만들지 않는다"),
+    # 시장 지수 등락률(엔진 v16.52) — 지수·기간·값은 말하지 않으면 되묻기(2026-11-24 사용자 결정, 기본값 없음).
+    _technical("market_index_return", "시장 지수 등락률", "percent", _COMPARISON_OPS,
+               {"period": ParamSpec(minimum=1, maximum=_MAX_LOOKBACK_DAYS, required=True)},
+               value_range=(-100, 1000),
+               notes="종목과 무관하게 시장 지수(코스피·코스닥) 자체의 N거래일 등락률(%) = 지수 종가 ÷ N거래일 전 "
+                     "지수 종가 − 1. parameters.index=\"KOSPI\"|\"KOSDAQ\"(말한 지수, 지수 이름 없이 '시장'만 "
+                     "말했으면 비움), parameters.period=말한 기간(하루·전날 대비=1, 없으면 비움). "
+                     "'코스피가 하루에 5% 이상 빠지면'→index KOSPI, period 1, <=, -5. 종목이 시장보다 나은지 "
+                     "비교하는 말은 technical.relative_return"),
     _technical("volatility", "변동성(연환산)", "percent", _COMPARISON_OPS,
                {"period": ParamSpec(default=60, minimum=5, maximum=_MAX_LOOKBACK_DAYS)},
                value_range=(0, 500), recommended=30,
@@ -698,6 +707,8 @@ _ALIASES: Dict[str, str] = {
     "roc": "technical.roc", "모멘텀": "technical.roc",
     "disparity": "technical.disparity", "이격도": "technical.disparity",
     "vwap": "technical.vwap", "거래량가중평균가": "technical.vwap",
+    "market_index_return": "technical.market_index_return", "시장지수등락률": "technical.market_index_return",
+    "지수등락률": "technical.market_index_return",
     "relative_return": "technical.relative_return", "초과수익률": "technical.relative_return",
     "시장대비초과수익률": "technical.relative_return", "시장대비수익률": "technical.relative_return",
     "ai_model": "technical.ai_model", "ai상승예측": "technical.ai_model",

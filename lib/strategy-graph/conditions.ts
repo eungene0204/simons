@@ -1,5 +1,5 @@
 import { t } from "@/lib/i18n";
-import { INDICATOR_LABELS, METRIC_LABELS } from "@/lib/strategy-summary";
+import { INDICATOR_LABELS, MARKET_INDEX_NAMES, METRIC_LABELS } from "@/lib/strategy-summary";
 import { metaName, unitText } from "./graphBuilder";
 import type { DetailRow, EngineCondition, GraphMeta, IndicatorMeta, NodeStatus } from "./types";
 
@@ -270,6 +270,14 @@ export function describeCondition(cond: EngineCondition, meta: GraphMeta | null)
       rows: [...(period !== null ? [row(t("기간"), t("{0}일", period))] : []), row(t("판정 방식"), stays ? t("지속 상태(교차 사건 아님)") : t("교차 사건")), NO_THRESHOLD()],
       ...(stays ? { status: "not_applicable" as const, statusNote: t("지속 상태 판정이라 기준값이 필요하지 않습니다.") } : crossStatus()),
     };
+  }
+
+  if (id === "market_index_return") {
+    // 시장 지수 등락률(엔진 v16.52) — 종목이 아니라 지수(코스피·코스닥)의 N거래일 등락률을 본다.
+    const period = num(p.period);
+    const indexName = t(MARKET_INDEX_NAMES[text(p.index) ?? ""] ?? text(p.index) ?? "?");
+    const cmp = comparison(t("{0} {1}거래일 등락률", indexName, period ?? "?"), null, p, leaf);
+    return { ...base, ...cmp, rows: [row(t("기준 지수"), indexName), ...(period !== null ? [row(t("기간"), t("{0}거래일", period))] : []), ...cmp.rows] };
   }
 
   if (id === "volume_spike") {

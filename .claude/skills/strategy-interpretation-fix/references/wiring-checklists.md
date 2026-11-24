@@ -109,6 +109,11 @@
 - 엔진: 벡터(`_eval_vec`)·행별(`evaluate_condition`)·사유(`_base_condition_segments`) 3곳 + 워밍업(`backtest_engine`) + 해결기 컬럼 + `prep_cache.STRUCTURAL_PARAM_KEYS`.
 - 사유 템플릿은 **최상위 상수**로(i18n 게이트가 표 안 문구를 못 본다) + `en.ts`, 프론트 `getSignalLabel`·`conditionToSignal`.
 - 게이트 정답표(`qa_template_detect.BOLLINGER_EXPECTED` 패턴) — 커버리지 검사는 지표 존재만 본다.
+- 엔진 열 이름은 **소문자**로 짓는다 — `IndicatorEngine.calculate`가 열 이름을 모두 소문자로 바꿔, 대문자가 섞인 열
+  (`market_index_return_KOSPI_1`)은 평가 단계에서 '미해결 데이터'로 빠지고 실데이터 백테스트가 거래 0건이 된다(v16.52 실측).
+  단위 테스트가 지표 엔진을 거치지 않으면 못 잡는다 — 지표 엔진 + DataResolver를 통과하는 테스트를 하나 둔다.
+- 종목 밖 시계열(지수 등)을 종목 프레임에 붙일 때는 **그 시계열의 달력에서** 계산한 뒤 조인한다(종목 거래정지일이 N을 늘린다),
+  전진 충전은 '하루 등락' 같은 사건형 값을 다음 날 다시 발화시킨다(v16.52 `attach_market_index_returns`).
 
 ## 9. 새 전용 판정 패스 (`interpreter/<이름>_check.py`)
 

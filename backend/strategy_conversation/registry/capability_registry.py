@@ -85,7 +85,9 @@ def normalize_rebalance_frequency(value: Optional[str]) -> Optional[str]:
 
 
 # 다중 타임프레임(v16.29) — 조건 파라미터 timeframe의 표기 변형. 일봉은 값 없음.
-STRING_CONDITION_PARAMS = ("timeframe", "pattern", "price_basis")   # price_basis: 종가 기준 돌파(v16.44)
+STRING_CONDITION_PARAMS = ("timeframe", "pattern", "price_basis", "index")   # price_basis: 종가 기준 돌파(v16.44), index: 시장 지수 등락률(v16.52)
+# 시장 지수 등락률의 기준 지수 표기(LLM 출력) → 정본. 원문이 아니라 LLM이 채운 index 칸의 표기 정규화다.
+_MARKET_INDEX_ALIASES = {"kospi": "KOSPI", "코스피": "KOSPI", "kosdaq": "KOSDAQ", "코스닥": "KOSDAQ"}
 _TIMEFRAME_ALIASES = {
     "weekly": "weekly", "week": "weekly", "w": "weekly", "주봉": "weekly", "주간": "weekly", "1w": "weekly",
     "monthly": "monthly", "month": "monthly", "m": "monthly", "월봉": "monthly", "월간": "monthly", "1m": "monthly",
@@ -100,6 +102,12 @@ def normalize_timeframe(value) -> Optional[str]:
     if key in ("daily", "day", "d", "일봉", "1d", ""):
         return "daily"
     return _TIMEFRAME_ALIASES.get(key)
+
+
+def normalize_market_index(value) -> Optional[str]:
+    if value is None:
+        return None
+    return _MARKET_INDEX_ALIASES.get(str(value).strip().lower().replace(" ", ""))
 
 
 def normalize_weighting(value: Optional[str]) -> Optional[str]:

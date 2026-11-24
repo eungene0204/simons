@@ -345,12 +345,22 @@ def validate_capability(intent: StrategyIntent, universe_findings=None) -> Tuple
             if "timeframe" in cond.parameters:
                 _tf_raw = cond.parameters.get("timeframe")
                 _tf = caps.normalize_timeframe(_tf_raw)
-                if _tf in ("weekly", "monthly") and spec.category == "technical":
+                # 시장 지수 등락률(v16.52)은 지수 일봉 등락률이라 봉 단위를 바꾸지 않는다(기간 N이 그 역할).
+                if _tf in ("weekly", "monthly") and spec.category == "technical" \
+                        and spec.id != "technical.market_index_return":
                     cond.parameters["timeframe"] = _tf
                 else:
                     cond.parameters.pop("timeframe", None)
                     if _tf is None and _tf_raw not in (None, ""):
                         unsupported.append(f"타임프레임 '{_tf_raw}'")
+            # 시장 지수 등락률(v16.52)의 기준 지수 — LLM 출력 표기를 정본(KOSPI·KOSDAQ)으로 맞춘다. 다른 지표의
+            # index 칸과 정본이 아닌 값은 지운다(지수 칸이 비면 completeness가 지수를 되묻는다).
+            if "index" in cond.parameters:
+                _index = caps.normalize_market_index(cond.parameters.get("index"))
+                if _index is not None and spec.id == "technical.market_index_return":
+                    cond.parameters["index"] = _index
+                else:
+                    cond.parameters.pop("index", None)
             # 종가 기준 돌파(v16.44) — 돌파 조건의 "close"만 남긴다. 고가·저가 기준은 값 없음이 정본이다.
             if "price_basis" in cond.parameters and not (
                     cond.parameters.get("price_basis") == "close"
@@ -726,6 +736,17 @@ def validate_capability(intent: StrategyIntent, universe_findings=None) -> Tuple
         for _role, _attr in (("진입", "entry_conditions"), ("청산", "exit_conditions")):
             _kept_conds = []
             for _cond in getattr(strategy, _attr):
+                if _cond.factor == "technical.market_index_return":
+                    # 시장 지수 등락률(v16.52)은 코스피·코스닥 지수 조건이다 — 미국 종목 거래일과 맞추지 않는다.
+                    unsupported.append("미국 시장 × 시장 지수 등락률")
+                    errors.append(ui_language.msg(
+                        "미국 시장에서는 {role} 조건 '시장 지수 등락률'을 사용할 수 없습니다 "
+                        "(코스피·코스닥 지수 조건은 한국 시장 전용)",
+                        "The {role} condition 'market index change' isn't available for US markets "
+                        "(KOSPI/KOSDAQ index conditions are Korea-only)",
+                        role=ui_language.msg(_role, "entry" if _role == "진입" else "exit"),
+                    ))
+                    continue
                 if _cond.factor != "technical.relative_return":
                     _kept_conds.append(_cond)
                     continue

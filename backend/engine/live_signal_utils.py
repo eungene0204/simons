@@ -146,6 +146,8 @@ def prepare_signal_dataframe(
         if symbol and data_dir:
             from engine import market_index
             live_df = market_index.attach_index_close(live_df, symbol, tech_conditions, data_dir)
+            # 시장 지수 등락률(v16.52) — 당일 지수 종가가 아직 없는 실시간 봉은 빈 칸(신호 없음)이다.
+            live_df = market_index.attach_market_index_returns(live_df, tech_conditions, data_dir)
         live_df = IndicatorEngine.calculate(live_df, tech_conditions)
 
     if uses_ai_conditions(entry_conditions, exit_conditions):

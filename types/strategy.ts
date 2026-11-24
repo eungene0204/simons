@@ -30,6 +30,7 @@ export type IndicatorType =
   | "gap"
   | "vwap"
   | "relative_return"
+  | "market_index_return"
   | "volatility";
 
 export type FlowType = "investor_net_buy";

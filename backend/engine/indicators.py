@@ -321,6 +321,14 @@ def _add_condition_columns(sdf, cid, p, target_cols, log) -> None:
             else:
                 sdf[col] = float('nan')
             target_cols.add(col)
+        elif cid == 'market_index_return':
+            # 시장 지수 등락률(%, v16.52) — engine/market_index.attach_market_index_returns가 지수 달력에서
+            # 계산해 미리 붙인다(이 엔진은 지수 파일 위치를 모른다). 열이 없으면 NaN → 조건 False(fail-closed).
+            from engine.market_index import market_index_return_column
+            col = market_index_return_column(str(p.get('index')), int(p.get('period') or 0))
+            if col not in sdf.columns:
+                sdf[col] = float('nan')
+            target_cols.add(col)
         elif cid == 'bollinger_bands':
             period, std_times = bollinger_params(p)
             ub_col, lb_col = bollinger_columns(p)

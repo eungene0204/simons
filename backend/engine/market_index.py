@@ -38,6 +38,8 @@ INDEX_DIR_NAME = "index"
 INDEX_MARKETS = ("KOSPI", "KOSDAQ")
 INDEX_CLOSE_COL = "index_close"
 RELATIVE_RETURN_ID = "relative_return"
+# 시장 지수 등락률(엔진 v16.52) — 종목과 무관하게 사용자가 고른 지수(코스피·코스닥)의 N거래일 등락률(%).
+MARKET_INDEX_RETURN_ID = "market_index_return"
 INDEX_COLUMNS = ("date", "open", "high", "low", "close", "volume", "source")
 # 시장 국면 필터의 변동성 급등 판정(엔진 v16.16) — 지수 N일 변동성 ÷ 그 변동성의 직전 1년 평균.
 # 산정 기간은 사용자가 말하지 않으면 20거래일이다(2026-09-20 결정 — 결과 경고·매매 사유에 표기).
@@ -180,3 +182,61 @@ def attach_index_close(
     if joined.schema["date"] != date_dtype:
         joined = joined.with_columns(pl.col("date").cast(date_dtype))
     return joined
+
+
+def market_index_return_column(index: str, period: int) -> str:
+    """시장 지수 등락률 조건의 열 이름 — 지수·기간마다 하나(같은 종목 프레임에 여럿이 함께 붙을 수 있다).
+    소문자로 짓는다 — 지표 엔진(IndicatorEngine.calculate)이 열 이름을 모두 소문자로 바꾼다."""
+    return f"market_index_return_{str(index).lower()}_{int(period)}"
+
+
+def _market_index_return_keys(conditions: Optional[Iterable[Dict[str, Any]]]) -> List[tuple]:
+    keys: List[tuple] = []
+    for cond in conditions or []:
+        if (cond or {}).get("id") != MARKET_INDEX_RETURN_ID:
+            continue
+        params = cond.get("params") or {}
+        key = (str(params.get("index")), int(params.get("period") or 0))
+        if key not in keys:
+            keys.append(key)
+    return keys
+
+
+def attach_market_index_returns(
+    df_pl: pl.DataFrame,
+    conditions: Optional[List[Dict[str, Any]]],
+    data_dir: str | os.PathLike,
+) -> pl.DataFrame:
+    """시장 지수 등락률 조건이 있을 때만 종목 프레임에 `market_index_return_<지수>_<N>` 열(%)을 붙인다.
+
+    등락률은 **지수 자신의 거래일 달력**에서 계산한 뒤 날짜로 조인한다 — 종목 프레임 위에서
+    pct_change를 하면 거래정지로 빠진 날만큼 N이 늘어나 '하루 등락률'이 여러 날 등락률로 바뀐다.
+    조인 후 빈 칸은 채우지 않는다(전진 충전하면 지수가 없는 날 — 실시간 봉 포함 — 에 전날 급락이
+    다시 신호를 낸다). 빈 칸은 조건이 False로 떨어진다(fail-closed, 상대 수익률 조건과 같은 계약).
+    지수 이름·기간이 정본이 아니거나 지수 파일이 없으면 null 열을 붙인다.
+    """
+    keys = _market_index_return_keys(conditions)
+    if df_pl is None or len(df_pl) == 0 or not keys:
+        return df_pl
+    date_dtype = df_pl.schema["date"]
+    out = df_pl.with_columns(pl.col("date").cast(pl.Datetime("us")).alias("_join_date"))
+    for index, period in keys:
+        col = market_index_return_column(index, period)
+        if col in out.columns:
+            continue
+        frame = load_index_frame(index, data_dir) if index in INDEX_MARKETS and period >= 1 else None
+        if frame is None:
+            _logger.warning("[MARKET-INDEX] 지수 등락률 계산 불가(index=%s, period=%s) — 조건은 평가되지 않는다",
+                            index, period)
+            out = out.with_columns(pl.lit(None, dtype=pl.Float64).alias(col))
+            continue
+        returns = frame.select(
+            pl.col("date").alias("_join_date"),
+            ((pl.col(INDEX_CLOSE_COL).cast(pl.Float64) / pl.col(INDEX_CLOSE_COL).cast(pl.Float64).shift(period)
+              - 1.0) * 100.0).alias(col),
+        )
+        out = out.join(returns, on="_join_date", how="left")
+    out = out.drop("_join_date")
+    if out.schema["date"] != date_dtype:
+        out = out.with_columns(pl.col("date").cast(date_dtype))
+    return out

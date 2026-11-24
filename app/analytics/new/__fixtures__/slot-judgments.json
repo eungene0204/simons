@@ -38,7 +38,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -60,7 +61,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -281,7 +283,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -303,7 +306,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -421,7 +425,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -443,7 +448,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -571,7 +577,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -706,7 +713,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -836,7 +844,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -965,7 +974,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [],
@@ -1094,7 +1104,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [],
@@ -1224,7 +1235,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [],
@@ -1354,7 +1366,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [],
@@ -1489,7 +1502,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [],
@@ -1618,7 +1632,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [],
@@ -1751,7 +1766,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [],
@@ -1879,7 +1895,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [],
@@ -2006,7 +2023,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -2028,7 +2046,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -2155,7 +2174,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -2177,7 +2197,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -2306,7 +2327,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -2328,7 +2350,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -2456,7 +2479,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -2478,7 +2502,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -2607,7 +2632,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -2629,7 +2655,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -2760,7 +2787,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -2782,7 +2810,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -2910,7 +2939,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -2932,7 +2962,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -3060,7 +3091,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -3082,7 +3114,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -3213,7 +3246,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -3235,7 +3269,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -3367,7 +3402,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -3389,7 +3425,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -3520,7 +3557,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [],
@@ -3650,7 +3688,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -3672,7 +3711,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -3800,7 +3840,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -3822,7 +3863,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -3949,7 +3991,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -3971,7 +4014,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -4098,7 +4142,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -4120,7 +4165,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -4248,7 +4294,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -4270,7 +4317,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -4400,7 +4448,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -4422,7 +4471,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -4551,7 +4601,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -4677,7 +4728,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -4699,7 +4751,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -4826,7 +4879,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -4848,7 +4902,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -4977,7 +5032,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -4999,7 +5055,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -5127,7 +5184,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -5149,7 +5207,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],
@@ -5278,7 +5337,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_signals": [
@@ -5300,7 +5360,8 @@
             "days": null,
             "touch_lookback": null,
             "threshold": null,
-            "timeframe": null
+            "timeframe": null,
+            "index": null
           }
         ],
         "exit_fundamental_filters": [],

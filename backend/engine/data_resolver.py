@@ -47,7 +47,7 @@ FUNDAMENTAL_IDS = set(FUNDAMENTAL_CIDS)
 TECHNICAL_IDS = {
     'ma_crossover', 'rsi', 'ema', 'macd', 'stochastic',
     'cci', 'adx', 'bollinger_bands', 'volume_spike', 'volume_ratio', 'trading_value_ratio', 'breakout',
-    'williams_r', 'mfi', 'roc', 'disparity', 'vwap', 'relative_return',
+    'williams_r', 'mfi', 'roc', 'disparity', 'vwap', 'relative_return', 'market_index_return',
     'bollinger_bandwidth', 'bollinger_squeeze', 'ma_rising', 'ma_falling', 'high_52w_ratio', 'gap',
 }
 
@@ -138,6 +138,9 @@ def _get_required_columns_base(cond: Dict) -> List[str]:
     elif cid == 'relative_return':
         period = p.get('period', 60)
         return [f'relative_return_{period}']
+    elif cid == 'market_index_return':
+        from engine.market_index import market_index_return_column
+        return [market_index_return_column(str(p.get('index')), int(p.get('period') or 0))]
     elif cid == 'bollinger_bands':
         cols = ['boll_ub', 'boll_lb', 'close']
         if p.get('band') == 'middle':

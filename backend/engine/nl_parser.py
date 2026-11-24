@@ -777,9 +777,9 @@ class TechnicalSignal(BaseModel):
         "bollinger_bands", "breakout", "buy_at_start", "consecutive_up", "consecutive_down", "volume_spike", "volume_ratio", "trading_value_ratio",
         "stochastic", "cci", "adx", "williams_r", "mfi", "roc", "disparity", "vwap", "volatility",
         "bollinger_bandwidth", "bollinger_squeeze", "ma_rising", "ma_falling", "high_52w_ratio", "gap",
-        "relative_return", "trading_value", "ai_model", "ai_drop_model",
+        "relative_return", "market_index_return", "trading_value", "ai_model", "ai_drop_model",
         "candle_hammer", "candle_hanging_man", "candle_inverted_hammer", "candle_shooting_star", "candle_doji", "candle_bullish_engulfing", "candle_bearish_engulfing", "candle_piercing_line", "candle_dark_cloud_cover", "candle_morning_star", "candle_evening_star", "candle_three_white_soldiers", "candle_three_black_crows"
-    ] = Field(description="지표 종류. candle_*=캔들 패턴(완성 봉에 신호). williams_r=Williams %R(-100~0), mfi=자금흐름지표(0~100), roc=변화율/모멘텀(%), disparity=이격도(종가÷period일 단순이동평균×100, 120=이동평균보다 20% 위, value=이격도 값), vwap=종가 vs period일 VWAP(일봉 누적 거래량가중 평균가, 전형가격 기준 — mode above/below=머무는 상태, 아니면 cross 방향 교차), volatility=연환산 변동성(%, 일수익률 롤링 표준편차×√246), relative_return=시장 대비 초과수익률(%p, 종목 N일 수익률−상장 시장 지수 N일 수익률), volume_ratio=거래량 배수(당일 거래량 ÷ 직전 N일 평균 거래량, value=배수), trading_value_ratio=거래대금 배수(당일 거래대금 ÷ 직전 N일 평균 거래대금, value=배수), ai_model=AI 상승 예측 매수, ai_drop_model=AI 하락 예측 매도, buy_at_start=백테스트 시작일에 조건 없이 한 번 사서 계속 보유(매수 전용)")
+    ] = Field(description="지표 종류. candle_*=캔들 패턴(완성 봉에 신호). williams_r=Williams %R(-100~0), mfi=자금흐름지표(0~100), roc=변화율/모멘텀(%), disparity=이격도(종가÷period일 단순이동평균×100, 120=이동평균보다 20% 위, value=이격도 값), vwap=종가 vs period일 VWAP(일봉 누적 거래량가중 평균가, 전형가격 기준 — mode above/below=머무는 상태, 아니면 cross 방향 교차), volatility=연환산 변동성(%, 일수익률 롤링 표준편차×√246), relative_return=시장 대비 초과수익률(%p, 종목 N일 수익률−상장 시장 지수 N일 수익률), market_index_return=시장 지수 등락률(%, index 지수의 N거래일 등락률 — 종목과 무관하게 지수만 본다), volume_ratio=거래량 배수(당일 거래량 ÷ 직전 N일 평균 거래량, value=배수), trading_value_ratio=거래대금 배수(당일 거래대금 ÷ 직전 N일 평균 거래대금, value=배수), ai_model=AI 상승 예측 매수, ai_drop_model=AI 하락 예측 매도, buy_at_start=백테스트 시작일에 조건 없이 한 번 사서 계속 보유(매수 전용)")
     signal_type: Literal["buy", "sell"] = Field(default="buy", description="매수=buy, 매도=sell")
 
     # MA / EMA 크로스오버
@@ -818,6 +818,8 @@ class TechnicalSignal(BaseModel):
     threshold: Optional[float] = Field(default=None, description="AI 모델 신뢰도 임계값 (ai_model, ai_drop_model). 예: 70 = 70% 이상 확률")
     # 다중 타임프레임(엔진 v16.29): 주봉·월봉 기준으로 지표를 계산한다(일봉=None).
     timeframe: Optional[Literal["weekly", "monthly"]] = Field(default=None, description="지표 계산 봉: weekly=주봉, monthly=월봉. 없으면 일봉")
+    # 시장 지수 등락률(엔진 v16.52) — 어느 지수의 등락률을 보는가. 사용자가 말한 지수(2026-11-24 결정).
+    index: Optional[Literal["KOSPI", "KOSDAQ"]] = Field(default=None, description="기준 지수 (market_index_return)")
 
 
 # 리스크 비율 필드는 방향이 필드 의미에 내장돼 있어("손절 -8%"=8% 하락 시 매도) 부호 없는

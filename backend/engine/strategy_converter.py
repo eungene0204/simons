@@ -260,6 +260,7 @@ def _canonicalize_technical_signal(sig: TechnicalSignal) -> dict:
         "cross": sig.cross,
         "touch_lookback": sig.touch_lookback,
         "timeframe": sig.timeframe,
+        "index": sig.index,           # 시장 지수 등락률(v16.52) — 코스피·코스닥만 다른 전략이 기록을 덮어쓰지 않게
     })
 
 
@@ -547,6 +548,10 @@ def _tech_signal_to_condition(sig: TechnicalSignal) -> dict:
             params["operator"] = sig.operator
         if sig.value is not None:
             params["value"] = sig.value
+
+    elif sig.indicator == "market_index_return":
+        # 시장 지수 등락률(v16.52) — 지수·기간·연산자·값 모두 사용자가 말한 것만(기본값 없음, 되묻기 계약).
+        params.update(index=sig.index, period=sig.period, operator=sig.operator, value=sig.value)
 
     elif sig.indicator == "trading_value":
         params["value"] = sig.value if sig.value is not None else 100  # 억 단위 거래대금 하한

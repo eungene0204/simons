@@ -537,6 +537,7 @@ export const INDICATOR_LABELS: Record<string, string> = {
   gap: "시가 갭",
   vwap: "VWAP",
   relative_return: "시장 대비 초과수익률",
+  market_index_return: "시장 지수 등락률",
   // 엔진 TechnicalSignal.indicator(backend/engine/nl_parser.py)에 있는 지표는 **빠짐없이**
   // 여기 라벨이 있어야 한다 — 없으면 배지가 내부 변수명을 그대로 노출한다
   // (2026-08-18: 'trading_value'가 진입 신호 배지로 그대로 나갔다).
@@ -610,6 +611,9 @@ function movingAverageLabel(
   return down ? t("{0}일선-{1}일선 데드크로스", short, long) : t("{0}일선-{1}일선 골든크로스", short, long);
 }
 
+// 시장 지수 등락률(엔진 v16.52)의 기준 지수 표기 — 백엔드 trade_reason.MARKET_INDEX_LABELS와 같다.
+export const MARKET_INDEX_NAMES: Record<string, string> = { KOSPI: "코스피", KOSDAQ: "코스닥" };
+
 export function getSignalLabel(
   signal: {
     indicator: string;
@@ -629,6 +633,7 @@ export function getSignalLabel(
     days?: number | null;
     side?: string | null;
     price_basis?: string | null;
+    index?: string | null;
   },
   context: "entry" | "exit"
 ): string {
@@ -713,6 +718,13 @@ function getSignalLabelBase(
   if (signal.indicator === "volatility" && signal.operator != null && signal.value != null) {
     const opKr = t(OPERATOR_KO_LABELS[signal.operator] ?? signal.operator);
     return t("변동성 {0}% {1}", signal.value, opKr);
+  }
+
+  // 시장 지수 등락률(엔진 v16.52) — 지수·기간·임계가 조건의 정체다. 매매사유와 같은 문구.
+  if (signal.indicator === "market_index_return" && signal.value != null && signal.operator != null) {
+    const opKr = t(OPERATOR_KO_LABELS[signal.operator] ?? signal.operator);
+    const indexName = t(MARKET_INDEX_NAMES[signal.index ?? ""] ?? signal.index ?? "");
+    return t("{0} {1}거래일 등락률 {2}% {3}", indexName, signal.period ?? "?", signal.value, opKr);
   }
 
   // 이격도(엔진 v16.43, 종가÷N일 이동평균×100) — 이동평균 기간과 임계가 조건의 정체다.

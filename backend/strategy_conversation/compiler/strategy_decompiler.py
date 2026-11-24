@@ -119,6 +119,14 @@ def _decompile_technical(sig: TechnicalSignal) -> StrategyCondition:
                           within_days=float(sig.within_days))
     elif sig.indicator in ("ma_rising", "ma_falling"):
         parameters.update(period=float(sig.period), days=float(sig.days))
+    elif sig.indicator == "market_index_return":
+        # 시장 지수 등락률(v16.52) — 컴파일러의 역방향: 지수는 문자열 파라미터로 왕복한다.
+        operator = sig.operator
+        value = sig.value
+        if sig.index is not None:
+            parameters["index"] = sig.index
+        if sig.period is not None:
+            parameters["period"] = float(sig.period)
     else:
         # rsi/stochastic/cci/adx/williams_r/mfi/roc/volume_spike/bollinger_bands
         operator = sig.operator

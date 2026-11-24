@@ -119,6 +119,37 @@ _PERIOD_FIELD_RE = re.compile(
 )
 
 
+# 시장 지수 등락률(v16.52)의 지수·임계값 되묻기 칸.
+_MARKET_INDEX_FIELD_RE = re.compile(
+    r"^strategy\.(entry|exit)_conditions\[(\d+)\]\.parameters\.index$"
+)
+_CONDITION_VALUE_FIELD_RE = re.compile(
+    r"^strategy\.(entry|exit)_conditions\[(\d+)\]\.value$"
+)
+
+
+def _market_index_return_chips(kind: str, role: str, cond: Any) -> List[str]:
+    """시장 지수 등락률 되묻기 칩 — kind(index|period|value) 칸만 비고 나머지가 정해졌을 때만 조건 전체 칩."""
+    params = cond.parameters or {}
+    index = params.get("index")
+    period = params.get("period")
+    op, value = cond.operator, cond.value
+    known_index = index in strategy_slots.MARKET_INDEX_NAMES
+    known_period = isinstance(period, (int, float)) and float(period).is_integer() and period >= 1
+    known_op = op in ("<", "<=", ">", ">=")
+    if kind == "index" and known_period and known_op and value is not None:
+        return [strategy_slots.market_index_return_chip(role, i, int(period), op, value)
+                for i in strategy_slots.MARKET_INDEX_NAMES]
+    if kind == "period" and known_index and known_op and value is not None:
+        return [strategy_slots.market_index_return_chip(role, index, n, op, value)
+                for n in strategy_slots.MARKET_INDEX_PERIOD_OPTIONS]
+    if kind == "value" and known_index and known_period and op in ("<", "<="):
+        # 하락 폭 칩(-3·-5·-7%)만 — 상승 쪽 값 칩은 정하지 않았다(무칩, 자유 답).
+        return [strategy_slots.market_index_return_chip(role, index, int(period), op, v)
+                for v in strategy_slots.MARKET_INDEX_DROP_OPTIONS]
+    return []
+
+
 def _cross_period_chip(role: str, short: int, long: int) -> str:
     if role == "entry":
         return f"골든크로스({short}일/{long}일) 발생 시 매수"
@@ -262,7 +293,18 @@ def _clarification_items(
         metric: Optional[str] = None
         # 조건 임계값 질문 → "영업이익률 10% 이상" 칩(수정 메시지로 재전송 가능한 형태)
         cond = conditions_by_field.get(q.field)
-        if cond is not None and cond.factor == "technical.volume_ratio":
+        index_match = _MARKET_INDEX_FIELD_RE.fullmatch(q.field or "")
+        period_match = _PERIOD_FIELD_RE.fullmatch(q.field or "")
+        value_match = _CONDITION_VALUE_FIELD_RE.fullmatch(q.field or "")
+        mir_match = index_match or period_match or value_match
+        mir_cond = (conditions_by_field.get(f"strategy.{mir_match.group(1)}_conditions[{mir_match.group(2)}]")
+                    if mir_match else None)
+        if mir_cond is not None and mir_cond.factor == "technical.market_index_return":
+            # 시장 지수 등락률(v16.52, 2026-11-24 사용자 결정) — 지수·기간·하락 폭 칩. 칩은 조건 전체를 담으므로
+            # 묻는 칸 말고 나머지가 다 정해졌을 때만 낸다(빈 칸을 칩이 지어내지 않는다 — 아니면 무칩).
+            kind = "index" if index_match else "period" if period_match else "value"
+            chips.extend(_market_index_return_chips(kind, mir_match.group(1), mir_cond))
+        elif cond is not None and cond.factor == "technical.volume_ratio":
             # 배수 없는 '거래량 급증'의 배수 되묻기(2026-10-22 사용자 결정: 1.5·2·3배 칩). 칩은 기본
             # 기간(20일) 신호를 결속한다 — 다른 평균 기간을 말했으면 칩이 그 기간을 잃으므로 무칩.
             role = "entry" if (q.field or "").startswith("strategy.entry_") else "exit"
@@ -3549,7 +3591,8 @@ def _bind_chips(
             continue
         touch_patch = (strategy_slots.bollinger_touch_chip_patch(text, base)
                        or strategy_slots.volume_ratio_chip_patch(text, base)
-                       or strategy_slots.vwap_period_chip_patch(text, base))
+                       or strategy_slots.vwap_period_chip_patch(text, base)
+                       or strategy_slots.market_index_return_chip_patch(text, base))
         if touch_patch is not None:
             # 볼린저 하단 터치 인정 기간 칩(v16.39) — 값 대기 조건은 parsed에 없으므로 정본 표가
             # 신호 전체를 추가하는 패치로 결속한다(원문 보정 파서에 어휘를 넣지 않는다).

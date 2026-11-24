@@ -438,6 +438,15 @@ class SignalEngine:
             default_op = '>' if sig_type != 'sell' else '<'
             return compare_vec(rr, p.get('operator', default_op), float(p.get('value', 0)))
 
+        elif cid == 'market_index_return':
+            # 시장 지수 등락률(%, v16.52). 연산자·값은 사용자가 말한 것만 온다(기본값 없음 — 없으면 신호 없음).
+            from engine.market_index import market_index_return_column
+            op, val = p.get('operator'), p.get('value')
+            if op is None or val is None:
+                return np.zeros(data_len, dtype=bool)
+            mir = get_col(market_index_return_column(str(p.get('index')), int(p.get('period') or 0)))
+            return compare_vec(mir, op, float(val))
+
         elif cid == 'volatility':
             # 연환산 변동성(%). 저변동성(임계 이하) 매수 / 고변동성(임계 이상) 매도 기본.
             period = p.get('period', 60)
@@ -910,6 +919,14 @@ class SignalEngine:
             default_op = '>' if sig_type != 'sell' else '<'
             return compare(rr_val, p.get('operator', default_op), float(p.get('value', 0)))
 
+        elif cid == 'market_index_return':
+            from engine.market_index import market_index_return_column
+            op, val = p.get('operator'), p.get('value')
+            if op is None or val is None:
+                return False
+            mir_val = safe_get(market_index_return_column(str(p.get('index')), int(p.get('period') or 0)), idx)
+            return compare(mir_val, op, float(val))
+
         elif cid == 'volatility':
             period = p.get('period', 60)
             vol_val = safe_get(f'volatility_{period}', idx)
@@ -1056,6 +1073,11 @@ class SignalEngine:
         """
         if cond.get('id') == 'relative_return':
             return f"relative_return_{cond.get('params', {}).get('period', 60)}"
+        if cond.get('id') == 'market_index_return':
+            # 지수 등락률(v16.52)도 기준값만으로는 그날 얼마나 움직였는지 알 수 없어 실측값을 싣는다.
+            from engine.market_index import market_index_return_column
+            p = cond.get('params', {})
+            return market_index_return_column(str(p.get('index')), int(p.get('period') or 0))
         return None
 
     def _measured_array(self, cond: Dict[str, Any], df: pl.DataFrame) -> Optional[np.ndarray]:
@@ -1216,6 +1238,12 @@ class SignalEngine:
             if measured is not None and np.isfinite(measured):
                 return [tr.part(tr.RELATIVE_RETURN_MEASURED, period, f"{measured:+.1f}")]
             return [tr.part(tr.RELATIVE_RETURN_LEVEL, period, val, rr_op_seg)]
+        elif cid == 'market_index_return':
+            index = str(p.get('index'))
+            label = tr.part(tr.MARKET_INDEX_LABELS[index]) if index in tr.MARKET_INDEX_LABELS else tr.literal(index)
+            if measured is not None and np.isfinite(measured):
+                return [tr.part(tr.MARKET_INDEX_RETURN_MEASURED, label, p.get('period'), f"{measured:+.2f}")]
+            return [tr.part(tr.MARKET_INDEX_RETURN_LEVEL, label, p.get('period'), p.get('value'), op_seg)]
         elif cid == 'volatility':
             period = p.get('period', 60)
             sig_type = p.get('signalType', 'buy')

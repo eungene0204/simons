@@ -158,6 +158,15 @@ def _compile_technical(
             kwargs["mode"] = "above" if cond.operator == ">" else "below"
         elif cond.operator in ("crosses_above", "crosses_below"):
             kwargs["cross"] = "above" if cond.operator == "crosses_above" else "below"
+    elif indicator == "market_index_return":
+        # 시장 지수 등락률(v16.52) — 지수·기간·연산자·값 모두 되묻기 대상이라 하나라도 없으면 컴파일하지 않는다
+        # (값 대기 조건은 compile_partial이 먼저 거른다 — 여기 오면 검증 누락이다). 기본값으로 채우지 않는다.
+        index = params.get("index")
+        if index not in ("KOSPI", "KOSDAQ") or params.get("period") is None \
+                or cond.operator not in ("<", "<=", ">", ">=") or cond.value is None:
+            raise StrategyCompileError(
+                f"'{cond.factor}' 조건에 지수·기간·연산자·값 중 빠진 것이 있습니다 (검증 누락?)")
+        kwargs.update(index=index, period=_int_param("period"), operator=cond.operator, value=cond.value)
     elif indicator == "bollinger_bands":
         kwargs["period"] = _int_param("period")
         band = _BOLLINGER_BAND_FACTORS.get(cond.factor)

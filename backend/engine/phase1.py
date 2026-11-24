@@ -328,6 +328,8 @@ def prepare_symbol(sym: str, ctx: Dict[str, Any], loader, indicator_engine) -> D
     # 시장 대비 초과수익률 조건은 종목의 상장 시장 지수 종가가 있어야 계산된다 —
     # 지표 엔진은 심볼을 모르므로 여기서(심볼을 아는 유일한 지점) 날짜 조인으로 붙인다.
     df_pl = market_index.attach_index_close(df_pl, sym, indicators, loader.data_dir)
+    # 시장 지수 등락률(v16.52)은 종목과 무관한 지수 등락률 열을 같은 날짜 조인으로 붙인다.
+    df_pl = market_index.attach_market_index_returns(df_pl, indicators, loader.data_dir)
     df_pl = indicator_engine.calculate(df_pl, indicators)
 
     resolver = DataResolver()

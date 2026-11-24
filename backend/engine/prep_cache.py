@@ -45,6 +45,8 @@ STRUCTURAL_PARAM_KEYS = frozenset({
     "side",
     # 종가 기준 돌파(v16.44) — 종가 최고·최저 열이 따로 필요하다.
     "priceBasis",
+    # 시장 지수 등락률(v16.52) — 어느 지수의 등락률 열을 붙였는지가 프레임을 바꾼다.
+    "index",
 })
 
 _DEFAULT_BUDGET_MB = 2048

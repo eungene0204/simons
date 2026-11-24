@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import re
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 
@@ -590,6 +591,48 @@ def vwap_period_chip_patch(chip: str, parsed_dump: dict) -> Optional[dict]:
     key = "entry_signals" if role == "entry" else "exit_signals"
     signal = {"indicator": "vwap", "signal_type": "buy" if role == "entry" else "sell",
               "period": days, **_VWAP_SHAPES[op][1]}
+    current = list(parsed_dump.get(key) or [])
+    if any(isinstance(s, dict) and all(s.get(k) == v for k, v in signal.items()) for s in current):
+        return None
+    return {key: current + [signal]}
+
+
+# 시장 지수 등락률(엔진 v16.52)의 되묻기 칩 — 2026-11-24 사용자 결정: 지수·기간·값을 말하지 않았으면 되묻기,
+# 기간 칩 1·5·20거래일, 하락 폭 칩 -3·-5·-7%, 지수 칩 코스피·코스닥. 칩은 조건 전체를 담아 신호를 덧붙이는
+# 패치로 결속한다(볼린저 터치 칩과 같은 무상태 계약). 칩 문장에는 사용자가 이미 말한 값(임의의 기간·값)이
+# 들어가므로 정본 표를 미리 열거할 수 없다 — 결속은 **우리가 만든 칩 문장 틀**을 되읽는다(사용자 원문이 아니다).
+MARKET_INDEX_PERIOD_OPTIONS: tuple[int, ...] = (1, 5, 20)
+MARKET_INDEX_DROP_OPTIONS: tuple[float, ...] = (-3.0, -5.0, -7.0)
+MARKET_INDEX_NAMES: dict[str, str] = {"KOSPI": "코스피", "KOSDAQ": "코스닥"}
+_MARKET_INDEX_OP_WORDS: dict[str, str] = {"<=": "이하", "<": "미만", ">=": "이상", ">": "초과"}
+
+
+def market_index_return_chip(role: str, index: str, period: int, operator: str, value: float) -> str:
+    action = "매수" if role == "entry" else "매도"
+    return (f"{MARKET_INDEX_NAMES[index]} {int(period)}거래일 등락률이 {float(value):g}% "
+            f"{_MARKET_INDEX_OP_WORDS[operator]}일 때 {action}")
+
+
+_MARKET_INDEX_CHIP_RE = re.compile(
+    r"^(코스피|코스닥) (\d+)거래일 등락률이 (-?\d+(?:\.\d+)?)% (이하|미만|이상|초과)일 때 (매수|매도)$"
+)
+
+
+def market_index_return_chip_patch(chip: str, parsed_dump: dict) -> Optional[dict]:
+    """시장 지수 등락률 칩이면 신호를 덧붙인 ParsedStrategy 패치, 아니면 None.
+    입력은 market_index_return_chip이 만든 칩 문장이다(형식 역변환). 같은 신호가 이미 있으면 None."""
+    match = _MARKET_INDEX_CHIP_RE.fullmatch((chip or "").strip())
+    if match is None:
+        return None
+    name, period, value, op_word, action = match.groups()
+    index = next(k for k, v in MARKET_INDEX_NAMES.items() if v == name)
+    operator = next(k for k, v in _MARKET_INDEX_OP_WORDS.items() if v == op_word)
+    role = "entry" if action == "매수" else "exit"
+    if market_index_return_chip(role, index, int(period), operator, float(value)) != chip.strip():
+        return None                                  # 틀 밖 표기(0 채움 등)는 결속하지 않는다
+    key = "entry_signals" if role == "entry" else "exit_signals"
+    signal = {"indicator": "market_index_return", "signal_type": "buy" if role == "entry" else "sell",
+              "index": index, "period": int(period), "operator": operator, "value": float(value)}
     current = list(parsed_dump.get(key) or [])
     if any(isinstance(s, dict) and all(s.get(k) == v for k, v in signal.items()) for s in current):
         return None

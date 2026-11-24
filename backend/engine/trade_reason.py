@@ -81,6 +81,11 @@ RELATIVE_RETURN_LEVEL = "시장 대비 초과수익률({0}일) {1}%p {2}"
 # {1}=그 봉의 실측 초과수익률(부호 포함, 소수 1자리). 기준값은 싣지 않는다(사용자 지시).
 RELATIVE_RETURN_MEASURED = "시장 대비 초과수익률({0}일) {1}%p"
 VOLATILITY_LEVEL = "변동성({0}일, 연환산) {1}% {2}"
+# 시장 지수 등락률(v16.52) — {0}=지수 이름 세그먼트(MARKET_INDEX_LABELS), {1}=기간(거래일), {2}=값(%).
+# 실측값이 있으면 그 봉의 지수 등락률(부호 포함, 소수 2자리)을 싣는다(초과수익률과 같은 계약).
+MARKET_INDEX_RETURN_LEVEL = "{0} {1}거래일 등락률 {2}% {3}"
+MARKET_INDEX_RETURN_MEASURED = "{0} {1}거래일 등락률 {2}%"
+MARKET_INDEX_LABELS = {"KOSPI": "코스피", "KOSDAQ": "코스닥"}
 PRICE_LEVEL = "현재가 {0} {1}"
 BOLLINGER_LOWER = "볼린저 밴드 하단 돌파(매수)"
 BOLLINGER_UPPER = "볼린저 밴드 상단 돌파(매도)"
