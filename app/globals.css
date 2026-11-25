@@ -558,7 +558,8 @@ input[type=number] {
   .chat-choice-rise,
   .shimmer::after,
   .lab-node-pulse,
-  .lab-node-running {
+  .lab-node-running,
+  .lab-example-featured {
     animation: none;
   }
 }
@@ -639,6 +640,36 @@ input[type=number] {
 .lab-node-running {
   animation: labNodeRunning 1.6s ease-in-out infinite;
   animation-delay: var(--lab-run-delay, 0ms);
+}
+
+/* 전략 예시 서랍 — 오늘 둘러볼 예시 카드: 테두리가 번쩍인다(감속 설정에서는 멈추고 강조 테두리만 남는다) */
+@keyframes labExampleFlash {
+  0%, 100% { border-color: var(--chat-accent-line); box-shadow: 0 0 0 0 rgba(224, 128, 92, 0); }
+  50% { border-color: var(--chat-accent); box-shadow: 0 0 0 3px var(--chat-accent-soft), 0 0 14px var(--chat-accent-ring); }
+}
+.lab-example-featured {
+  animation: labExampleFlash 1.6s ease-in-out infinite;
+}
+/* 카드 위 말풍선 — 꼬리는 아래쪽 카드를 가리킨다 */
+.lab-example-bubble {
+  position: relative;
+  display: inline-block;
+  margin: 0 0 8px 8px;
+  border-radius: 8px;
+  background: var(--chat-accent);
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--chat-accent-ink);
+}
+.lab-example-bubble::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  bottom: -5px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid var(--chat-accent);
 }
 
 /* AdSense가 채울 광고가 없다고 표시한 칸은 "광고" 표지까지 통째로 숨긴다(components/ads/AdSlot.tsx). */

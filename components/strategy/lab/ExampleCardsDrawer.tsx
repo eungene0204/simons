@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { t } from "@/lib/i18n";
 import { useRegion, useRegionHref } from "@/lib/geo/useRegion";
 import { EXAMPLES, type Example, type ExampleCategory } from "@/components/strategy/strategyExamples";
 import { US_EXAMPLES } from "@/components/strategy/usExamples";
+import { dailyExampleIndex, localDateKey } from "./dailyExample";
 
 type ExampleCardsDrawerProps = {
   /** 카드를 고르면 예시 문장을 입력창에 채운다(자동 전송하지 않는다). */
@@ -29,7 +30,13 @@ function ExampleCardsDrawer({ onPick }: ExampleCardsDrawerProps) {
   const examples = region === "us" ? US_EXAMPLES : EXAMPLES;
   const categories = useMemo(() => Array.from(new Set(examples.map((e) => e.category))), [examples]);
   const [category, setCategory] = useState<ExampleCategory | "all">("all");
-  const matching = category === "all" ? examples : examples.filter((e) => e.category === category);
+  // 날짜는 마운트 뒤에 읽는다 — 서버 렌더와 기기 날짜가 달라 수화(hydration)가 어긋나는 것을 막는다.
+  const [dateKey, setDateKey] = useState<string | null>(null);
+  useEffect(() => setDateKey(localDateKey(new Date())), []);
+  const featured = dateKey === null ? null : examples[dailyExampleIndex(examples.length, dateKey)] ?? null;
+  const filtered = category === "all" ? examples : examples.filter((e) => e.category === category);
+  // 오늘의 예시가 지금 분류에 속하면 맨 위로 올린다(중복 없이 순서만 바꾼다).
+  const matching = featured && filtered.includes(featured) ? [featured, ...filtered.filter((e) => e !== featured)] : filtered;
   const visible = matching.slice(0, VISIBLE_COUNT);
 
   return (
@@ -58,13 +65,25 @@ function ExampleCardsDrawer({ onPick }: ExampleCardsDrawerProps) {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         <ul className="space-y-2">
-          {visible.map((example) => (
+          {visible.map((example) => {
+            const isFeatured = example === featured;
+            return (
             <li key={`${example.category}:${example.title}`}>
+              {isFeatured && (
+                <p className="lab-example-bubble" data-testid="lab-example-daily-bubble">
+                  {t("오늘 둘러볼 예시 전략")}
+                </p>
+              )}
               <button
                 type="button"
                 onClick={() => onPick(t(example.prompt))}
-                className="w-full rounded-xl border border-[var(--lab-border)] bg-[var(--lab-node)] p-3 text-left transition-colors hover:border-[var(--lab-border-strong)]"
+                className={`w-full rounded-xl border bg-[var(--lab-node)] p-3 text-left transition-colors ${
+                  isFeatured
+                    ? "lab-example-featured border-[var(--chat-accent-line)]"
+                    : "border-[var(--lab-border)] hover:border-[var(--lab-border-strong)]"
+                }`}
                 data-testid="lab-example-card"
+                data-daily={isFeatured ? "true" : undefined}
               >
                 <p className="text-xs font-black text-white">{t(example.title)}</p>
                 <p className="mt-1 line-clamp-2 text-[11px] font-bold leading-relaxed text-gray-400">{t(example.prompt)}</p>
@@ -74,7 +93,8 @@ function ExampleCardsDrawer({ onPick }: ExampleCardsDrawerProps) {
                 </div>
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
         {matching.length > visible.length && (
           <Link

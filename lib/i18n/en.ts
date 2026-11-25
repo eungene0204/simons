@@ -4088,6 +4088,7 @@ export const en: Record<string, string> = {
   "전략 예시": "Strategy examples",
   "카드를 누르면 예시 문장이 입력창에 채워집니다.": "Click a card to fill the input with its example sentence.",
   "예시 분류": "Example categories",
+  "오늘 둘러볼 예시 전략": "Today's example to explore",
   "조건 추가": "Add condition",
   "화면 맞춤": "Fit view",
   "배치 되돌리기": "Undo layout",
