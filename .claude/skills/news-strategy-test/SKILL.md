@@ -22,11 +22,12 @@ description: 연합뉴스 RSS(무료, X API 크레딧 미사용)에서 최근 �
 `scripts/daily.sh`가 launchd(`~/Library/LaunchAgents/im.nullstock.news-strategy-test.plist`)로 매일 12:00 KST에 `claude -p "/news-strategy-test 무인 실행 …"`을 띄운다(로그 `~/Library/Logs/nullstock-news-daily.log`).
 요청에 "무인 실행"이 있으면 물을 사람이 없으므로 아래처럼 바꿔 진행한다 — 나머지 절차는 같다.
 
+- 시작 전에 `daily.sh`가 `check_backend_fresh.sh`로 8000번 백엔드가 운영 코드(origin/main의 backend)와 같은지 본다 — 뒤처졌으면 알리고 그날은 건너뛴다(2026-11-26 사용자 결정. 11-25 '해석 단계에서 멈춤'은 v16.51 옛 서버를 시험한 결과였다). 속설 `myth_daily.sh`도 같은 검사를 쓴다.
 - 사전 고지·질문(`AskUserQuestion`)을 하지 않는다. 사용자에게 물어야 할 일은 그 전략을 건너뛰고 `report.md`에 이유를 적는다.
 - 다른 세션이 데모 계정·9222를 쓰고 있으면(`run_test.sh`가 "[중단] 9222" 출력) 10분 간격으로 최대 3번 다시 시도하고, 그래도 막히면 남은 전략을 건너뛴다. 남의 브라우저를 끄지 않는다.
 - 끝나면 ⑥ 보고 내용을 `~/nullstock-news/<날짜>/report.md`로 쓴다: 사진은 `![](NN-slug/shot_b_overview.png)`처럼 상대 경로로, 해설은 `note.txt` 전문을 코드블록으로, 전략마다 `link.txt` 링크를 `[널스탁에서 같은 전략으로 열기](…)`로. 맨 위에 요약 표, 맨 아래에 건너뛴·뺀 전략과 이유. 알림·파일 열기는 `daily.sh`가 한다.
 - **결과(`result.json`)는 있지만 보고서에서 뺀 전략은 그 폴더에 `exclude.txt`(이유 한 줄)를 쓴다** — 연구노트 변환이 이 파일로 건너뛴다. 빠뜨리면 뺀 결과가 노트로 공개된다.
-- 코드·스킬·데이터를 고치지 않는다(해석 결함은 보고만). 커밋·게시하지 않는다 — 연구노트 게시는 이 세션이 끝난 뒤 `daily.sh`가 `publish_news_notes.sh`로 한다(아래 "연구노트 게시").
+- 코드·스킬·데이터를 고치지 않는다(해석 결함은 보고만 — 보고서와 결함 대기열, ⑤ 검수 참고). 커밋·게시하지 않는다 — 연구노트 게시는 이 세션이 끝난 뒤 `daily.sh`가 `publish_news_notes.sh`로 한다(아래 "연구노트 게시").
 
 ## ① 기사 모으기
 
@@ -92,6 +93,8 @@ for d in ~/nullstock-news/<날짜>/*/; do bash .claude/skills/news-strategy-test
 ## ⑤ 검수 — 전략마다
 
 - `result.json`의 `summary`(널스탁 해석)가 문장과 같은가: 유니버스가 기사 업종과 일치하는지, 문장에 없는 조건이 끼지 않았는지. 어긋나면 그 전략은 결과에서 빼고 증상을 보고한다(`strategy-interpretation-fix` 제안). 고쳐서 맞추려 들지 않는다.
+- **결과에서 뺀 이유가 해석·데이터·엔진 결함이면(계정 충돌·서버 문제 제외) 결함 대기열에도 한 줄 남긴다** — 보고서·제외 목록만으로는 수리로 이어지지 않아 같은 결함이 5번 반복됐다(2026-11-26 사용자 지시). "해석 단계에서 멈춤"도 멈춘 질문 문구를 증상으로 적는다. trace_id는 `trace_turn.py --grep "<문장 일부>"`로 찾아 넣는다:
+  `python3 backend/scripts/unattended_defects.py add --source news --kind interpretation --slug <날짜>/<NN-slug> --prompt "<문장>" --symptom "<무엇이 문장과 달랐나>" --trace <id>`
 - 화면에 다른 대화(문장에 없는 종목·테마)가 보였으면 계정 충돌이다 — 그 결과는 버리고 위 "데모 계정" 항목대로 처리한다.
 - 사진을 열어 본다. **전략마다 3~4장을 고른다**: `shot_b_overview`(지표+수익 곡선)는 항상, 나머지는 이 결과의 특징을 보여 주는 것(`c_contrib` 종목·섹터 기여도, `d_dist` 수익률·보유 기간 분포, `e_factor` 팩터, `f_risk` 회전율·하방 위험, `i_ai` AI 점수 카드). `g_stocks`·`h_trades`는 일부 행(코드순·가장 이른 거래)이라 쓸 때 그렇다고 밝힌다.
 - `note.txt`에 "해석" 절이 있는지 확인한다(없으면 `python3 scripts/make_note.py <폴더>`로 다시 만든다). 해석의 숫자가 `result.json`·`trades.txt`와 맞는지 한두 개 대조한다.

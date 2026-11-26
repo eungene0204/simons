@@ -268,3 +268,25 @@ def test_market_cap_top_n_is_a_stated_universe_over_the_whole_market():
     only_filter = StrategyIntent(intent="CREATE_STRATEGY", strategy={
         "universe": {"liquidity_exclude_bottom_percent": 20}})
     assert UNIVERSE not in explicit_fields_from_spec(only_filter.strategy)
+
+
+def test_recall_does_not_revive_shorter_name_inside_ranked_metric():
+    """2026-11-26 뉴스 무인 실행 재현: '영업이익 성장률이 높은 5종목'이 랭킹으로 반영됐는데 구절
+    안의 짧은 이름 '영업이익'이 값 없는 영업이익(ebit) 진입 조건으로 되살아나 기준값을 되물었다."""
+    from strategy_conversation.interpreter.condition_recall import recover_missing_conditions
+    from strategy_conversation.registry.indicator_registry import factor_ids_named_in
+
+    assert factor_ids_named_in("영업이익 성장률이 높은") == {"fundamental.operating_income_growth"}
+    assert factor_ids_named_in("영업이익이 증가한") == {"fundamental.ebit"}
+    assert factor_ids_named_in("PER과 PBR이 낮은") == {"fundamental.per", "fundamental.pbr"}
+
+    intent, _ = run_validation(StrategyIntent(intent="CREATE_STRATEGY", strategy={
+        "universe": {"sectors": ["화장품"]},
+        "ranking": [{"metric": "fundamental.operating_income_growth", "direction": "top"}],
+        "portfolio": {"selection_count": 5, "rebalance_frequency": "quarterly"},
+    }))
+    text = "화장품 업종 중 영업이익 성장률이 높은 5종목을 매수하고, 분기마다 리밸런싱하는 전략"
+    recovered = recover_missing_conditions(intent, text, lambda *a, **k: "", phrases=["영업이익 성장률이 높은"])
+
+    assert recovered == []
+    assert intent.strategy.entry_conditions == []

@@ -213,3 +213,48 @@ def test_macro_buy_context_uses_execution_date_and_preserves_override():
     assert "원/달러 환율" in buys[1]["condition"]
     assert "종목 교체 편입" in buys[1]["condition"]
     assert "판정일" not in buys[1]["condition"]
+
+
+def test_condition_named_after_filled_setting_slot_is_dropped_not_unknown():
+    """2026-11-26 재현: 국면 필터를 market_filter 칸에 바르게 적고 진입 조건에도 factor="market_filter"로
+    한 번 더 적어 "알 수 없는 지표" 안내가 붙었다. 칸이 채워져 있으면 중복 기재로 걷어낸다."""
+    from strategy_conversation.interpreter.models import StrategyIntent
+    from strategy_conversation.validation.pipeline import run_validation
+
+    quote = "코스피 지수가 200일 이동평균선 위에 있을 때만"
+    intent, report = run_validation(StrategyIntent(intent="CREATE_STRATEGY", strategy={
+        "universe": {"markets": ["KOSPI200"]},
+        "entry_conditions": [
+            {"factor": "market_filter", "parameters": {"index": "KOSPI"}, "value_source": "MISSING",
+             "source_text": quote},
+            {"factor": "technical.rsi", "operator": "<=", "value": 30, "value_source": "USER_PROVIDED",
+             "source_text": "RSI가 30 이하"},
+        ],
+        "market_filter": {"index": "KOSPI", "triggers": ["below_ma"], "ma_period": 200, "source_text": quote},
+    }))
+    assert [c.factor for c in intent.strategy.entry_conditions] == ["technical.rsi"]
+    assert not any("알 수 없는 지표" in e for e in report.errors)
+
+
+def test_condition_named_after_empty_setting_slot_still_reports_unknown():
+    from strategy_conversation.interpreter.models import StrategyIntent
+    from strategy_conversation.validation.pipeline import run_validation
+
+    intent, report = run_validation(StrategyIntent(intent="CREATE_STRATEGY", strategy={
+        "entry_conditions": [{"factor": "market_filter", "value_source": "MISSING", "source_text": "시장이 좋을 때만"}],
+    }))
+    assert any("알 수 없는 지표" in e for e in report.errors)
+
+
+def test_condition_named_after_setting_slot_with_other_quote_still_reports_unknown():
+    """칸은 채워졌지만 인용이 다르면 다른 시장 조건일 수 있다 — 조용히 지우지 않는다."""
+    from strategy_conversation.interpreter.models import StrategyIntent
+    from strategy_conversation.validation.pipeline import run_validation
+
+    intent, report = run_validation(StrategyIntent(intent="CREATE_STRATEGY", strategy={
+        "entry_conditions": [{"factor": "market_filter", "value_source": "MISSING",
+                              "source_text": "코스닥이 20일선 위일 때"}],
+        "market_filter": {"index": "KOSPI", "triggers": ["below_ma"], "ma_period": 200,
+                          "source_text": "코스피 지수가 200일 이동평균선 위에 있을 때만"},
+    }))
+    assert any("알 수 없는 지표" in e for e in report.errors)

@@ -11,6 +11,9 @@ source "$REPO/.claude/skills/news-strategy-test/scripts/auto_lock.sh"
 
 echo "=== $(date) 시작 ($DAY)"
 srv_msg="$(bash "$REPO/.claude/skills/news-strategy-test/scripts/check_servers.sh" 2>&1)" || { echo "$srv_msg"; notify "앱 서버가 응답하지 않아 건너뛰었어요"; exit 0; }
+# 운영보다 옛 코드로 해석하면 결과가 운영 결함인지 가릴 수 없다 — 알리고 그날은 건너뛴다(2026-11-26 사용자 결정)
+fresh_msg="$(bash "$REPO/.claude/skills/news-strategy-test/scripts/check_backend_fresh.sh" 2>&1)" || { echo "$fresh_msg"; notify "백엔드가 운영 코드보다 뒤처져 건너뛰었어요 — 로그 확인"; exit 0; }
+[ -n "$fresh_msg" ] && echo "$fresh_msg"
 acquire_auto_lock myth || { notify "다른 자동 작업이 끝나지 않아 건너뛰었어요"; exit 0; }
 cd "$REPO"
 claude -p "/x-backtest-post 속설 검증 무인 실행: 오늘($DAY) 편을 references/myth_unattended.md 절차대로 주제 선정부터 게시까지 진행하고 보고서는 $REPORT 에 남겨" \

@@ -252,6 +252,20 @@ def _us_etf_tickers_under_kr_etf_market(strategy) -> bool:
     return all(is_us_etf_symbol(s) for s in symbols)
 
 
+# 전략의 설정 칸 이름 — 조건 factor로 나오면 그 칸의 중복 기재다(validate_capability 참고).
+_SETTING_SLOT_FACTORS = frozenset({"market_filter", "macro_filters", "seasonality", "volatility_target", "taa"})
+
+
+def _restates_setting_slot(strategy, cond) -> bool:
+    """조건이 같은 이름의 설정 칸에 이미 같은 인용으로 적힌 내용을 다시 적은 것인가."""
+    def key(text):
+        return "".join(str(text or "").split())
+    slot = getattr(strategy, cond.factor, None)
+    entries = slot if isinstance(slot, list) else [slot] if slot is not None else []
+    quote = key(cond.source_text)
+    return bool(quote) and any(key(getattr(e, "source_text", None)) == quote for e in entries)
+
+
 def validate_capability(intent: StrategyIntent, universe_findings=None) -> Tuple[List[str], List[str], List[str], List[str]]:
     """(errors, warnings, unsupported_features, suggested_fixes)를 반환한다.
 
@@ -270,6 +284,17 @@ def validate_capability(intent: StrategyIntent, universe_findings=None) -> Tuple
         conditions = getattr(strategy, attr)
         kept = []
         for cond in conditions:
+            if cond.factor in _SETTING_SLOT_FACTORS and _restates_setting_slot(strategy, cond):
+                # 설정 칸 이름을 factor로 쓴 조건 = 같은 내용을 이미 채운 설정 칸의 중복 기재다
+                # (LLM 출력 형식 위반). 2026-11-26 재현: '코스피 지수가 200일 이동평균선 위에 있을
+                # 때만'을 market_filter 칸에 바르게 적고 진입 조건에도 factor="market_filter"로 한 번
+                # 더 적어 "알 수 없는 지표" 안내가 붙었다(macro_filters도 같은 모양, 11-25).
+                # 판정은 factor 표기와, 그 칸이 **같은 인용**으로 채워졌는지뿐이다(LLM 출력끼리의 동일성) —
+                # 칸이 비었거나 인용이 다르면(다른 시장 조건일 수 있다) 종전대로 오류로 남긴다.
+                ontology_logger.info(
+                    "설정 칸 중복 조건 제거 | %s 조건 factor=%s 원문=%r", role, cond.factor, cond.source_text,
+                )
+                continue
             concept = concept_spec(cond.factor)
             if concept is not None and concept.expansion:
                 # 합성 개념 결정적 전개(Phase C, 프롬프트 3.0) — LLM은 관용 표현을

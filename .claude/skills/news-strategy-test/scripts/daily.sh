@@ -11,6 +11,9 @@ source "$REPO/.claude/skills/news-strategy-test/scripts/auto_lock.sh"
 echo "=== $(date) 시작 ($DAY)"
 # 앱 서버는 띄우지 않는다 — 꺼져 있으면 알리고 끝낸다
 srv_msg="$(bash "$REPO/.claude/skills/news-strategy-test/scripts/check_servers.sh" 2>&1)" || { echo "$srv_msg"; notify "앱 서버가 응답하지 않아 건너뛰었어요"; exit 0; }
+# 운영보다 옛 코드로 해석하면 결과가 운영 결함인지 가릴 수 없다 — 알리고 그날은 건너뛴다(2026-11-26 사용자 결정)
+fresh_msg="$(bash "$REPO/.claude/skills/news-strategy-test/scripts/check_backend_fresh.sh" 2>&1)" || { echo "$fresh_msg"; notify "백엔드가 운영 코드보다 뒤처져 건너뛰었어요 — 로그 확인"; exit 0; }
+[ -n "$fresh_msg" ] && echo "$fresh_msg"
 acquire_auto_lock news || { notify "다른 자동 작업이 끝나지 않아 건너뛰었어요"; exit 0; }
 cd "$REPO"
 # 연구노트에 싣는 엔진 버전 — 로컬 앱이 이 checkout으로 돌므로 실행 시각의 값을 남긴다(build_news_notes.py가 읽는다)

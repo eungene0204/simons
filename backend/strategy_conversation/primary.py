@@ -4533,6 +4533,12 @@ def _apply_planner_first_universe(
                 remember_resolution(resolution_evidence, term, parsed, "planner_first")
                 unresolved.discard(term)
                 continue
+            if _term_is_applied_theme(parsed, term):
+                resolved.add(term)
+                applied.add(term)
+                remember_resolution(resolution_evidence, term, parsed, "applied_theme_same_canonical")
+                unresolved.discard(term)
+                continue
             _merge_learned_sector(parsed, obs["sector"])
             _log_llm("✓ planner-first 섹터", f"'{term}' → 섹터 '{obs['sector']}'")
             _append_sector_notice(
@@ -5017,6 +5023,8 @@ def _resolve_sector_terms_term_in(
             if observed_call("engine.nl_parser.apply_theme_companies", apply_theme_companies, parsed, term):
                 _log_llm("✓ 검색 학습→테마", f"'{term}' → 지정 종목 {len(parsed.target_symbols)}곳")
                 remember_resolution(resolution_evidence, term, parsed, "term_in_grounded_theme")
+            elif _term_is_applied_theme(parsed, term):
+                remember_resolution(resolution_evidence, term, parsed, "applied_theme_same_canonical")
             else:
                 _merge_learned_sector(parsed, learned)
                 remember_resolution(resolution_evidence, term, parsed, "term_in_grounded_sector", field="sector")
@@ -5108,6 +5116,10 @@ def _resolve_sector_terms_planner_primary(
         # 고정 체인과 같은 순서 — 업종 근사보다 테마 정본 매핑이 먼저다
         if _apply_theme_via_canonical_match(parsed, term):
             remember_resolution(resolution_evidence, term, parsed, "_resolve_sector_terms_planner_primary")
+            continue
+        if result.sector and _term_is_applied_theme(parsed, term):
+            remember_resolution(resolution_evidence, term, parsed, "applied_theme_same_canonical")
+            _log_llm("✓ 적용된 테마와 같은 표현", f"'{term}' → 업종 근사 생략")
             continue
         if result.sector:
             _merge_learned_sector(parsed, result.sector)
@@ -5217,6 +5229,40 @@ def _merge_learned_sector(parsed: Any, sector: str) -> None:
             parsed.sector = [current, sector]
     elif sector not in current:
         parsed.sector = [*current, sector]
+
+
+def _term_is_applied_theme(parsed: Any, term: str) -> bool:
+    """업종 근사를 붙이려는 표현이 이미 적용된 테마 유니버스와 같은 것을 가리키는가.
+
+    같은 표현이 '○○ 관련주'(유니버스 분류 → 테마 적용)와 '○○'(인터프리터 universe.sectors)
+    두 이름으로 따로 체인을 타면, 둘째 이름은 apply_theme_companies가 이미 채워진
+    target_symbols 가드로 None을 돌려줘 업종 근사로 떨어졌다 — 테마 종목 위에 문장에 없는
+    업종이 한 칸 더 붙었다(2026-11 뉴스 무인 실행 5회: 반도체 기판→전자부품, 카지노→레저,
+    전기차→자동차, 반도체 장비→반도체). 같은 테마가 'PCB'처럼 다른 정본 이름으로 적용되기도
+    해서(실측) 이름 동일성과 KG 테마 상장사 구성 동일성을 함께 본다. 입력은 LLM이 뽑은
+    짧은 표현이고 판정은 지식 조회 결과의 비교뿐이다(원문 미사용).
+
+    업종을 실제로 병합하기 **직전에만** 부른다 — 조회 비용과 재생 하니스의 기록 밖 조회를
+    그 경우로 한정한다. 조회 실패는 False(종전 동작)."""
+    applied = getattr(parsed, "theme_universe", None)
+    symbols = getattr(parsed, "target_symbols", None)
+    if not applied or not symbols:
+        return False
+    key = lambda t: str(t).replace(" ", "").lower()  # noqa: E731
+    if key(term) == key(applied):
+        return True
+    from engine.knowledge_graph import theme_backtest_companies
+
+    try:
+        theme = theme_backtest_companies(term)
+    except Exception:  # noqa: BLE001 — 조회 실패가 파싱을 막으면 안 된다
+        return False
+    if not theme:
+        return False
+    if key(theme.get("term") or "") == key(applied):
+        return True
+    companies = {c.get("symbol") for c in theme.get("companies") or [] if c.get("symbol")}
+    return bool(companies) and companies == set(symbols)
 
 
 @replay_dependency

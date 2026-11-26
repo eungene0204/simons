@@ -831,14 +831,21 @@ def factor_ids_named_in(text: str) -> set:
     if not text:
         return set()
     normalized = text.replace(" ", "").lower()
-    out = set()
+    spans = []
     for alias, canonical in _ALIASES.items():
         if alias.isascii():
-            if re.search(rf"(?<![a-z]){re.escape(alias)}(?![a-z])", normalized):
-                out.add(canonical)
-        elif alias in normalized:
-            out.add(canonical)
-    return out
+            pattern = rf"(?<![a-z]){re.escape(alias)}(?![a-z])"
+        else:
+            pattern = re.escape(alias)
+        spans += [(m.start(), m.end(), canonical) for m in re.finditer(pattern, normalized)]
+    # 더 긴 이름 안에 들어 있는 짧은 이름은 그 지표를 부른 것이 아니다 — '영업이익 성장률'은
+    # 영업이익 성장률이지 영업이익(ebit)이 아니다(2026-11-26 실측: 랭킹으로 반영된 '영업이익
+    # 성장률이 높은' 구절이 조건 회수에서 값 없는 영업이익 조건으로 되살아나 기준값을 되물었다).
+    return {
+        canonical for start, end, canonical in spans
+        if not any(s <= start and end <= e and (e - s) > (end - start) and c != canonical
+                   for s, e, c in spans)
+    }
 
 
 # 같은 이름('거래대금')을 공유하는 지표 변형 — 금액 임계(일평균·당일)와 자기 평균 대비 배수는

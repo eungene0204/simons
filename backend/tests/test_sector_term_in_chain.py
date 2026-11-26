@@ -256,3 +256,101 @@ def test_search_grounded_notice_dedupes_against_plain_notice():
     assert primary.sector_notice_already_present(notices, grounded)
     primary._append_sector_notice(notices, "반도체", grounded)
     assert len(notices) == 1
+
+
+# ── 2026-11 뉴스 무인 실행 5회: 테마 종목 위에 문장에 없는 업종이 한 칸 더 붙음 ─────
+# 같은 표현이 '○○ 관련주'(유니버스 분류 → 테마 적용)와 '○○'(인터프리터 universe.sectors)
+# 두 이름으로 따로 체인을 탔다. 둘째 이름은 apply_theme_companies가 target_symbols 가드로
+# None을 돌려줘 업종 근사(전자부품)로 떨어졌다(트레이스 b44064ce7dd6).
+
+_PCB = "반도체 기판(FC-BGA/PCB/MLB 등)"
+
+
+def _applied_theme_parsed():
+    parsed = ParsedStrategy(description=f"{_PCB} 관련주 중 RSI 전략")
+    parsed.target_symbols = ["222800", "323280"]
+    parsed.theme_universe = _PCB
+    return parsed
+
+
+def test_term_in_skips_sector_when_term_is_applied_theme(monkeypatch):
+    import engine.knowledge_graph as kg
+
+    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: _theme_hit(_PCB))
+    monkeypatch.setattr(primary, "_ground_sector_term", lambda term, on_stage=None: "전자부품")
+    parsed = _applied_theme_parsed()
+    notices: list = []
+    receipts: list = []
+
+    q, s = primary._resolve_sector_terms_term_in(parsed, [_PCB], notices, resolution_evidence=receipts)
+
+    assert (q, s) == (None, None)
+    assert parsed.sector is None
+    assert notices == []
+    assert receipts and receipts[0]["field"] == "target_symbols"
+
+
+def test_planner_primary_skips_sector_when_term_is_applied_theme(monkeypatch):
+    import engine.knowledge_graph as kg
+    import strategy_conversation.planner.mini_planner as mp
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: None)
+    monkeypatch.setattr(primary, "_apply_theme_via_canonical_match", lambda parsed, term: False)
+    monkeypatch.setattr(mp, "plan_universe_resolution", lambda term, chat: SimpleNamespace(
+        outcome="resolved", sector="전자부품", companies=None, question=None))
+    parsed = _applied_theme_parsed()
+    notices: list = []
+
+    q, s = primary._resolve_sector_terms_planner_primary(parsed, [_PCB], notices)
+
+    assert (q, s) == (None, None)
+    assert parsed.sector is None
+    assert notices == []
+
+
+def test_same_companies_under_other_canonical_name_counts_as_applied(monkeypatch):
+    """같은 테마가 'PCB'라는 다른 정본 이름으로 적용된 실측(2026-11-26) — 상장사 구성이 같으면 같은 것."""
+    import engine.knowledge_graph as kg
+
+    parsed = _applied_theme_parsed()
+    parsed.theme_universe = "PCB"
+    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: {
+        "term": _PCB, "companies": [{"symbol": "323280"}, {"symbol": "222800"}]})
+    assert primary._term_is_applied_theme(parsed, _PCB) is True
+    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: {
+        "term": _PCB, "companies": [{"symbol": "323280"}]})
+    assert primary._term_is_applied_theme(parsed, _PCB) is False
+
+
+def test_different_term_still_goes_through_chain(monkeypatch):
+    """적용된 테마와 다른 것을 가리키는 표현은 종전 체인 그대로다(오탐 방지) — 사용자가 테마와
+    업종을 둘 다 말한 경우('자동차' 업종 = KG 테마 없음)도 여기서 막지 않는다."""
+    import engine.knowledge_graph as kg
+
+    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: None)
+    parsed = _applied_theme_parsed()
+
+    assert primary._term_is_applied_theme(parsed, "자동차") is False
+    assert primary._term_is_applied_theme(parsed, _PCB.replace(" ", "")) is True
+    parsed.target_symbols = []
+    assert primary._term_is_applied_theme(parsed, _PCB) is False
+
+
+def test_planner_first_sector_observation_skipped_for_applied_theme(monkeypatch):
+    """세 번째 호출부(planner-first 관찰 병합)도 같은 계약 — 테마가 적용된 표현의 업종 관찰은 병합하지 않는다."""
+    import engine.knowledge_graph as kg
+    import engine.nl_parser as nlp
+
+    monkeypatch.setattr(kg, "theme_backtest_companies", lambda text: _theme_hit(_PCB))
+    monkeypatch.setattr(nlp, "apply_theme_companies", lambda parsed, term: None)
+    monkeypatch.setattr(primary, "_planner_observations", lambda result: [(_PCB, {"sector": "전자부품"})])
+    monkeypatch.setattr(primary, "_ambiguous_candidate_terms", lambda result: {})
+    parsed = _applied_theme_parsed()
+    notices: list = []
+
+    resolved, unresolved, applied = primary._apply_planner_first_universe(object(), parsed, notices)
+
+    assert parsed.sector is None
+    assert notices == []
+    assert _PCB in resolved and _PCB in applied and not unresolved

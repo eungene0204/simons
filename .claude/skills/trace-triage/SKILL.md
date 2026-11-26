@@ -28,6 +28,19 @@ cd backend && uv run --frozen python scripts/triage_traces.py --days 1   # 오�
 cd backend && uv run --frozen python scripts/triage_traces.py --json     # 기계 처리용
 ```
 
+**무인 실행 결함 대기열**(2026-11-26): 뉴스 12시·속설 13시 무인 실행이 찾은 결함(해석·데이터·엔진)은 Trace 보관
+기한(3일)과 무관하게 닫힐 때까지 여기 남는다 — 세션 시작 줄 `[무인 실행 결함] 수리 대기 N건`이 그 신호다.
+
+```bash
+python3 backend/scripts/unattended_defects.py list            # 열린 건(문장·증상·trace_id)
+python3 backend/scripts/unattended_defects.py close <id> --by "<커밋>"            # 고친 뒤(배포 전이면 커밋 해시)
+python3 backend/scripts/unattended_defects.py close <id> --by "<사유>" --status wontfix   # 의도된 동작·사용자 보류
+```
+
+해석 결함은 Trace 묶음과 같이 2단계에서 고르게 하고 3단계로 넘긴다. Trace가 지워진 건은 문장을 로컬 백엔드에 다시
+보내 재현한다(strategy-interpretation-fix 1단계). 데이터·엔진 결함은 수리 스킬이 다르다(데이터=프로덕션 백필 규칙,
+엔진=결과 동일성 게이트). 같은 증상이 여러 건이면 한 수리로 묶고 전부 닫는다.
+
 등급은 넷이다: **결함 후보**(우리 코드 실패) · **확인 필요**(의도된 거절일 수 있음) · **제품 공백**(엔진에 자리
 없음) · **인프라**(상류 429·취소·느린 턴 — 코드 수리 아님). 묶음 하나 = 신호 × 판별 키.
 

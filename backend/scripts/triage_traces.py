@@ -44,6 +44,8 @@ if str(_BACKEND) not in sys.path:
 from observability.retention import RETENTION_DAYS  # noqa: E402
 from observability.triage import TIERS, load  # noqa: E402
 
+from scripts import unattended_defects  # noqa: E402 — 무인 실행 결함 대기열(2026-11-26)
+
 _REPORT_DIR = _BACKEND / "logs" / "triage"
 
 
@@ -112,14 +114,20 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # 원문 보관 기한은 어떤 출력 모드든 먼저 지킨다(--summary는 매 세션 돈다).
     sweep_reports(args.report_dir, dt.date.today())
+    # 무인 실행(뉴스·속설)이 기록한 결함은 Trace 보관 기한과 무관하게 닫힐 때까지 띄운다.
+    queue_line = unattended_defects.summary()
     result = load(args.dir, args.days)
     if result["range"] is None:
-        if not args.summary:
+        if args.summary and queue_line:
+            print(queue_line)
+        elif not args.summary:
             print(f"Trace 파일이 없습니다: {args.dir or '관찰 계층 저장 위치(AGENT_TRACE_DIR)'}")
         return 0
     groups = result["groups"]
     if args.summary:
         print(render_summary(groups))
+        if queue_line:
+            print(queue_line)
         return 0
     if args.json:
         print(json.dumps(groups, ensure_ascii=False, indent=1))
