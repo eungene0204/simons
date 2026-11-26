@@ -21,7 +21,7 @@ from strategy_conversation.registry.concept_ontology import (
     ontology_prompt_sections,
 )
 
-PROMPT_VERSION = "8.23"  # 8.23: 어휘에 technical.market_index_return(시장 지수 N거래일 등락률, 엔진 v16.52) 노출. # 8.22: declined에 exit(매도 조건 없이 보유) 추가. # 8.21: VWAP을 미지원 목록에서 빼고 어휘에 technical.vwap(엔진 v16.48) 노출. # 8.20: 밴드폭·스퀴즈·이평선 기울기·52주 고가 비율·갭 지표 어휘(v16.50). # 8.19: backtest.volatility_breakout_k 칸 추가(변동성 돌파 거짓 미지원 수리). # 8.18: 어휘의 technical.roc에 "종목 자체 N거래일 수익률" 설명 추가(설명이 있는 시장 대비 초과수익률·랭킹으로 가던 오배정). 8.17: 오실레이터 임계 비교 목록에 technical.disparity(이격도) 추가. 8.16: 배수 없는 거래량 급증=volume_ratio(value=null, 되묻기), volume_spike(OBV)는 OBV 명시 때만. 8.15: "N거래일 지나면 매도"=hold_period_days(최소 보유로 읽던 오배정). 8.14: EMA 한 선 이탈 청산 예시(진입 EMA 쌍 복사 방지). 8.13: 코치의 직전 질문을 수정 턴 문맥으로 전달
+PROMPT_VERSION = "8.24"  # 8.24: 어휘의 technical.gap 이름을 "시가 갭(당일 시가 ÷ 전일 종가)"로, technical.roc에 하루 종가 하락=period=1 설명('전일 종가 대비 당일 종가 5% 하락'이 시가 갭으로 가던 오배정, 2026-11-26). # 8.23: 어휘에 technical.market_index_return(시장 지수 N거래일 등락률, 엔진 v16.52) 노출. # 8.22: declined에 exit(매도 조건 없이 보유) 추가. # 8.21: VWAP을 미지원 목록에서 빼고 어휘에 technical.vwap(엔진 v16.48) 노출. # 8.20: 밴드폭·스퀴즈·이평선 기울기·52주 고가 비율·갭 지표 어휘(v16.50). # 8.19: backtest.volatility_breakout_k 칸 추가(변동성 돌파 거짓 미지원 수리). # 8.18: 어휘의 technical.roc에 "종목 자체 N거래일 수익률" 설명 추가(설명이 있는 시장 대비 초과수익률·랭킹으로 가던 오배정). 8.17: 오실레이터 임계 비교 목록에 technical.disparity(이격도) 추가. 8.16: 배수 없는 거래량 급증=volume_ratio(value=null, 되묻기), volume_spike(OBV)는 OBV 명시 때만. 8.15: "N거래일 지나면 매도"=hold_period_days(최소 보유로 읽던 오배정). 8.14: EMA 한 선 이탈 청산 예시(진입 EMA 쌍 복사 방지). 8.13: 코치의 직전 질문을 수정 턴 문맥으로 전달
 
 # status·missing_fields·assumptions는 형태에서 뺐다 — 셋 다 파이프라인이 읽지 않는
 # 죽은 출력 채널이다(2026-07-30 확인). 상태와 누락 필드는 validation/pipeline.py가

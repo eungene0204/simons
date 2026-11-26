@@ -437,7 +437,8 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                {"period": ParamSpec(default=20, minimum=1, maximum=_MAX_LOOKBACK_DAYS)},
                value_range=(-100, 1000), recommended=0,
                notes="종목 자체의 N거래일 수익률(%) = 종가 ÷ N거래일 전 종가 − 1(시장 지수와 비교하지 않음). "
-                     "'최근 N일 동안 X% 이상 하락한'·'N일 수익률 -X% 이하'는 period=N, <=, -X"),
+                     "'최근 N일 동안 X% 이상 하락한'·'N일 수익률 -X% 이하'는 period=N, <=, -X. "
+                     "'하루에 X% 하락'(종가 기준)은 period=1 — 시가를 말하지 않았으면 technical.gap이 아님"),
     _technical("disparity", "이격도(종가÷이동평균×100)", "point", _COMPARISON_OPS,
                {"period": ParamSpec(default=20, minimum=2, maximum=_MAX_LOOKBACK_DAYS)},
                value_range=(10, 500), recommended=110,
@@ -467,7 +468,7 @@ _SPECS: Tuple[IndicatorSpec, ...] = (
                {"period": ParamSpec(default=252, minimum=20, maximum=_MAX_LOOKBACK_DAYS)},
                value_range=(1, 100), recommended=95,
                notes="종가÷최근 period거래일 최고가×100. '52주 최고가의 95% 이상'→>=, 95. 신고가 돌파 사건은 technical.breakout"),
-    _technical("gap", "시가 갭(전일 종가 대비)", "percent", _COMPARISON_OPS, {},
+    _technical("gap", "시가 갭(당일 시가 ÷ 전일 종가)", "percent", _COMPARISON_OPS, {},
                value_range=(-50, 50), recommended=3,
                notes="(당일 시가÷전일 종가−1)×100. '시가가 전일 종가보다 3% 이상 높게 시작'→>=, 3. "
                      "'갭 하락 2% 이상'→<=, -2. 그날 시가에 확정되는 값이라 체결은 다음 거래일 시가"),
