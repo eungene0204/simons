@@ -11,6 +11,8 @@ import {
   PLAN_LIMIT_ACCOUNTS,
   PLAN_LIMIT_BACKTESTS,
   PLAN_LIMIT_STRATEGIES,
+  planUpgradeHref,
+  recordAccountLimitHit,
 } from "@/lib/server/planLimits";
 
 function createClient(opts: {
@@ -494,5 +496,69 @@ describe("concurrent backtest accounting", () => {
     client.user.update.mockRejectedValue(new Error("database unavailable"));
     await expect(consumeBacktestQuota(client, 7, now)).rejects.toThrow("database unavailable");
     expect(client.user.update).toHaveBeenCalledTimes(1);
+  });
+});
+
+// 한도 도달 기록(2026-11-26) — '한도 도달 → 14일 안 유료 전환율'의 분모. 기록 실패가 429를 500으로 바꾸면 안 된다.
+describe("planLimits — 한도 도달 기록", () => {
+  const now = new Date("2026-06-15T03:00:00Z");
+  const thisMonth = currentUsageMonth(now);
+
+  it("백테스트 한도에 막히면 사용자·한도·주기 1행을 중복 건너뛰기로 남긴다", async () => {
+    const createMany = vi.fn().mockResolvedValue({ count: 1 });
+    const client = {
+      ...createClient({ planTier: "FREE", backtestUsageMonth: thisMonth, backtestCountThisMonth: 50 }),
+      planLimitHit: { createMany },
+    };
+    await expect(consumeBacktestQuota(client as any, 7, now)).rejects.toThrow(PLAN_LIMIT_BACKTESTS);
+    expect(createMany).toHaveBeenCalledWith({
+      data: [{ userId: 7, code: PLAN_LIMIT_BACKTESTS, planTier: "FREE", periodKey: thisMonth }],
+      skipDuplicates: true,
+    });
+  });
+
+  it("한도 미만이면 기록하지 않는다", async () => {
+    const createMany = vi.fn();
+    const client = {
+      ...createClient({ planTier: "FREE", backtestUsageMonth: thisMonth, backtestCountThisMonth: 5 }),
+      planLimitHit: { createMany },
+    };
+    await consumeBacktestQuota(client as any, 7, now);
+    expect(createMany).not.toHaveBeenCalled();
+  });
+
+  it("기록이 실패해도 한도 오류는 그대로 던진다", async () => {
+    const client = {
+      ...createClient({ planTier: "FREE", backtestUsageMonth: thisMonth, backtestCountThisMonth: 50 }),
+      planLimitHit: { createMany: vi.fn().mockRejectedValue(new Error("db down")) },
+    };
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(consumeBacktestQuota(client as any, 7, now)).rejects.toThrow(PLAN_LIMIT_BACKTESTS);
+    spy.mockRestore();
+  });
+
+  it("전략 저장 한도도 기록한다", async () => {
+    const createMany = vi.fn().mockResolvedValue({ count: 1 });
+    const client = { ...createClient({ planTier: "FREE", strategies: 3 }), planLimitHit: { createMany } };
+    await expect(assertCanSaveStrategy(client as any, 7)).rejects.toThrow(PLAN_LIMIT_STRATEGIES);
+    expect(createMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: [expect.objectContaining({ code: PLAN_LIMIT_STRATEGIES, planTier: "FREE" })] })
+    );
+  });
+
+  it("가상계좌 한도 검사는 트랜잭션 안이라 직접 기록하지 않고, recordAccountLimitHit이 밖에서 남긴다", async () => {
+    const createMany = vi.fn().mockResolvedValue({ count: 1 });
+    const client = { ...createClient({ planTier: "FREE", accounts: 1 }), planLimitHit: { createMany } };
+    await expect(assertCanCreateAccount(client as any, 7)).rejects.toThrow(PLAN_LIMIT_ACCOUNTS);
+    expect(createMany).not.toHaveBeenCalled();
+    await recordAccountLimitHit(client as any, 7);
+    expect(createMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: [expect.objectContaining({ code: PLAN_LIMIT_ACCOUNTS })] })
+    );
+  });
+
+  it("요금제 링크는 한도별 source를 싣는다", () => {
+    expect(planUpgradeHref(PLAN_LIMIT_BACKTESTS)).toBe("/pricing?source=limit_backtests");
+    expect(planUpgradeHref("UNKNOWN")).toBe("/pricing");
   });
 });

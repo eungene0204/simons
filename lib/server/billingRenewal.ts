@@ -20,9 +20,22 @@ import {
 } from "@/lib/server/planDowngrade";
 import { TossPaymentError, chargeBillingKey } from "@/lib/server/tossPayments";
 import { decryptField } from "@/lib/server/fieldCrypto";
+import { isMailerConfigured, sendBillingDowngradedEmail, sendBillingFailedEmail } from "@/lib/server/mailer";
+import { siteUrl } from "@/lib/seo/site";
 
 export const BILLING_MAX_FAIL_COUNT = 3; // 연속 실패 한도 (도달 시 FREE 전환)
 export const BILLING_RETRY_DELAY_MS = 24 * 60 * 60 * 1000; // 실패 시 재시도 간격(1일)
+
+/** 청구 실패 안내 메일 — 발송 실패가 갱신 잡(다음 사용자 처리)을 막지 않게 로그만 남긴다. */
+async function notifyBilling(userId: number, send: () => Promise<void>): Promise<void> {
+  // 메일 발송 계정(SMTP)이 없으면 보내지 않는다 — 운영에서 매 실패마다 오류 로그만 쌓이지 않게.
+  if (!isMailerConfigured()) return;
+  try {
+    await send();
+  } catch (error) {
+    console.error(`[BillingRenewal] 안내 메일 발송 실패 userId=${userId}:`, error);
+  }
+}
 
 export interface BillingRenewalSummary {
   renewed: number;
@@ -149,15 +162,22 @@ export async function processDueBillingRenewals(
         if (failCount >= BILLING_MAX_FAIL_COUNT) {
           await prisma.user.update({ where: { id: user.id }, data: freeDowngradeData(user, now) });
           summary.downgraded += 1;
+          await notifyBilling(user.id, () =>
+            sendBillingDowngradedEmail(user.email, plan.name, `${siteUrl()}/pricing`)
+          );
         } else {
+          const nextRetryAt = new Date(now.getTime() + BILLING_RETRY_DELAY_MS);
           await prisma.user.update({
             where: { id: user.id },
             data: {
               billingFailCount: failCount,
-              nextBillingAt: new Date(now.getTime() + BILLING_RETRY_DELAY_MS),
+              nextBillingAt: nextRetryAt,
             },
           });
           summary.retried += 1;
+          await notifyBilling(user.id, () =>
+            sendBillingFailedEmail(user.email, plan.name, failCount, BILLING_MAX_FAIL_COUNT, nextRetryAt)
+          );
         }
         console.error(
           `[BillingRenewal] 청구 실패 userId=${user.id} (${failCount}/${BILLING_MAX_FAIL_COUNT}): ${failReason}`

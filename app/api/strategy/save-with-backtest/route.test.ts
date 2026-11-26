@@ -40,6 +40,7 @@ vi.mock("@/lib/server/backtestCache", () => ({
 vi.mock("@/lib/server/planLimits", () => ({
   assertCanSaveStrategy,
   PLAN_LIMIT_STRATEGIES: "PLAN_LIMIT_STRATEGIES",
+  planUpgradeHref: (code: string) => `/pricing?source=${code}`,
   PLAN_LIMIT_MESSAGES: { PLAN_LIMIT_STRATEGIES: "전략 저장 한도에 도달했습니다." },
 }));
 

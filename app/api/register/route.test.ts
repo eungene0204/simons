@@ -17,6 +17,7 @@ const verificationDeleteMany = vi.fn();
 const ensureUserBootstrap = vi.fn();
 const consumeRateLimit = vi.fn();
 const cookieSet = vi.fn();
+const cookieGet = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -47,13 +48,14 @@ vi.mock("@/lib/server/rate-limit", () => ({
 }));
 
 vi.mock("next/headers", () => ({
-  cookies: async () => ({ set: (...a) => cookieSet(...a) }),
+  cookies: async () => ({ set: (...a) => cookieSet(...a), get: (name) => cookieGet(name) }),
 }));
 
 let POST;
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  cookieGet.mockReset();
   consumeRateLimit.mockReturnValue(true);
   POST = (await import("./route")).POST;
 });
@@ -137,6 +139,26 @@ describe("/api/register", () => {
     expect(userCreate).not.toHaveBeenCalled();
   });
 
+  // 가입 유입 경로(2026-11-26) — 처음 들어온 링크의 utm 쿠키를 User에 옮긴다.
+  it("유입 경로 쿠키가 있으면 signupUtm* 세 칸을 함께 저장한다", async () => {
+    verificationFindUnique.mockResolvedValue(validVerificationRow());
+    userFindUnique.mockResolvedValue(null);
+    userCreate.mockResolvedValue({ id: 7, email: "user@example.com", name: "Tester" });
+    verificationDeleteMany.mockResolvedValue({});
+    ensureUserBootstrap.mockResolvedValue(undefined);
+    userUpdate.mockResolvedValue({});
+    cookieGet.mockImplementation((name) => (name === "ns_first_utm" ? { value: "x%7Csocial%7Cmyth-23" } : undefined));
+
+    const res = await POST(req(validBody));
+
+    expect(res.status).toBe(201);
+    expect(userCreate.mock.calls[0][0].data).toMatchObject({
+      signupUtmSource: "x",
+      signupUtmMedium: "social",
+      signupUtmCampaign: "myth-23",
+    });
+  });
+
   it("올바른 코드면 계정 생성 + 인증 행 삭제 + 로그인 쿠키 발급(201)", async () => {
     verificationFindUnique.mockResolvedValue(validVerificationRow());
     userFindUnique.mockResolvedValue(null);
@@ -152,6 +174,8 @@ describe("/api/register", () => {
     expect(data.user.id).toBe(7);
     // 비밀번호는 해시로 저장된다
     expect(userCreate.mock.calls[0][0].data.password).toBe("hashed");
+    // 유입 경로 쿠키가 없으면 signupUtm*을 싣지 않는다
+    expect(userCreate.mock.calls[0][0].data.signupUtmSource).toBeUndefined();
     expect(verificationDeleteMany).toHaveBeenCalledWith({
       where: { email: "user@example.com" },
     });

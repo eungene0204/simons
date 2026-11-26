@@ -508,7 +508,7 @@ export default function BacktestDashboard({
   const [saveStrategyName, setSaveStrategyName] = useState("");
   const [saveDescription, setSaveDescription] = useState("");
   const [isSavingStrategy, setIsSavingStrategy] = useState(false);
-  const [saveResult, setSaveResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [saveResult, setSaveResult] = useState<{ ok: boolean; message: string; upgradeHref?: string } | null>(null);
 
   // 이 백테스트 전략으로 가상계좌 만들기 모달
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
@@ -934,7 +934,16 @@ export default function BacktestDashboard({
       });
       const data = await res.json();
       // 플랜 한도 초과(403)는 message에 안내 문구가 실린다 — error는 영문 코드라 그대로 보이면 안 된다.
-      if (!res.ok) throw new Error(data.message ? t(data.message) : data.error || t("저장 실패"));
+      if (!res.ok) {
+        const failure = new Error(data.message ? t(data.message) : data.error || t("저장 실패"));
+        if (data.code === "PLAN_LIMIT_STRATEGIES") {
+          trackEvent("plan_limit_reached", { limit: "strategies" });
+          if (typeof data.upgradeHref === "string") {
+            (failure as Error & { upgradeHref?: string }).upgradeHref = data.upgradeHref;
+          }
+        }
+        throw failure;
+      }
 
       // 저장 버튼을 누른 시점에 BacktestHistory 생성 (저장 목록에 노출)
       if (strategySummary) {
@@ -984,7 +993,11 @@ export default function BacktestDashboard({
       onSave?.();
       setTimeout(() => setIsSaveModalOpen(false), 1200);
     } catch (e: any) {
-      setSaveResult({ ok: false, message: e.message || t("저장 중 오류가 발생했습니다.") });
+      setSaveResult({
+        ok: false,
+        message: e.message || t("저장 중 오류가 발생했습니다."),
+        ...(typeof e.upgradeHref === "string" ? { upgradeHref: e.upgradeHref } : {}),
+      });
     } finally {
       setIsSavingStrategy(false);
     }
@@ -1638,7 +1651,16 @@ export default function BacktestDashboard({
                     : "text-red-400 border border-red-500/20"
                 }`}>
                   {saveResult.ok ? <Check size={14} weight="bold" /> : <Warning size={14} weight="fill" />}
-                  {saveResult.message}
+                  <span className="flex-1">{saveResult.message}</span>
+                  {saveResult.upgradeHref && (
+                    <a
+                      href={regionHref(saveResult.upgradeHref)}
+                      data-testid="plan-limit-upgrade"
+                      className="shrink-0 rounded-lg border border-gray-600 px-2 py-1 text-[11px] font-black text-[var(--text-strong)] hover:brightness-110"
+                    >
+                      {t("요금제 보기")}
+                    </a>
+                  )}
                 </div>
               )}
 

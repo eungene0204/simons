@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { GuideArticlePage } from "@/components/guide/GuideArticlePage";
 import { GUIDE_ARTICLES, getGuideArticle, guideArticlePath } from "@/lib/guide/articles";
 import { buildOpenGraph } from "@/lib/seo/site";
+import { strategyOpenHref } from "@/lib/strategy/strategyOpenLink";
 
 type GuideArticleRouteProps = { params: { slug: string } };
 
@@ -33,5 +34,7 @@ export function generateMetadata({ params }: GuideArticleRouteProps): Metadata {
 export default function GuideArticleRoute({ params }: GuideArticleRouteProps) {
   const article = getGuideArticle(params.slug);
   if (!article) notFound();
-  return <GuideArticlePage article={article} />;
+  // 지표 사전 글은 본문에 인용한 전략 예시 문장을 입력창에 채워 여는 버튼을 단다(utm: guide / 글 slug).
+  const openHref = article.openPrompt ? strategyOpenHref(article.openPrompt, "guide", article.slug) : undefined;
+  return <GuideArticlePage article={article} openHref={openHref} />;
 }

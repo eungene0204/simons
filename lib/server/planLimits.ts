@@ -25,6 +25,10 @@ type PlanLimitClient = {
     findUnique: (args: any) => Promise<any>;
     findMany?: (args?: any) => Promise<any[]>;
   };
+  // 한도 도달 기록(PlanLimitHit). 트랜잭션 클라이언트·테스트 목에 없으면 기록을 건너뛴다.
+  planLimitHit?: {
+    createMany: (args: any) => Promise<any>;
+  };
 };
 
 export const PLAN_LIMIT_ACCOUNTS = "PLAN_LIMIT_ACCOUNTS";
@@ -39,6 +43,42 @@ export const PLAN_LIMIT_MESSAGES: Record<string, string> = {
   [PLAN_LIMIT_BACKTESTS]:
     "이번 달 백테스트 한도를 모두 사용했습니다. 요금제를 업그레이드하면 더 많은 백테스트를 실행할 수 있습니다.",
 };
+
+// 한도 안내의 '요금제 보기' 링크 — source는 요금제 페이지의 pricing_view 이벤트에 실려
+// 어느 한도에서 요금제로 넘어왔는지 GA에서 나눠 보게 한다.
+export const PLAN_LIMIT_PRICING_SOURCES: Record<string, string> = {
+  [PLAN_LIMIT_ACCOUNTS]: "limit_accounts",
+  [PLAN_LIMIT_STRATEGIES]: "limit_strategies",
+  [PLAN_LIMIT_BACKTESTS]: "limit_backtests",
+};
+
+/** 한도 코드 → 요금제 페이지 주소(지역 접두는 화면이 붙인다). 모르는 코드면 source 없이. */
+export function planUpgradeHref(code: string): string {
+  const source = PLAN_LIMIT_PRICING_SOURCES[code];
+  return source ? `/pricing?source=${source}` : "/pricing";
+}
+
+/**
+ * 한도 도달을 기록한다 — 사용자·한도·주기당 1행(중복은 건너뜀).
+ * 기록 실패가 한도 응답(429)을 500으로 바꾸면 안 되므로 오류는 로그만 남기고 삼킨다.
+ */
+export async function recordPlanLimitHit(
+  client: PlanLimitClient,
+  userId: number,
+  code: string,
+  planTier: string,
+  periodKey: string
+): Promise<void> {
+  if (!client.planLimitHit) return;
+  try {
+    await client.planLimitHit.createMany({
+      data: [{ userId, code, planTier, periodKey }],
+      skipDuplicates: true,
+    });
+  } catch (error) {
+    console.error(`[PlanLimitHit] 기록 실패 userId=${userId} code=${code}:`, error);
+  }
+}
 
 /** 현재 달 키 "YYYY-MM" (KST 기준) — 주기 앵커(구독 시작일·가입일)가 모두 없을 때의 폴백 */
 export function currentUsageMonth(now: Date = new Date()): string {
@@ -212,7 +252,22 @@ export async function assertCanCreateAccount(
     countActiveAccounts(client, userId),
   ]);
   if (used >= plan.maxVirtualAccounts) {
+    // 기록은 호출부가 트랜잭션 밖에서 한다(recordAccountLimitHit) — 이 검사는 계좌 생성
+    // 트랜잭션 안에서 돌아, 여기서 쓴 행은 throw와 함께 롤백된다.
     throw new Error(PLAN_LIMIT_ACCOUNTS);
+  }
+}
+
+/** 가상계좌 한도 도달 기록 — 생성 트랜잭션이 PLAN_LIMIT_ACCOUNTS로 롤백된 뒤 호출한다. */
+export async function recordAccountLimitHit(
+  client: PlanLimitClient,
+  userId: number
+): Promise<void> {
+  try {
+    const plan = await getUserPlan(client, userId);
+    await recordPlanLimitHit(client, userId, PLAN_LIMIT_ACCOUNTS, plan.planId, currentUsageMonth());
+  } catch (error) {
+    console.error(`[PlanLimitHit] 계좌 한도 기록 실패 userId=${userId}:`, error);
   }
 }
 
@@ -225,6 +280,7 @@ export async function assertCanSaveStrategy(
   if (plan.isUnlimitedStrategies) return;
   const used = await countSavedStrategies(client, userId);
   if (used >= plan.maxStrategies) {
+    await recordPlanLimitHit(client, userId, PLAN_LIMIT_STRATEGIES, plan.planId, currentUsageMonth());
     throw new Error(PLAN_LIMIT_STRATEGIES);
   }
 }
@@ -258,6 +314,7 @@ export async function consumeBacktestQuota(
     const { periodKey, raw: usedThisPeriod } = backtestUsageInCurrentPeriod(user, now);
 
     if (usedThisPeriod >= plan.monthlyBacktestLimit) {
+      await recordPlanLimitHit(client, userId, PLAN_LIMIT_BACKTESTS, plan.planId, periodKey);
       throw new Error(PLAN_LIMIT_BACKTESTS);
     }
 

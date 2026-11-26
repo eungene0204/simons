@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/server/adminAuth'
 import { backtestUsageInCurrentPeriod } from '@/lib/server/planLimits'
+import { loadRevenueFunnel } from '@/lib/server/revenueFunnel'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,6 +27,7 @@ export async function GET() {
       activeAccounts,
       totalStrategies,
       recentAudit,
+      revenueFunnel,
     ] = await Promise.all([
       prisma.user.count({ where: { status: { not: 'DELETED' } } }),
       prisma.user.count({
@@ -60,6 +62,7 @@ export async function GET() {
           createdAt: true,
         },
       }),
+      loadRevenueFunnel(prisma),
     ])
 
     const usersByPlan: Record<string, number> = { FREE: 0, PRO: 0, PREMIUM: 0 }
@@ -78,6 +81,7 @@ export async function GET() {
       activeVirtualAccounts: activeAccounts,
       totalStrategies,
       recentAdminActions: recentAudit,
+      revenueFunnel,
     })
   } catch (error) {
     console.error('Admin overview error:', error)

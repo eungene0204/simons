@@ -5,6 +5,7 @@
 // 순수 데이터 모듈이다(react·next 의존 없음) — 페이지·sitemap·JSON-LD·테스트가 공유한다.
 
 import { SITE_SUMMARY_KO } from "@/lib/seo/site";
+import { INDICATOR_ARTICLES } from "./indicatorArticles";
 
 /** 계산 결과 표 — 연구노트가 쓴다. 셀은 화면에 보이는 문자열 그대로다. */
 export type GuideTable = {
@@ -57,6 +58,8 @@ export type GuideArticle = {
   related: string[];
   /** 자주 묻는 질문 — 글 하단에 화면으로 보이고 FAQPage 구조화 데이터로 함께 나간다. */
   faq?: GuideFaq[];
+  /** 하단 '이 전략 그대로 열기' 버튼이 입력창에 채울 문장(지표 사전 — 검증된 전략 예시 문장). */
+  openPrompt?: string;
 };
 
 export const GUIDE_BASE_PATH = "/guide";
@@ -82,7 +85,8 @@ export const GUIDE_DESCRIPTION =
 export const GUIDE_DISCLAIMER =
   "이 가이드는 투자 연구에 필요한 개념과 계산 방법을 설명하는 교육 자료입니다. 특정 종목·전략의 매수·매도를 권유하거나 미래 수익을 예측하지 않으며, 백테스트 결과는 과거 데이터 기반 시뮬레이션이므로 미래 수익은 보장되지 않습니다.";
 
-export const GUIDE_ARTICLES: GuideArticle[] = [
+/** 개념 글(손으로 쓴 글). */
+const CONCEPT_ARTICLES: GuideArticle[] = [
   {
     slug: "what-is-backtest",
     title: "백테스트란? 뜻과 계산 원리, 한계",
@@ -833,6 +837,9 @@ export const GUIDE_ARTICLES: GuideArticle[] = [
     ],
   },
 ];
+
+// 지표 사전(2026-11-26) — 데이터 한 항목이 글 한 편이 되는 반자동 묶음. 개념 글 뒤에 붙는다.
+export const GUIDE_ARTICLES: GuideArticle[] = [...CONCEPT_ARTICLES, ...INDICATOR_ARTICLES];
 
 export function getGuideArticle(slug: string): GuideArticle | undefined {
   return GUIDE_ARTICLES.find((article) => article.slug === slug);

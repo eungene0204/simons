@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import StrategyReportToggle from "./StrategyReportToggle";
 import { useDialogBehavior } from "@/lib/hooks/useDialogBehavior";
 import { useConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { cancelSubscriptionPrompt } from "@/lib/subscriptionCancelPrompt";
@@ -428,6 +429,8 @@ export default function SettingsModal({
                         </div>
                       </section>
                     ) : null}
+
+                    <StrategyReportToggle />
 
                     {/* 청구서 */}
                     <section>

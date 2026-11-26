@@ -16,6 +16,7 @@ vi.mock("@/lib/server/backtestCache", () => ({
 vi.mock("@/lib/server/planLimits", () => ({
   consumeBacktestQuota,
   PLAN_LIMIT_BACKTESTS: "PLAN_LIMIT_BACKTESTS",
+  planUpgradeHref: (code: string) => `/pricing?source=${code}`,
   PLAN_LIMIT_MESSAGES: { PLAN_LIMIT_BACKTESTS: "한도 초과" },
 }));
 
@@ -62,6 +63,8 @@ describe("POST /api/backtest/run", () => {
     const res = await POST(makeRequest({ symbols: ["005930"] }));
 
     expect(res.status).toBe(429);
+    // 한도 안내에 요금제 링크를 싣는다(2026-11-26) — 화면의 '요금제 보기' 버튼 주소.
+    expect((await res.json()).upgradeHref).toBe("/pricing?source=PLAN_LIMIT_BACKTESTS");
     expect(engineFetch).not.toHaveBeenCalled();
   });
 

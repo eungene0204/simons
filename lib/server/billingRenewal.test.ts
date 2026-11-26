@@ -17,6 +17,16 @@ vi.mock("@/lib/server/tossPayments", async () => {
   };
 });
 
+// 청구 실패 안내 메일(2026-11-26) — 실제 SMTP로 나가지 않게 목으로 받는다.
+const sendBillingFailedEmail = vi.fn();
+const sendBillingDowngradedEmail = vi.fn();
+let mailerConfigured = true;
+vi.mock("@/lib/server/mailer", () => ({
+  isMailerConfigured: () => mailerConfigured,
+  sendBillingFailedEmail: (...a) => sendBillingFailedEmail(...a),
+  sendBillingDowngradedEmail: (...a) => sendBillingDowngradedEmail(...a),
+}));
+
 let processDueBillingRenewals;
 let BILLING_MAX_FAIL_COUNT;
 let TossPaymentError;
@@ -158,6 +168,8 @@ describe("processDueBillingRenewals", () => {
     expect(summary).toEqual({ renewed: 0, retried: 0, downgraded: 1 });
     expect(chargeBillingKey).not.toHaveBeenCalled();
     expect(orderCreate).not.toHaveBeenCalled();
+    // 사용자가 직접 해지한 만료는 결제 실패 안내 대상이 아니다
+    expect(sendBillingDowngradedEmail).not.toHaveBeenCalled();
     expect(userUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 7 },
@@ -193,6 +205,38 @@ describe("processDueBillingRenewals", () => {
         }),
       })
     );
+    expect(sendBillingFailedEmail).toHaveBeenCalledWith(
+      "u@example.com",
+      "Pro",
+      1,
+      BILLING_MAX_FAIL_COUNT,
+      new Date(NOW.getTime() + 24 * 60 * 60 * 1000)
+    );
+    expect(sendBillingDowngradedEmail).not.toHaveBeenCalled();
+  });
+
+  it("메일 발송 계정이 없으면 안내 메일을 보내지 않고 재시도만 예약한다", async () => {
+    mailerConfigured = false;
+    userFindMany.mockResolvedValue([subscriber()]);
+    chargeBillingKey.mockRejectedValue(new TossPaymentError("INSUFFICIENT_FUNDS", "잔액 부족", 400));
+
+    const summary = await processDueBillingRenewals(prisma, NOW);
+
+    mailerConfigured = true;
+    expect(summary).toEqual({ renewed: 0, retried: 1, downgraded: 0 });
+    expect(sendBillingFailedEmail).not.toHaveBeenCalled();
+  });
+
+  it("안내 메일 발송이 실패해도 재시도 예약은 그대로 남는다", async () => {
+    userFindMany.mockResolvedValue([subscriber()]);
+    chargeBillingKey.mockRejectedValue(new TossPaymentError("INSUFFICIENT_FUNDS", "잔액 부족", 400));
+    sendBillingFailedEmail.mockRejectedValueOnce(new Error("smtp down"));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const summary = await processDueBillingRenewals(prisma, NOW);
+
+    spy.mockRestore();
+    expect(summary).toEqual({ renewed: 0, retried: 1, downgraded: 0 });
   });
 
   it("연속 실패 한도에 도달하면 FREE로 전환한다", async () => {
@@ -211,6 +255,8 @@ describe("processDueBillingRenewals", () => {
         data: expect.objectContaining({ planTier: "FREE", tossBillingKey: null }),
       })
     );
+    expect(sendBillingDowngradedEmail).toHaveBeenCalledWith("u@example.com", "Pro", expect.stringMatching(/\/pricing$/));
+    expect(sendBillingFailedEmail).not.toHaveBeenCalled();
   });
 
   it("PayPal 구독은 조회 대상에서 제외한다(토스 청구를 시도하면 안 된다)", async () => {

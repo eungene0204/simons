@@ -12,6 +12,7 @@ import {
 import {
   assertCanSaveStrategy,
   PLAN_LIMIT_STRATEGIES,
+  planUpgradeHref,
   PLAN_LIMIT_MESSAGES,
 } from '@/lib/server/planLimits';
 
@@ -79,7 +80,7 @@ export async function POST(request: Request) {
     }
     if (error instanceof Error && error.message === PLAN_LIMIT_STRATEGIES) {
       return NextResponse.json(
-        { error: 'Strategy limit reached', code: PLAN_LIMIT_STRATEGIES, message: PLAN_LIMIT_MESSAGES[PLAN_LIMIT_STRATEGIES] },
+        { error: 'Strategy limit reached', code: PLAN_LIMIT_STRATEGIES, message: PLAN_LIMIT_MESSAGES[PLAN_LIMIT_STRATEGIES], upgradeHref: planUpgradeHref(PLAN_LIMIT_STRATEGIES) },
         { status: 403 }
       );
     }

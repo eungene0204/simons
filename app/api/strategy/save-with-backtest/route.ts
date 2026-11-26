@@ -13,6 +13,7 @@ import {
   assertCanSaveStrategy,
   PLAN_LIMIT_MESSAGES,
   PLAN_LIMIT_STRATEGIES,
+  planUpgradeHref,
 } from "@/lib/server/planLimits";
 import { isResultOwnerMismatch, RESULT_OWNER_MISMATCH_BODY, stripResultOwner } from "@/lib/resultOwner";
 
@@ -283,6 +284,7 @@ export async function POST(request: Request) {
           error: "Strategy limit reached",
           code: PLAN_LIMIT_STRATEGIES,
           message: PLAN_LIMIT_MESSAGES[PLAN_LIMIT_STRATEGIES],
+          upgradeHref: planUpgradeHref(PLAN_LIMIT_STRATEGIES),
         },
         { status: 403 }
       );

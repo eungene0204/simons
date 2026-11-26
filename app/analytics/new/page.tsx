@@ -220,6 +220,8 @@ interface ChatMessage {
   // 미설정이면 기본 '분석 중...'을 표시한다(빌더/분류 등 비파싱 로딩).
   loadingStage?: AnalysisStage;
   error?: string;
+  // 플랜 한도 초과 오류의 '요금제 보기' 링크(서버 응답 upgradeHref, 지역 접두 전).
+  upgradeHref?: string;
   // 파싱 실패 시 같은 턴을 다시 실행할 수 있는 '다시 시도' 버튼용 컨텍스트.
   // LLM 콜드스타트(scale-to-zero, 첫 파스 ~2분)로 스트림이 타임아웃에 끊긴 경우가 주 대상 —
   // 재시도 시점엔 서버가 웜 상태라 두 번째 시도는 수 초 안에 끝난다.
@@ -4631,7 +4633,14 @@ function StrategyLabContent() {
       if (!res.ok) {
         const err = await res.json();
         // 서버 한도·로그인 안내(detail)는 한국어 정본 — /us에서는 사전으로 번역해 표시한다.
-        throw new Error(typeof err.detail === "string" ? t(err.detail) : t("백테스트 실패"));
+        const failure = new Error(typeof err.detail === "string" ? t(err.detail) : t("백테스트 실패"));
+        if (err.code === "PLAN_LIMIT_BACKTESTS") {
+          trackEvent("plan_limit_reached", { limit: "backtests" });
+          if (typeof err.upgradeHref === "string") {
+            (failure as Error & { upgradeHref?: string }).upgradeHref = err.upgradeHref;
+          }
+        }
+        throw failure;
       }
 
       const resultOwner = parseResultOwner(res.headers.get(RESULT_OWNER_HEADER));
@@ -4697,7 +4706,11 @@ function StrategyLabContent() {
       setBacktestRunFailed(true);
       setMessages(prev => [
         ...prev,
-        { role: "assistant", error: e.message ?? "백테스트 오류" },
+        {
+          role: "assistant",
+          error: e.message ?? "백테스트 오류",
+          ...(typeof e.upgradeHref === "string" ? { upgradeHref: e.upgradeHref } : {}),
+        },
       ]);
     }
   };
@@ -5321,6 +5334,15 @@ function StrategyLabContent() {
                               <div className="flex-1 space-y-1">
                                 <p className="text-xs font-black text-[var(--error-red)]">{t("오류 발생")}</p>
                                 <p className="text-xs font-bold text-[var(--text-label)]">{t(msg.error)}</p>
+                                {msg.upgradeHref && (
+                                  <a
+                                    href={regionHref(msg.upgradeHref)}
+                                    data-testid="plan-limit-upgrade"
+                                    className="mt-2 inline-flex items-center gap-1 rounded-lg border border-gray-600 bg-[var(--chat-surface)] px-2 py-1 text-[11px] font-black text-[var(--text-strong)] transition-colors duration-200 hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chat-accent-ring)]"
+                                  >
+                                    {t("요금제 보기")}
+                                  </a>
+                                )}
                                 {msg.retryPrompt && (
                                   <button
                                     onClick={() => void handleRetryParse(msg)}

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import {
   consumeBacktestQuota,
   PLAN_LIMIT_BACKTESTS,
+  planUpgradeHref,
   PLAN_LIMIT_MESSAGES,
 } from "@/lib/server/planLimits";
 
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
     } catch (err: any) {
       if (err instanceof Error && err.message === PLAN_LIMIT_BACKTESTS) {
         return NextResponse.json(
-          { error: "Backtest limit reached", code: PLAN_LIMIT_BACKTESTS, message: PLAN_LIMIT_MESSAGES[PLAN_LIMIT_BACKTESTS] },
+          { error: "Backtest limit reached", code: PLAN_LIMIT_BACKTESTS, message: PLAN_LIMIT_MESSAGES[PLAN_LIMIT_BACKTESTS], upgradeHref: planUpgradeHref(PLAN_LIMIT_BACKTESTS) },
           { status: 429 }
         );
       }

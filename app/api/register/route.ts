@@ -11,6 +11,7 @@ import { notifySignup } from "@/lib/server/signup-notification"
 import { NextRequest, NextResponse } from 'next/server'
 import { timingSafeEqual } from 'crypto'
 import { cookies } from 'next/headers'
+import { SIGNUP_UTM_COOKIE, signupUtmFields } from '@/lib/signupUtm'
 import { prisma } from '@/lib/prisma'
 import { generateToken, hashPassword } from '@/lib/auth'
 import { ensureUserBootstrap } from '@/lib/get-user'
@@ -139,6 +140,8 @@ export async function POST(request: NextRequest) {
           name: trimmedName,
           password: hashedPassword,
           updatedAt: new Date(),
+          // 가입 유입 경로(first-touch UTM) — 쿠키가 없거나 형식이 어긋나면 비워 둔다.
+          ...signupUtmFields((await cookies()).get(SIGNUP_UTM_COOKIE)?.value),
         },
       })
     } catch (createError) {

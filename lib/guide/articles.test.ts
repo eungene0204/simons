@@ -143,3 +143,24 @@ describe("guide JSON-LD", () => {
     );
   });
 });
+
+// 지표 사전(2026-11-26) — '그대로 열기' 문장은 파싱이 검증된 전략 예시 정본에서만 가져온다.
+describe("indicator dictionary articles", () => {
+  it("adds indicator pages whose open prompt is an existing strategy example quoted in the body", async () => {
+    const { INDICATOR_ARTICLES } = await import("./indicatorArticles");
+    const { EXAMPLES } = await import("@/components/strategy/strategyExamples");
+    const prompts = new Set(EXAMPLES.map((e) => e.prompt));
+    expect(INDICATOR_ARTICLES.length).toBeGreaterThanOrEqual(10);
+    for (const article of INDICATOR_ARTICLES) {
+      expect(GUIDE_ARTICLES).toContain(article);
+      expect(prompts.has(article.openPrompt!)).toBe(true);
+      const body = article.sections.flatMap((section) => section.paragraphs).join("\n");
+      expect(body).toContain(article.openPrompt!);
+    }
+  });
+
+  it("uses '이란' after names read with a final consonant", () => {
+    expect(getGuideArticle("per-ratio")!.title).toMatch(/^PER\(주가수익비율\)이란\?/);
+    expect(getGuideArticle("rsi-indicator")!.title).toMatch(/^RSI\(상대강도지수\)란\?/);
+  });
+});

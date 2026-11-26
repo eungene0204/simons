@@ -12,6 +12,8 @@ import {
   getUserPlan,
   PLAN_LIMIT_ACCOUNTS,
   PLAN_LIMIT_MESSAGES,
+  planUpgradeHref,
+  recordAccountLimitHit,
 } from '@/lib/server/planLimits';
 import {
   getOwnershipContext,
@@ -145,6 +147,12 @@ export async function POST(request: Request) {
               strategyName: strategyName || null,
               tradingMode: tradingMode || "manual",
             });
+          }).catch(async (error) => {
+            // 한도 도달은 롤백 뒤 트랜잭션 밖에서 기록한다(KPI '한도 도달 → 전환율'의 분모).
+            if (error instanceof Error && error.message === PLAN_LIMIT_ACCOUNTS) {
+              await recordAccountLimitHit(prisma, userId);
+            }
+            throw error;
           });
 
     if (strategy) {
@@ -184,7 +192,7 @@ export async function POST(request: Request) {
     }
     if (error instanceof Error && error.message === PLAN_LIMIT_ACCOUNTS) {
       return NextResponse.json(
-        { error: 'Account limit reached', code: PLAN_LIMIT_ACCOUNTS, message: PLAN_LIMIT_MESSAGES[PLAN_LIMIT_ACCOUNTS] },
+        { error: 'Account limit reached', code: PLAN_LIMIT_ACCOUNTS, message: PLAN_LIMIT_MESSAGES[PLAN_LIMIT_ACCOUNTS], upgradeHref: planUpgradeHref(PLAN_LIMIT_ACCOUNTS) },
         { status: 403 }
       );
     }

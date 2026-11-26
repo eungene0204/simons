@@ -10,6 +10,7 @@ import {
 import { ensureUserBootstrap } from '@/lib/get-user'
 import { isEmailSignupEnabled } from '@/lib/server/email-verification'
 import { cookies } from 'next/headers'
+import { SIGNUP_UTM_COOKIE, signupUtmFields } from '@/lib/signupUtm'
 
 // 앱 DB가 원격(Supabase us-west-1)이라 순차 쿼리 단계 수가 곧 로그인 지연이다 — 서로 무관한 두 쓰기를 한 왕복에 보낸다.
 async function recordLogin(userId: number) {
@@ -72,6 +73,8 @@ export async function POST(request: NextRequest) {
               `google-oauth:${identity.uid}:${crypto.randomUUID()}`
             ),
             updatedAt: new Date(),
+            // 가입 유입 경로(first-touch UTM) — 쿠키가 없거나 형식이 어긋나면 비워 둔다.
+            ...signupUtmFields((await cookies()).get(SIGNUP_UTM_COOKIE)?.value),
           },
         })
         await notifySignup('google', user.id, user.email)

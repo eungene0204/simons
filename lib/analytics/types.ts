@@ -43,6 +43,11 @@ export interface SubscriptionStartParams {
   currency?: "KRW" | "USD";
 }
 
+/** 플랜 한도 도달 — 어느 한도에 막혔는지만 싣는다(사용량 수치·개인 정보 없음). */
+export interface PlanLimitReachedParams {
+  limit: "backtests" | "strategies" | "accounts";
+}
+
 /** 이벤트명 → 파라미터 매핑. trackEvent가 이 맵으로 타입을 강제한다. */
 export interface AnalyticsEventMap {
   sign_up: { method: AuthMethod };
@@ -52,6 +57,7 @@ export interface AnalyticsEventMap {
   pricing_view: PricingViewParams;
   purchase: PurchaseParams;
   subscription_start: SubscriptionStartParams;
+  plan_limit_reached: PlanLimitReachedParams;
 }
 
 export type AnalyticsEventName = keyof AnalyticsEventMap;

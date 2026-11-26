@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import TopMenuBar from "@/components/layout/TopMenuBar";
 import ScrollToTop from "@/components/layout/ScrollToTop";
+import SignupUtmCapture from "@/components/analytics/SignupUtmCapture";
 import VisualViewportInset from "@/components/layout/VisualViewportInset";
 import QueryProvider from "@/components/providers/QueryProvider";
 import { OrderAccountProvider } from "@/contexts/OrderAccountContext";
@@ -85,6 +86,7 @@ export default function RootLayout({
           <QueryProvider>
             <ChunkErrorRecovery />
             <ScrollToTop />
+            <SignupUtmCapture />
             <VisualViewportInset />
             <OrderAccountProvider>
               <EmailLoginOptionProvider enabled={isEmailSignupEnabled()}>

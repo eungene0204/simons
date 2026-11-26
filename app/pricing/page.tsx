@@ -8,6 +8,7 @@ import { getEffectivePlans } from "@/lib/server/effectivePlans";
 import { isGuestEmail } from "@/lib/server/guestAccounts";
 import PricingPlans from "@/components/pricing/PricingPlans";
 import PricingViewTracker from "@/components/pricing/PricingViewTracker";
+import { PLAN_LIMIT_PRICING_SOURCES } from "@/lib/server/planLimits";
 import { t } from "@/lib/i18n";
 import { getRequestLanguage } from "@/lib/i18n/server";
 import { getRequestRegion } from "@/lib/geo/server";
@@ -32,13 +33,25 @@ export function generateMetadata(): Metadata {
   };
 }
 
-export default async function PricingPage() {
+// 요금제 진입 경로(?source=) — 정해진 값만 GA로 보낸다(임의 문자열이 이벤트에 섞이지 않게).
+const KNOWN_PRICING_SOURCES = new Set(Object.values(PLAN_LIMIT_PRICING_SOURCES));
+
+function pricingSource(raw: string | string[] | undefined): string | undefined {
+  return typeof raw === "string" && KNOWN_PRICING_SOURCES.has(raw) ? raw : undefined;
+}
+
+export default async function PricingPage({
+  searchParams,
+}: {
+  searchParams?: { source?: string | string[] };
+}) {
+  const source = pricingSource(searchParams?.source);
   // 글로벌 서비스(/us/pricing)는 영어·USD 전용 트리로 완전히 분리한다 —
   // 아래 한국(토스페이먼츠) 경로는 심사 중이라 그대로 둔다.
   if (getRequestRegion() === "us") {
     return (
       <>
-        <PricingViewTracker />
+        <PricingViewTracker source={source} />
         <UsPricingPage />
       </>
     );
@@ -89,7 +102,7 @@ export default async function PricingPage() {
   getRequestLanguage();
   return (
     <DashboardLayout userName={record.name || t("게스트")}>
-      <PricingViewTracker />
+      <PricingViewTracker source={source} />
       <div className="min-h-[calc(100dvh-var(--top-menu-bar-height,76px))] bg-[var(--background)] px-5 py-6 text-white sm:px-8 lg:px-10">
         <div className="mx-auto flex min-h-[calc(100dvh-var(--top-menu-bar-height,76px)-3rem)] w-full max-w-7xl flex-col">
           <div className="text-center">

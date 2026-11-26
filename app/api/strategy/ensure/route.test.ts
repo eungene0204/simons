@@ -37,6 +37,7 @@ vi.mock("@/lib/get-user", () => ({
 vi.mock("@/lib/server/planLimits", () => ({
   assertCanSaveStrategy: (...a) => assertCanSaveStrategy(...a),
   PLAN_LIMIT_STRATEGIES: "PLAN_LIMIT_STRATEGIES",
+  planUpgradeHref: (code: string) => `/pricing?source=${code}`,
   PLAN_LIMIT_MESSAGES: { PLAN_LIMIT_STRATEGIES: "전략 저장 한도에 도달했습니다." },
 }));
 

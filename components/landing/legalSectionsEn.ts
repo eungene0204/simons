@@ -250,7 +250,7 @@ export const privacySectionsEn: LegalSection[] = [
       },
       {
         label: "Automatically generated information",
-        content: "Last login time, and error logs and security event records generated during Service operation",
+        content: "Last login time, error logs and security event records generated during Service operation, sign-up source (the traffic source and campaign name contained in the first link visited before sign-up), and the time and type of plan usage limits reached",
       },
       {
         label: "Plan and usage information",
@@ -269,6 +269,7 @@ export const privacySectionsEn: LegalSection[] = [
       "Ensuring Service stability, analyzing failures, security checks and detecting abnormal use",
       "Responding to customer inquiries, notifying changes to terms or policies, and Service operation notices",
       "Managing per-plan usage limits and, where paid services are introduced, payment, settlement and refund processing",
+      "Analyzing Service usage statistics and improving the Service using sign-up source and usage-limit records",
     ],
   },
   {
@@ -327,6 +328,7 @@ export const privacySectionsEn: LegalSection[] = [
     title: "Article 7 (Cookies and Session Information)",
     list: [
       "The Company may use cookies and browser storage to keep users logged in, verify security and store display settings. The session token (JWT) used to keep users logged in is stored in a cookie in the user's browser and is not separately stored on the Company's servers.",
+      "To identify sign-up sources, the Company stores the traffic source and campaign name contained in the first link a user visits in a cookie for 30 days, and keeps them with the account information if the user signs up within that period. Refusing or deleting this cookie does not restrict use of the Service.",
       "Users may refuse or delete cookies through browser settings. However, restricting cookies or session storage may prevent some features such as login, strategy creation, saving and virtual accounts from working properly.",
       "The Company uses Google Analytics, a web analytics tool provided by Google LLC, to analyze Service usage statistics. Google Analytics collects Service usage records such as pages visited, access times and browser/device information through cookies, and the Company does not pass information that directly identifies a user to Google Analytics. Collected information may be processed by Google on servers located overseas, including in the United States.",
       "Users may opt out of Google Analytics collection through browser cookie settings or the Google Analytics opt-out browser add-on (tools.google.com/dlpage/gaoptout); opting out does not restrict use of the Service.",

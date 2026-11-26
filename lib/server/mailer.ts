@@ -72,3 +72,58 @@ export async function sendAlreadyRegisteredEmail(to: string): Promise<void> {
     ].join('\n')
   )
 }
+
+// 저장 전략 월간 재검증 리포트(lib/server/strategyReport.ts) — 사용자가 설정에서 켠 경우에만 보낸다.
+// 본문은 호출부가 사실 수치만으로 만든다(광고·추천 문구 없음).
+export async function sendStrategyReportEmail(to: string, subject: string, text: string): Promise<void> {
+  await sendMail(to, subject, text)
+}
+
+function formatKstDateTime(date: Date): string {
+  return new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+// 자동결제(토스 빌링) 청구 실패 안내 — 계약 이행에 관한 거래 안내다(광고 아님).
+// 카드 교체 화면이 아직 없어 결제 수단 변경은 고객센터 안내로 둔다.
+export async function sendBillingFailedEmail(
+  to: string,
+  planName: string,
+  failCount: number,
+  maxFailCount: number,
+  nextRetryAt: Date
+): Promise<void> {
+  await sendMail(
+    to,
+    '[널스탁] 자동결제가 처리되지 않았습니다',
+    [
+      `널스탁 ${planName} 플랜 정기결제가 처리되지 않았습니다. (${failCount}/${maxFailCount}회)`,
+      '',
+      `${formatKstDateTime(nextRetryAt)}에 같은 카드로 다시 결제를 시도합니다.`,
+      `${maxFailCount}회 연속으로 처리되지 않으면 Free 플랜으로 전환됩니다.`,
+      '',
+      '카드 한도·유효기간·해외/온라인 결제 차단 여부를 확인해 주세요.',
+      '결제 수단을 바꾸려면 고객센터로 문의해 주세요.',
+    ].join('\n')
+  )
+}
+
+// 청구 실패 한도 도달로 Free 전환된 뒤의 안내.
+export async function sendBillingDowngradedEmail(to: string, planName: string, pricingUrl: string): Promise<void> {
+  await sendMail(
+    to,
+    '[널스탁] 결제가 처리되지 않아 Free 플랜으로 전환되었습니다',
+    [
+      `${planName} 플랜 정기결제가 연속으로 처리되지 않아 Free 플랜으로 전환되었습니다.`,
+      '저장한 전략과 백테스트 기록은 그대로 남아 있으며, Free 플랜 한도 안에서 계속 이용할 수 있습니다.',
+      '',
+      `다시 구독하려면 요금제 페이지에서 결제해 주세요: ${pricingUrl}`,
+    ].join('\n')
+  )
+}

@@ -414,6 +414,13 @@ model User {
   backtestCountThisMonth Int       @default(0)
   backtestRunTotal       Int       @default(0) // 누적 백테스트 실행 횟수(주기 리셋 없음) — 관리자 콘솔 활동 지표. 2026-09-30부터 집계
   lastBacktestAt         DateTime? // 마지막 백테스트 실행 시각 — 관리자 콘솔 활동 지표
+  // 가입 유입 경로(first-touch UTM, 2026-11-26) — 가입 전 처음 들어온 링크의 utm 세 칸. 채널별 가입·결제 전환을 DB에서 잇는다.
+  signupUtmSource        String?
+  signupUtmMedium        String?
+  signupUtmCampaign      String?
+  // 저장 전략 월간 재검증 리포트(2026-11-26) — 사용자가 켠 경우에만 보낸다(기본 꺼짐). 유료 플랜 전용.
+  strategyReportOptIn    Boolean   @default(false)
+  strategyReportLastSentKey String? // 마지막으로 보낸 리포트 주기("YYYY-MM", KST) — 같은 달 중복 발송 방지
   createdAt      DateTime         @default(now())
   updatedAt      DateTime
   ResearchRun    ResearchRun[]
@@ -428,6 +435,22 @@ model User {
   StrategyChatLog StrategyChatLog[]
   PaymentOrder   PaymentOrder[]
   StrategyConversationTurn StrategyConversationTurn[]
+  PlanLimitHit   PlanLimitHit[]
+}
+
+// 플랜 한도 도달 기록(2026-11-26) — 한도에 막힌 순간을 사용자·한도·주기당 1행으로 남긴다.
+// '한도 도달 → 14일 안 유료 전환율'(docs/KPI.md §4.5)의 분모다. 사용자 문장은 담지 않는다.
+model PlanLimitHit {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  code      String // PLAN_LIMIT_BACKTESTS | PLAN_LIMIT_STRATEGIES | PLAN_LIMIT_ACCOUNTS
+  planTier  String // 도달 당시 플랜
+  periodKey String // 백테스트=사용량 주기 키, 상시 캡(전략·계좌)=KST 달 "YYYY-MM"
+  createdAt DateTime @default(now())
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, code, periodKey])
+  @@index([createdAt])
 }
 
 // 결제 주문 — 결제 승인 시 서버에 저장된 금액과 대조(금액 위변조 검증)하기 위한 기록.

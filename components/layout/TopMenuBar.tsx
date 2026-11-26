@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, memo, Suspense } from "react";
 import TopNavigation from "./TopNavigation";
+import BillingFailureBanner from "./BillingFailureBanner";
 
 // 탑메뉴바를 memo로 감싸서 리렌더링 방지
 const TopMenuBarContent = memo(function TopMenuBarContent({
@@ -56,6 +57,8 @@ const TopMenuBarContent = memo(function TopMenuBarContent({
         <Suspense fallback={null}>
           <TopNavigation userName={userName} />
         </Suspense>
+        {/* 높이 관찰 대상(#top-menu-bar) 안에 둬서 본문이 배너에 가려지지 않는다 */}
+        <BillingFailureBanner />
         {subHeader}
       </div>
     </div>
