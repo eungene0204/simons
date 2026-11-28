@@ -309,6 +309,21 @@ def test_scope_ask_surfaces_even_when_planner_drifts_to_condition_ask():
     assert terms == {"보안주"}
 
 
+def test_scope_ask_skipped_when_interpreter_already_chose_a_candidate():
+    """2026-11-27 뉴스 무인 실행: 인터프리터가 '보안주(정보)'를 뽑았는데 planner가 '보안주'로
+    줄여 조회해 정보/물리 범위를 되물었다 — 후보에 이미 고른 표현이 있으면 묻지 않는다."""
+    result = _plan_result(
+        [("list_concept_candidates", "보안주",
+          {"candidates": [{"term": "보안주(물리)", "companies": 19, "exact": True},
+                          {"term": "보안주(정보)", "companies": 50, "exact": True}]})],
+        outcome="ask", question="보안주(정보)와 보안주(물리) 중 어떤 범위로 전략을 구성할까요?",
+        topic="유니버스",
+    )
+    assert _planner_scope_ask(result, {"보안주"}, ["보안주(정보)"]) is None
+    # 고른 표현이 후보에 없으면 종전대로 묻는다
+    assert _planner_scope_ask(result, {"보안주"}, ["보안"]) is not None
+
+
 def test_scope_ask_reuses_planner_universe_question_and_observed_chips():
     """planner가 유니버스 ask를 냈으면 질문 문구는 재사용하되 칩은 항상 관찰된
     카탈로그 후보 표기다(9B 칩 지어내기 드리프트 차단)."""

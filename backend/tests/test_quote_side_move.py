@@ -85,6 +85,46 @@ def test_side_check_failure_is_fail_open():
     assert len(intent.strategy.entry_conditions) == 2 and intent.strategy.exit_conditions == []
 
 
+def test_moved_condition_already_in_target_slot_is_dropped_not_duplicated():
+    """2026-11-27 뉴스 무인 실행(트레이스 37b10bfaa121): 매도 문구가 청산 칸(하향 돌파)과 매수 칸
+    (상향 돌파) 두 곳에 적혔고, 매수 칸 사본을 청산 칸으로 옮기자 청산에 상향 돌파가 생겨
+    "보류한 조건을 다시 알려 달라"로 멈췄다. 같은 인용·같은 지표가 이미 있으면 사본만 뺀다."""
+    from strategy_conversation.primary import _check_condition_quotes
+
+    text = ("우주항공산업 관련주 중 거래량이 20일 평균의 2배 이상으로 늘어나면 매수하고 "
+            "20일 이동평균선 아래로 내려가면 매도하는 전략")
+    quote = "20일 이동평균선 아래로 내려가면 매도"
+    ma = {"short_period": 1, "long_period": 20}
+    intent = StrategyIntent.model_validate({
+        "intent": "CREATE_STRATEGY", "confidence": 1.0,
+        "strategy": {
+            "universe": {"markets": ["KOSPI", "KOSDAQ"], "sectors": ["우주항공산업"]},
+            "entry_conditions": [
+                {"factor": "technical.volume_ratio", "operator": ">=", "value": 2.0, "unit": "ratio",
+                 "parameters": {"period": 20}, "source_text": "거래량이 20일 평균의 2배 이상으로 늘어나면"},
+                {"factor": "technical.ma_crossover", "operator": "crosses_above", "value": None,
+                 "parameters": ma, "source_text": quote},
+            ],
+            "exit_conditions": [
+                {"factor": "technical.ma_crossover", "operator": "crosses_below", "value": None,
+                 "parameters": ma, "source_text": quote},
+            ],
+        },
+    })
+    kept_exit = intent.strategy.exit_conditions[0]
+
+    def chat(system, user, **_kw):
+        if system in (quote_check._SIDE_SYSTEM, quote_check._SIDE_CONFIRM_SYSTEM):
+            return json.dumps({"items": [{"side": "sell"}]})
+        # 트레이스 실측 판정 그대로(매수 칸 사본=no, 청산 칸=yes)
+        return json.dumps({"items": [{"expresses": "no", "describes": "moving_average"},
+                                     {"expresses": "yes", "describes": "moving_average"}]})
+    _check_condition_quotes(intent, text, chat)
+    assert [c.factor for c in intent.strategy.entry_conditions] == ["technical.volume_ratio"]
+    assert intent.strategy.exit_conditions == [kept_exit]
+    assert kept_exit.operator == "crosses_below"
+
+
 def test_no_side_check_when_quote_is_other():
     """다른 설정 문구(no/other)는 종전대로 제거 경로다 — 역할을 묻지 않는다."""
     intent = _intent()

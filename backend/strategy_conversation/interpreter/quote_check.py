@@ -574,6 +574,20 @@ def quote_setting_kind(verdicts: Optional[QuoteVerdicts], cond: Any) -> Optional
     return verdict.setting if verdict is not None else None
 
 
+def has_same_quote_condition(conditions: List[Any], cond: Any) -> bool:
+    """conditions에 cond와 같은 인용·같은 지표의 다른 조건이 있는가(LLM 출력 칸끼리의 비교)."""
+    from engine.nl_parser import _compact
+
+    quote = _compact(getattr(cond, "source_text", None) or "")
+    factor = _canonical_factor(getattr(cond, "factor", None))
+    return bool(quote) and any(
+        other is not cond
+        and _compact(getattr(other, "source_text", None) or "") == quote
+        and _canonical_factor(getattr(other, "factor", None)) == factor
+        for other in conditions
+    )
+
+
 def quote_move_target(verdicts: Optional[QuoteVerdicts], cond: Any) -> Optional[str]:
     """두 역할 판정이 일치해 옮겨야 할 칸(entry_conditions/exit_conditions), 아니면 None."""
     verdict = _verdict(verdicts, cond)

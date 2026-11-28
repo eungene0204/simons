@@ -959,6 +959,26 @@ def resolve_sector_from_text(text: str) -> Optional[str]:
     return result
 
 
+def _names_exactly(node: dict, text: str) -> bool:
+    """노드의 이름·동의어 중 하나가 질의와 표기가 같은가(범주 접미를 벗긴 표기 포함)."""
+    from engine.us_knowledge_graph import _group_suffix_peels
+
+    queries = {_norm_key(t) for t in [text, *_group_suffix_peels((text or "").strip())]}
+    names = [node.get("name", "")] + list(node.get("synonyms", []))
+    return any(queries & _notation_forms(n) for n in names)
+
+
+def _exact_catalog_theme(graph: "KnowledgeGraph", text: str) -> list[dict]:
+    """표기가 정확히 같은 카탈로그 테마가 하나뿐이면 [그 노드], 아니면 [](다의는 확정하지 않음)."""
+    from engine.us_knowledge_graph import _group_suffix_peels
+
+    for form in [text, *_group_suffix_peels((text or "").strip())]:
+        nodes = graph.catalog_theme_nodes(form)
+        if nodes:
+            return nodes if len(nodes) == 1 else []
+    return []
+
+
 def theme_listed_companies(text: str) -> Optional[dict]:
     """문장 속 테마(시드 개념·검색 학습 용어 공통)의 직접 상장사 목록(FR-STR-071).
 
@@ -969,6 +989,17 @@ def theme_listed_companies(text: str) -> Optional[dict]:
     수동 큐레이션이라 시점 편향 경고 대상이 아니다)."""
     graph = get_graph()
     concepts = graph.find_concepts(text)
+    if concepts and not _names_exactly(concepts[0], text):
+        # 스캔 앵커가 질의 안의 **조각**일 뿐이고('우주항공산업' 안의 '항공') 표기가 정확히
+        # 같은 카탈로그 테마가 따로 하나 있으면 그것이 답이다(2026-11-27 뉴스 무인 실행:
+        # '우주항공산업 관련주'가 항공사 9곳으로 확정됨 — 네이버 '우주항공산업(누리호/인공위성
+        # 등)' 36곳이 정확 표기). 범주 접미('관련주'·'테마')는 표기 정규화로 벗겨 본다.
+        # 스캔 앵커가 질의와 표기가 같으면(큐레이션 동의어 포함) 앵커를 그대로 쓴다.
+        exact = _exact_catalog_theme(graph, text)
+        if exact:
+            logger.info("KG 테마 상장사 조회: 질의=%r → 부분 스캔 앵커 %s 대신 카탈로그 정확 표기 정합=%s",
+                        _log_preview(text), concepts[0].get("name"), exact[0].get("name"))
+            concepts = exact
     if not concepts:
         # 스캔이 못 찾아도 **표기가 정확히 일치**하는 카탈로그 테마가 있으면 그것이 답이다
         # ('전쟁 관련주' 사고 2026-09-16). 정합 인덱스의 파생 키(괄호·나열식 표기 변형)는

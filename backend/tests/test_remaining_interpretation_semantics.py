@@ -276,6 +276,35 @@ def test_sell_condition_left_in_entry_is_moved_by_role_verdict():
     assert "short_period" not in moved.parameters
 
 
+def test_sell_copy_in_both_slots_is_judged_and_dropped_from_entry():
+    """2026-11-28 화면 조사(예시 46, 트레이스 a223490ec5f8): 재생성 뒤에도 'RSI 70 이상 매도'가 매수·매도
+    두 칸에 남아 "진입과 청산에 동일한 조건" 안내가 떴다. 매도 칸이 비어 있지 않아 역할 판정 대상에서
+    빠졌었다 — 두 칸 사본을 판정에 올리고, 매도로 판정된 매수 칸 사본은 매도 칸과 겹치지 않게 뺀다."""
+    quote = "RSI가 70 이상으로 올라오면 매도"
+    intent = StrategyIntent.model_validate({"intent": "CREATE_STRATEGY", "strategy": {
+        "entry_conditions": [
+            {"factor": "technical.rsi", "operator": "crosses_above", "value": 30,
+             "source_text": "RSI가 30 이하로 떨어졌다가 다시 반등하는"},
+            {"factor": "technical.rsi", "operator": ">=", "value": 70, "source_text": quote}],
+        "exit_conditions": [{"factor": "technical.rsi", "operator": ">=", "value": 70, "source_text": quote}],
+    }})
+    utterance = ("KOSDAQ 종목 중 RSI가 30 이하로 떨어졌다가 다시 반등하는 종목을 매수하고, RSI가 70 이상으로 "
+                 "올라오면 매도하는 단순한 전략으로 만들어 주세요.")
+    seen = []
+
+    def chat(_system, user, **_k):
+        seen.append(json.loads(user))
+        return json.dumps({"items": [
+            {"id": "c:0", "quote": quote, "status": "corrected", "requested_role": "exit"},
+            {"id": "c:1", "quote": quote, "status": "unchanged"},
+        ]}, ensure_ascii=False)
+
+    reconcile_semantic_fields(intent, utterance, chat)
+    assert [item["role"] for item in seen[0]["items"]] == ["entry", "exit"]
+    assert [(c.operator, c.value) for c in intent.strategy.entry_conditions] == [("crosses_above", 30)]
+    assert [(c.operator, c.value) for c in intent.strategy.exit_conditions] == [(">=", 70)]
+
+
 def test_same_factor_entries_stay_without_role_verdict():
     intent = _rsi_both_in_entry()
     utterance = "RSI가 30 이하로 떨어졌다가 반등하고 RSI가 70 이상이면 매도"

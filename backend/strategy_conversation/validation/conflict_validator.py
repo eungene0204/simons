@@ -110,11 +110,14 @@ def validate_conflicts(intent: StrategyIntent) -> Tuple[List[str], List[str], Li
     for cond in strategy.exit_conditions:
         if cond.operator and cond.value is not None \
                 and (cond.factor, cond.operator, cond.value) in entry_keys:
+            from strategy_conversation.validation.capability_validator import _operator_notice_label
             warnings.append(msg(
                 "진입과 청산에 동일한 조건({cond})이 있어 매수 직후 매도될 수 있습니다",
                 "Entry and exit share the same condition ({cond}), so positions may be sold "
                 "right after buying",
-                cond=f"{cond.factor} {cond.operator} {cond.value}",
+                # 내부 식별자(technical.rsi) 대신 표시 이름 — 위 모순 안내와 같은 형식(2026-11-28 화면 조사)
+                cond=f"{REGISTRY[cond.factor].display_name if cond.factor in REGISTRY else '해당 지표'} "
+                     f"{_operator_notice_label(cond.operator)} {cond.value:g}",
             ))
 
     return errors, warnings, sorted(conflicted)

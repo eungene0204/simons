@@ -7,7 +7,7 @@ from .decisions import record
 from .holding_period_check import _COUNT_ALIASES
 from .output_repair import extract_json_object, salvage_complete_objects
 from .models import _SINO_DIGITS
-from .quote_check import MA_FACTORS
+from .quote_check import MA_FACTORS, has_same_quote_condition
 
 _SYSTEM = """대조 대상은 메인 해석기가 이미 추출한 조건과 미지원 신고입니다.
 원문과 각 인용을 대조하여 오배치 또는 옮겨 적기 오류가 확실한 항목만 correction으로 출력하세요.
@@ -81,8 +81,12 @@ def reconcile_semantic_fields(intent, utterance, chat, *, only=None):
     def role_suspect(condition, role):
         # 2026-11-10 실측: 재생성본이 두 칸의 사본 중 매도 칸 쪽을 지워 'RSI 70 이상 매도'가 매수 칸에 남았다.
         # 출력 구조만 보는 후보 선별이고, 칸은 아래 판정(requested_role)이 정한다.
+        # 2026-11-28 실측: 재생성 뒤에도 같은 인용·같은 지표가 두 칸에 남았다(매도 칸이 비어 있지 않아
+        # 위 후보에서 빠짐) — 반대 칸에 같은 인용 조건이 있으면 역할 판정에 올린다.
+        opposite = strategy.exit_conditions if role == "entry" else strategy.entry_conditions
         return role == "entry" and not strategy.exit_conditions and sum(
-            c.factor == condition.factor for c in strategy.entry_conditions) > 1
+            c.factor == condition.factor for c in strategy.entry_conditions) > 1 or (
+            has_same_quote_condition(opposite, condition))
 
     targets = [(c, role) for role in ("entry", "exit") for c in getattr(strategy, role + "_conditions")
         if (c.factor in MA_FACTORS or c.factor == "technical.breakout" or role_suspect(c, role)) and c.source_text
@@ -208,7 +212,10 @@ def reconcile_semantic_fields(intent, utterance, chat, *, only=None):
             condition.parameters.update(normalized)
             if role != requested_role:
                 getattr(strategy, role + "_conditions").remove(condition)
-                getattr(strategy, requested_role + "_conditions").append(condition)
+                # 옮길 칸에 같은 인용·같은 지표가 이미 있으면 이 조건은 그 사본이다 — 옮기지 않고 뺀다.
+                destination = getattr(strategy, requested_role + "_conditions")
+                if not has_same_quote_condition(destination, condition):
+                    destination.append(condition)
             if checks:
                 checks.recover(condition, {"original": before, "confirmed_fields": item})
             record("semantic_reconciliation", condition, "ACCEPT", "QUOTED_CONDITION_FIELDS", value=item)

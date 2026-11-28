@@ -156,3 +156,21 @@ def test_condition_absent_from_original_is_left_where_repair_put_it():
     replies = iter([_body([DISP_BUY, "approximated"], []), _body([DISP_BUY, DISP_SELL], [])])
     result = StrategyInterpreter(chat_fn=lambda s, u, **_: next(replies), model="stub-model").interpret(DISP_USER)
     assert len(result.intent.strategy.entry_conditions) == 2
+
+
+def test_same_condition_notice_uses_display_name_not_internal_id():
+    """2026-11-28 화면 조사: 안내에 'technical.rsi >= 70.0' 내부 식별자가 그대로 노출됐다."""
+    from strategy_conversation.validation.conflict_validator import validate_conflicts
+
+    _errors, warnings, _slots = validate_conflicts(_intent([REBOUND, SELL], [SELL]))
+    notice = next(w for w in warnings if "동일한 조건" in w)
+    assert "RSI >= 70" in notice and "technical" not in notice
+
+
+def test_same_cross_condition_notice_hides_operator_enum():
+    """교차 연산자도 내부 이름(crosses_above) 대신 사용자 표기로 낸다."""
+    from strategy_conversation.validation.conflict_validator import validate_conflicts
+
+    _errors, warnings, _slots = validate_conflicts(_intent([REBOUND], [REBOUND]))
+    notice = next(w for w in warnings if "동일한 조건" in w)
+    assert "RSI 상향 돌파 30" in notice and "crosses" not in notice

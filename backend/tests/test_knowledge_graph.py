@@ -349,6 +349,24 @@ def test_theme_backtest_companies_does_not_expand_learned_anchor(tmp_path, monke
     monkeypatch.setattr(cu, "_EQUITY_CACHE", None)
 
 
+@pytest.mark.parametrize("query", ["우주항공산업", "우주항공산업 관련주"])
+def test_exact_catalog_notation_beats_partial_scan_anchor(query):
+    """2026-11-27 뉴스 무인 실행: '우주항공산업 관련주'가 이름 속 조각 '항공'(항공사 9곳)으로
+    확정됐다 — 표기가 정확히 같은 네이버 '우주항공산업(누리호/인공위성 등)'이 이긴다."""
+    from engine.knowledge_graph import theme_backtest_companies
+
+    theme = theme_backtest_companies(query)
+    assert theme is not None and theme["term"] == "우주항공산업(누리호/인공위성 등)"
+    assert "089590" not in {c["symbol"] for c in theme["companies"]}  # 제주항공(항공 테마에만 있음)
+
+
+def test_scan_anchor_with_exact_synonym_is_kept():
+    """스캔 앵커의 큐레이션 동의어가 질의와 같으면 앵커를 그대로 쓴다('보안주(정보)'→사이버보안)."""
+    from engine.knowledge_graph import theme_backtest_companies
+
+    assert theme_backtest_companies("보안주(정보)")["term"] == "사이버보안"
+
+
 def test_theme_backtest_companies_keeps_seed_anchor_curated():
     """시드 앵커(HBM)는 확장하지 않는다 — 큐레이션 직접 엣지가 유니버스 정의이며,
     지분 홉 노이즈(지주·계열 편입)가 되묻기에 섞이면 안 된다."""

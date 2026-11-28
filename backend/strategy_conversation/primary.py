@@ -2165,6 +2165,13 @@ def _check_condition_quotes(
             if move_to is None or move_to == role:
                 continue
             setattr(strategy, role, [c for c in getattr(strategy, role) if c is not cond])
+            # 같은 인용·같은 지표가 옮길 칸에 이미 있으면 이 조건은 그 조건의 중복 기재다 —
+            # 옮기면 같은 조건이 두 번(반대 방향 연산자로) 들어가 검증이 막힌다(2026-11-27
+            # '20일 이동평균선 아래로 내려가면 매도'가 매수 칸에 상향 돌파로 한 번 더 적힘).
+            # 비교는 LLM 출력 칸끼리뿐이다(원문 미사용).
+            if quote_check.has_same_quote_condition(getattr(strategy, move_to), cond):
+                _log_llm("↔ 조건 칸 교정", f"'{cond.source_text}' {role} 중복 기재 제거({move_to}에 이미 있음)")
+                continue
             getattr(strategy, move_to).append(cond)
             _log_llm("↔ 조건 칸 교정", f"'{cond.source_text}' {role} → {move_to}")
         _log_llm("✓ 조건 인용 대조", "; ".join(
@@ -2883,7 +2890,7 @@ def _run_primary_parse_once(
     planner_scope_chips: Optional[List[str]] = None
     planner_scope_terms: set = set()
     if planner_first is not None and planner_unresolved_terms:
-        scope = _planner_scope_ask(planner_first, planner_unresolved_terms)
+        scope = _planner_scope_ask(planner_first, planner_unresolved_terms, pre_validation_sectors)
         if scope is not None:
             planner_scope_question, planner_scope_chips, planner_scope_terms = scope
             # 범위 질문이 나가는 표현의 미지원 안내는 지운다 — 질문이 그 표현을 다루는데
@@ -4577,7 +4584,7 @@ def _apply_planner_first_universe(
 
 
 def _planner_scope_ask(
-    result: Any, unresolved_terms: set
+    result: Any, unresolved_terms: set, chosen_terms: Iterable[str] = ()
 ) -> Optional[tuple[str, List[str], set]]:
     """카탈로그 후보 되묻기의 결정론 확정 — 범위 선택(후보 2개 이상)과 범위 확인
     (표기가 다른 후보 1개, 2026-09-10)을 함께 소유한다.
@@ -4588,9 +4595,17 @@ def _planner_scope_ask(
     ask가 있으면 재사용(이미 output_guard 통과), 없으면 고정 템플릿. 칩은 항상
     관찰된 카탈로그 후보 표기 그대로다(9B 칩 지어내기 드리프트 차단 — 후보 표기여야
     칩 클릭의 결정론 귀속이 성립한다).
-    반환: (질문, 칩, 질문이 다루는 표현들) | None(모호 표현 없음)."""
+    반환: (질문, 칩, 질문이 다루는 표현들) | None(모호 표현 없음).
+
+    chosen_terms: 인터프리터가 universe.sectors로 이미 고른 표현. planner가 그 표현을
+    줄여 조회한 후보 목록에 그 표현이 표기 그대로 들어 있으면 범위는 이미 정해진 것이다
+    (2026-11-27 뉴스 무인 실행: '보안주(정보)'를 planner가 '보안주'로 조회해 정보/물리
+    범위를 되물었다). 비교 대상은 LLM 출력과 카탈로그 표기뿐이다(원문 미사용)."""
     ambiguous = _ambiguous_candidate_terms(result)
-    scope_terms = {t for t in unresolved_terms if t in ambiguous}
+    key = lambda t: str(t).replace(" ", "").lower()  # noqa: E731
+    chosen = {key(t) for t in chosen_terms if t}
+    scope_terms = {t for t in unresolved_terms if t in ambiguous
+                   and not any(key(c) in chosen for c in ambiguous[t])}
     if not scope_terms:
         return None
     chips: List[str] = []
